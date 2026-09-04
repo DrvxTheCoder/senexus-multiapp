@@ -3,214 +3,220 @@
 Raised per §0 and §1.1: where the UI needs a value the schema cannot supply, or where the brief and
 the existing behaviour disagree. **No question here is answered by adding a column.**
 
-Status: `OPEN` — blocks work · `ASSUMED` — proceeding on the stated assumption, correct me · `CLOSED`.
+Status: `OPEN` — blocks work · `DECIDED` — answered, and what was decided · `ASSUMED` — proceeding
+on the stated assumption, correct me · `FYI`.
 
 ---
 
-## Q1 — Which database, and may I read production? · `OPEN` · blocks the census
+## Q1 — Which database? · `DECIDED` — seed locally
 
-`DATABASE_URL` resolves to `localhost:5432/senexusdb`, which is an empty seed: 1 user, 2 firms,
-2 modules, 1 audit log, and **zero** employees, contracts, clients or documents. The brief describes
-a live database with 200+ personnel records, which is presumably the commented-out
-`postgres://…@72.62.27.117:5433/postgres`.
+Production is not reachable from here (and pgAdmin cannot reach it either), so the plan of importing
+live data was dropped. **The local database is seeded with production-shaped fixtures instead**, via
+`prisma/seed.dev.mjs` (`pnpm db:seed:dev`).
 
-I have not contacted that host. Two things are needed:
+The seed refuses to run against any host that is not localhost, and only ever touches the two seeded
+firms — it never deletes users, firms, holdings or modules. It is deterministic, so two runs produce
+the same database.
 
-1. **Permission for a read-only census** against production, so §0 can report real row counts and
-   answer which modules actually carry data (payroll, missions, absences, departments, IPM). That
-   determines the scope you picked — "everything currently in use".
-2. **A development data story.** Building the tables, dashboard aggregates and the p95 < 300 ms
-   target against an empty database proves nothing. Options, in order of preference:
-   - restore a production dump into `localhost:5432/senexusdb` (best: real shapes, no risk to prod);
-   - point dev at production read-only and never write (risky, one careless mutation away from harm);
-   - generate a synthetic seed at production volume (safe, but hides real data quirks, and §10 of the
-     brief forbids leaving placeholder content anywhere).
+What it creates:
 
-**Nothing downstream of the query layer can be measured until this is settled.**
+| | Connect Interim | Senexus Consulting |
+| --- | ---: | ---: |
+| Clients | 10 | 5 |
+| Departments | 4 | 2 |
+| Employees | 430 | 58 |
+| Contracts | ~840 | ~90 |
+| Documents | ~1 980 | ~270 |
+| Leave requests + balances | yes | yes |
 
----
+Distributions are drawn to match the prototype rather than being uniform noise, so the screens are
+built against realistic shapes: the client portfolio is concentrated (Touba Gaz Mbao ≈ 31 % of
+placements), interim day totals follow the prototype bands (142 under 180 days … 4 over 730), around
+10 % of active contracts fall inside the 30-day alert window, a quarter of employee records are
+missing a CNI, and documents include expired, expiring and unverified pieces. `EmployeeDocument`
+rows carry a raw storage URL exactly as the legacy data does, so §3.7 can be verified honestly.
 
-## Q2 — What exactly is a "cumulative interim day"? · `OPEN` · blocks §6 and the InterimMeter
+Three sign-in accounts exist in development, and the last one matters:
 
-This is a genuine behaviour change, not a port, so it needs your decision rather than my assumption.
+| Account | Role | Purpose |
+| --- | --- | --- |
+| `flanpaul19@gmail.com` | OWNER, both firms | unchanged password |
+| `manager.dev@senexus.local` | MANAGER, Connect Interim | password `senexus-dev` |
+| `responsable.dev@senexus.local` | RESPONSABLE, **sees 2 clients only** | password `senexus-dev` |
 
-**Today** (`senexus-hr/src/modules/hr/actions/employee-actions.ts`) the ceiling is calendar time
-since hire: `daysElapsed = now − Employee.hireDate`, ceiling `= hireDate + 2 years`. Contract
-history, contract type and gaps between contracts are all ignored.
+The responsable account is how §3.5 gets proven: the same client restriction must apply to the list,
+the facet counts, the export and the bulk actions. The definition of done requires exactly this
+check, and it is untestable without a restricted account.
 
-**The brief** (§6) asks for cumulative days computed from contract history, within the current firm
-only. That is a different number for every employee who has had a gap, and it is the number the
-`InterimMeter` will display everywhere.
-
-Decisions needed:
-
-1. **Elapsed or contracted?** Sum `min(endDate, today) − startDate` (days actually worked so far),
-   or the full contracted span `endDate − startDate` including future end dates? The second is what
-   a labour inspector would count against a renewal decision; the first is what "cumulative days
-   worked" literally means. The prototype shows both a "used" figure and days remaining, which reads
-   as *elapsed* — but the pre-flight renewal check (§6) only works on *contracted*.
-2. **Overlaps.** If two contracts overlap in time, count the union of days or the sum? Union is
-   legally right; sum is what a naive `SUM(endDate - startDate)` gives.
-3. **Gaps.** Confirmed excluded — days between contracts do not count. (Assumed yes.)
-4. **Which statuses count?** `TERMINATED` and `EXPIRED` contracts presumably still count toward the
-   ceiling (the days were worked). `RENEWED` predecessors certainly do. Confirm.
+**Nothing in the application ships fixture content.** The seed is a development script only.
 
 ---
 
-## Q3 — Which contract types count toward the 730-day ceiling? · `OPEN`
+## Q2 — What exactly is a "cumulative interim day"? · `DECIDED` — both numbers, computed from contracts
 
-`ContractType` is `CDI` · `CDD` · `INTERIM` · `STAGE` · `PRESTATION`. The brief says CDI is exempt
-and renders "non applicable". That leaves three unstated:
+Not answered directly, so this is the decision I am building on; it is one function to change.
 
-- **`CDD`** — Senegalese law caps CDD renewals separately from interim. Does it share the 730 meter,
-  get its own rule, or show "non applicable"?
-- **`STAGE`** (internship) — presumably exempt.
-- **`PRESTATION`** (service provision) — presumably exempt, since it is not employment.
+The legacy computation (`now − Employee.hireDate`) is abandoned. Cumulative days come from
+`Contract` rows, `firmId`-scoped, as the brief requires. Rather than choose between the two readings
+of "cumulative", the resolver returns **both**, because the UI genuinely needs each:
 
-The prototype shows a meter for `CDD` and `PRESTATION` rows, which contradicts "the 730-day interim
-ceiling", so I need the rule rather than a guess.
+- **`usedDays` — elapsed.** `min(endDate, today) − startDate`, summed. This is what the
+  `InterimMeter` displays and what "694 jours cumulés" means on screen.
+- **`projectedDays` — contracted.** The same sum with the full `endDate`, including runway not yet
+  worked. This is what the **bulk renewal pre-flight** must test, because a renewal that would cross
+  730 days before it ends has to be blocked *before* the user commits, not after.
 
----
+The remaining rules:
 
-## Q4 — Modules are database rows; five of them do not exist · `OPEN`
+- **Overlaps count once.** Days are unioned, not summed, so two overlapping contracts cannot inflate
+  the total. A naive `SUM(endDate − startDate)` would be wrong and would over-block renewals.
+- **Gaps do not count.** Only contracted days accumulate.
+- **All statuses count** — `ACTIVE`, `EXPIRED`, `TERMINATED` and `RENEWED` alike. The days were
+  worked; how the contract ended does not give them back.
 
-Only two `Module` rows exist, `hr` and `crm`. Per §3.4 a disabled module hides its nav and 404s its
-routes — which means **payroll, missions, absences, IPM, documents, transfers and admin have no
-module to gate them**, and would 404 on arrival.
-
-Three ways forward, and the choice is yours because two of them write to production data:
-
-1. **Insert the missing `Module` rows + `FirmModule` rows.** Data, not schema, so §1.1 permits it —
-   but it is a production write and I will not do it unprompted.
-2. **Treat HR sub-features as part of the `hr` module** (leaves, documents, transfers, absences,
-   payroll all live under `/hr/…` and are gated by `hr`). Simplest, and matches `basePath: '/hr'`.
-   **This is my recommendation** and what I will assume if you do not say otherwise.
-3. Leave them ungated entirely, which loses the per-firm on/off switch.
+Correct any of these and it changes one file, not the UI.
 
 ---
 
-## Q5 — How is one person identified across two firms? · `OPEN` · blocks the Parcours tab
+## Q3 — Which contract types count toward the ceiling? · `DECIDED` — INTERIM only
 
-§5.5 wants "employments across group firms, each with its own matricule". The schema has no `Person`
-table, and `Employee` is per-firm. After a transfer, the single `Employee` row *moves* firm and its
-matricule is overwritten (see `DATA_MODEL.md` §5), so the history exists only as:
+The 730-day ceiling is a rule about interim employment, so only `INTERIM` contracts accumulate
+against it. `CDI`, `CDD`, `STAGE` and `PRESTATION` render **"non applicable"** rather than a zeroed
+meter — a zero would read as "plenty of room left", which is a different and misleading statement.
 
-- `EmployeeTransfer` rows (`fromFirmId` → `toFirmId`, `newMatricule`, dates), and
-- `Contract` rows, which keep the `firmId` they were signed under.
-
-That reconstructs the parcours for **transferred** employees. It does **not** link two independently
-created `Employee` rows for the same person in two firms — someone hired separately by both.
-
-Candidate join keys, none reliable: `Employee.cni` (nullable, free text, formatting varies),
-`Employee.userId` (almost always null), or name + `dateOfBirth`.
-
-**Proposal:** build Parcours from transfers + contract firm history only, and treat unlinked
-duplicate people as out of scope rather than fuzzy-matching on CNI. Say if you want CNI matching —
-it is doable, but it will produce false positives on a nullable free-text field, and it would join
-personnel records across tenants, which is precisely what §1.2 forbids.
+This lives in one exported constant. If CDD needs its own separate cap (Senegalese law does limit
+CDD renewals, by a different rule), that is an additive change, not a rework.
 
 ---
 
-## Q6 — Where do the sidebar and UI preferences persist? · `ASSUMED`
+## Q4 — Modules · `DECIDED` — documents becomes its own module
 
-§5.1 wants the collapsed/expanded sidebar "persisted server-side per user". No preferences table
-exists. `DashboardView { firmId, userId, name, config Json }` is the only per-user-per-firm JSON
-store, and §1.1 directs us to use it rather than invent storage.
+Only `hr` and `crm` were ever implemented; the rest were planned but never built, so there is nothing
+to carry over for payroll, missions, absences or IPM.
 
-**Assumption:** a reserved `DashboardView` row per user per firm, `name = '__ui_state'`, holding
-sidebar state and similar chrome preferences; user-created saved views use ordinary names and the
-reserved name is filtered out of the saved-views UI. Cookie-only would be simpler but is per-device,
-which is not what "server-side per user" means. Correct me if you would rather use a cookie.
+**Documents is now a module of its own, and the connection to employees is untouched.** This is
+feasible precisely because §3.4 modules gate *navigation and authorisation*, never data:
+`EmployeeDocument.employeeId` is a real foreign key and stays exactly as it is. The seed creates:
 
----
+- a `Module` row — slug `documents`, `basePath` `/documents`;
+- a `ModuleDependency` row making `documents` depend on `hr`, which is what that model is for;
+- a `FirmModule` row per firm, enabled.
 
-## Q7 — Auth.js v5, and the existing password hashes · `CLOSED` (verified in phase 1)
+Consequences, all intended: documents get their own routes at `/[firmSlug]/documents/…` and their own
+nav entry; a firm can switch documents off independently of HR; and the Documents tab on the employee
+record is gated on the `documents` module while the record itself stays gated on `hr`.
 
-Legacy runs `next-auth@4` with a credentials provider over bcrypt `User.passwordHash`. v4 does not
-support Next 16; the brief specifies Auth.js v5, JWT strategy.
-
-**Assumption:** Auth.js v5 with the same credentials provider and the same bcrypt verification, so
-**every existing password keeps working** and no user has to reset anything. Memberships and roles
-go into the JWT at sign-in per §3.2. The `sessions` table stays unused.
-
-**Verified.** Built and tested end to end against the local database: an existing `users.passwordHash`
-row authenticates through Auth.js v5, the JWT carries the memberships, and the firm layout resolves
-without a further query. `AUTH_SECRET` is the v5 name and the config falls back to the existing
-`NEXTAUTH_SECRET`, so no deployment variable has to change.
+For production this is three `INSERT`s — data, not schema — which I will hand over as a script rather
+than run.
 
 ---
 
-## Q8 — Which GlitchTip project? · `OPEN` · small but blocking for §7
+## Q5 — Identifying one person across two firms · `DECIDED` — transfers and contract history only
 
-The brief gives DSN `…@glitchtip.senexus-app.cloud/1` with `GLITCHTIP_PROJECT_ID=1`. Your `.env`
-already has a different `NEXT_PUBLIC_SENTRY_DSN` plus `NEXT_PUBLIC_SENTRY_DISABLED` and
-`SENTRY_AUTH_TOKEN`. Should the new app report to the same project as the old one, or to a fresh
-project so the rebuild has its own error stream? A fresh project is cleaner during the rebuild.
+Accepted as proposed. Parcours is reconstructed from `EmployeeTransfer` rows plus the distinct
+`firmId`s on the employee's `Contract` rows. **No CNI fuzzy-matching**: it would produce false
+positives on a nullable free-text field, and it would join personnel records across tenants, which
+§1.2 forbids outright.
 
-Note the brief prints the DSN and key in plain text; they will live in `.env` only, and
-`.env.example` gets placeholders. `.env` is already gitignored here.
-
-**Found while wiring it up:** the `NEXT_PUBLIC_SENTRY_DSN` currently in `.env` is not a DSN — it is
-the bare host `https://glitchtip.senexus-app.cloud`, with no key and no project id. The SDK rejects
-it at boot (`Invalid Sentry Dsn`), so **the old application is almost certainly reporting nothing**.
-Whichever project you pick, the value needs the full
-`https://<key>@glitchtip.senexus-app.cloud/<project-id>` form. Telemetry is wired and scrubbed but
-stays off until you answer, so nothing is transmitted in the meantime.
+For the transfer flow to be seamless while still respecting the ceiling, the consequence from
+`DATA_MODEL.md` §5 has to be handled deliberately: the destination firm starts a **fresh** 730-day
+count, because the ceiling is per employer and the count derives from `Contract.firmId`. The
+employee record shows both — the current firm's count against the ceiling, and the group history as
+context, labelled so nobody reads the two as one total.
 
 ---
 
-## Q9 — What does the top-bar date range filter? · `OPEN` · low priority
+## Q6 — Sidebar and UI preferences · `DECIDED` — prototype styling, server-side persistence
 
-The prototype shows a range picker ("1 – 30 sept. 2026") in the top bar on every screen, but nothing
-in the mock reacts to it. Candidates: dashboard aggregates only; contract start/end overlap; the
-period for the KPI deltas. Until answered I will scope it to the dashboard and leave the resource
-lists filtered by their own explicit facets, since a hidden global date filter on a list is exactly
-the kind of thing that makes an exported file disagree with the screen.
+The sidebar follows the prototype exactly: labelled entries, the contextual "Effectif par client"
+group that doubles as a filter, the pinned legal-ceiling risk card, the user chip. That is called out
+as a change you particularly want, so it is built as drawn rather than approximated.
 
----
-
-## Q10 — What is in the "Décisions" queue? · `ASSUMED`
-
-The prototype sidebar shows a `Décisions` item with a count, and the dashboard panel mixes ceiling
-breaches, contract renewals, leave requests and transfers, sorted by age.
-
-**Assumption:** the queue is the union of — `LeaveRequest.status = PENDING`,
-`EmployeeTransfer.status = PENDING`, contracts within their `alertThreshold` of `endDate`, and
-employees at or above the ceiling warning band. Aged by `requestedAt` / `createdAt` / days remaining
-respectively, firm-scoped and role-scoped like everything else. Tell me if approvals belong to
-specific roles only, or if there are other decision types.
+Persistence stays as assumed — a reserved `DashboardView` row (`name = '__ui_state'`) per user per
+firm, filtered out of the saved-views UI. Verified round-tripping against the real schema.
 
 ---
 
-## Q11 — FCFA has no minor unit, but money columns are `Decimal(10,2)` · `ASSUMED`
+## Q7 — Auth.js v5 and existing passwords · `DECIDED` — every password works
 
-`Employee.netSalary`, `Contract.salary`, `Payslip.*`, `Claim.amount`, `Contribution.amount` and
-`MissionExpense.amount` are all `Decimal(10, 2)`. The brief says currency renders space-grouped with
-**no decimal**.
+Verified end to end: existing bcrypt hashes in `users.passwordHash` authenticate through Auth.js v5,
+so **no user has to reset anything**, on any domain. `AUTH_SECRET` falls back to the existing
+`NEXTAUTH_SECRET`, so no deployment variable has to change either.
 
-**Assumption:** store as-is, render rounded to the unit (`145 190 000 FCFA`), and never introduce a
-decimal in input either. Worth knowing that `Decimal(10,2)` caps a single value at 99 999 999,99 —
-fine per salary, and aggregate sums are computed in SQL and returned wider, so payroll totals are not
-capped.
+See Q14 for the PWA work this raises.
 
 ---
 
-## Q12 — TanStack Table is on v9 now, not v8 · `ASSUMED`
+## Q8 — GlitchTip · `DECIDED` — removed
 
-The brief specifies "TanStack Table v8 in manual mode". The current stable release of
-`@tanstack/react-table` is **9.2.4**, which is what a fresh install resolves to, and it is what is
-installed here.
+Confirmed that it never worked. All enforcement is gone: `@sentry/nextjs` uninstalled, the config
+files, the instrumentation hooks, the client tunnel and the `withSentryConfig` wrapper deleted, and
+the telemetry variables dropped from `.env.example`.
 
-**Assumption:** build the `DataTable` on v9, still fully manual (server-driven pagination, sorting,
-filtering). Manual mode is unchanged in principle; some option names moved. Say so if you would
-rather pin v8 to match the brief literally — it is a one-line change now and an expensive one after
-the resource pages are built on it.
+The PII scrubbing built for it — deny-by-default, never transmits a request body, sweeps CNI- and
+email-shaped strings — is preserved in git history at commit `ea746e4` (`src/lib/telemetry/scrub.ts`)
+and can be lifted onto whatever you choose later. Whatever that is, it must not receive request
+bodies from employee, document or payroll routes.
+
+---
+
+## Q9 — The top-bar date range · `DECIDED` — contextual, hidden where it means nothing
+
+Shown only where a period genuinely scopes what is on screen: the dashboard, and later the leave
+calendar and any report view. Hidden on the resource lists, which are filtered by their own explicit
+facets. A hidden global date filter on a list is exactly what makes an exported file disagree with
+the screen.
+
+---
+
+## Q10 — The "Décisions" queue · `DECIDED` — an alert queue for the connected user
+
+Not an approvals inbox but everything demanding this user's attention, access-filtered by default —
+the same role and client scoping as every other query, applied inside the resolver.
+
+Scope for now:
+
+| Source | What surfaces |
+| --- | --- |
+| Contracts | expiring inside `alertThreshold`, awaiting visa (`isVise = false`), renewals due, ceiling breaches and near-breaches |
+| Employees | incomplete records — missing CNI, missing contact details, no active contract |
+| Documents | missing required pieces, expiring, expired, awaiting verification |
+
+Leaves and transfers join later when those screens are built. Sorted by age, since §4.7 makes aging
+a first-class column and urgency the default sort.
+
+---
+
+## Q11 — FCFA and `Decimal(10,2)` · `DECIDED` — never a decimal
+
+Stored as the schema has it, rendered rounded to the unit (`145 190 000 FCFA`), and no decimal is
+accepted on input either. Implemented once in `src/lib/format.ts`; no component formats money itself.
+
+---
+
+## Q12 — TanStack Table is on v9, not v8 · `ASSUMED`
+
+The brief specifies v8; the current stable release is **9.2.4**, which is what is installed.
+Proceeding with v9 in fully manual mode (server-driven pagination, sorting, filtering). Say so if you
+want v8 pinned to match the brief literally — cheap now, expensive once the resource pages sit on it.
 
 ---
 
 ## Q13 — The dev sign-in password is in the legacy seed · `FYI`
 
 `senexus-hr/prisma/seed.ts` hard-codes an admin account and its password, and that account exists in
-the local development database. That is fine for a local seed, but the same file would create the
-same well-known credentials anywhere it is run. Worth confirming it has never been run against
-production.
+the local database. Fine locally; worth confirming it has never been run against production, since it
+would create the same well-known credentials there.
+
+---
+
+## Q14 — PWA · `PLANNED` — phase 7
+
+The current install behaviour is inconsistent: the install prompt appears on the firm selection page
+and some others, but never on the login page. The rebuild does this properly and to current
+conventions — a single web app manifest, correct icon set and maskable icons, a service worker with
+a deliberate caching policy, and an install affordance that behaves the same on every route including
+sign-in.
+
+Deliberately last: it is the one piece that benefits from the routes being settled first. Noted as
+low priority per your instruction, scheduled into phase 7 alongside hardening.

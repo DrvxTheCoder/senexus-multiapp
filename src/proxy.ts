@@ -14,7 +14,7 @@ import { edgeAuthConfig } from "@/server/auth/config.edge"
  */
 const { auth } = NextAuth(edgeAuthConfig)
 
-const PUBLIC_PREFIXES = ["/auth", "/api/auth", "/api/glitchtip-tunnel"]
+const PUBLIC_PREFIXES = ["/auth", "/api/auth"]
 
 export default auth((req) => {
   const { pathname, search } = req.nextUrl
