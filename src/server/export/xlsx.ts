@@ -55,9 +55,16 @@ export function streamXlsx({
     removeListener() {},
   }
 
+  type WriterStream = NonNullable<
+    ConstructorParameters<typeof ExcelJS.stream.xlsx.WorkbookWriter>[0]
+  >["stream"]
+
   const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ExcelJS types its sink as a Node stream; this is the documented adapter shape.
-    stream: sink as any,
+    // ExcelJS types this as a Node writable. The adapter above implements the
+    // part of that surface ExcelJS actually calls, so the cast goes through
+    // `unknown` rather than `any` — narrowing one boundary instead of opening
+    // a hole in the data layer (§9 forbids `any` under src/server).
+    stream: sink as unknown as WriterStream,
     useStyles: true,
   })
 

@@ -14,7 +14,15 @@ import { edgeAuthConfig } from "@/server/auth/config.edge"
  */
 const { auth } = NextAuth(edgeAuthConfig)
 
-const PUBLIC_PREFIXES = ["/auth", "/api/auth"]
+const PUBLIC_PREFIXES = [
+  "/auth",
+  "/api/auth",
+  // The manifest and its icons must be reachable without a session, or the
+  // browser cannot offer installation on the sign-in page — which is precisely
+  // the inconsistency the previous application had. They contain no data.
+  "/manifest.webmanifest",
+  "/icons/",
+]
 
 export default auth((req) => {
   const { pathname, search } = req.nextUrl

@@ -217,13 +217,29 @@ would create the same well-known credentials there.
 
 ---
 
-## Q14 — PWA · `PLANNED` — phase 7
+## Q14 — PWA · `DONE` — phase 7
 
-The current install behaviour is inconsistent: the install prompt appears on the firm selection page
-and some others, but never on the login page. The rebuild does this properly and to current
-conventions — a single web app manifest, correct icon set and maskable icons, a service worker with
-a deliberate caching policy, and an install affordance that behaves the same on every route including
-sign-in.
+Built to the Next 16 convention: a single `app/manifest.ts` served at
+`/manifest.webmanifest`, declared once in the root layout so **every** route is
+installable, a generated icon set (192/512 plus maskable variants and an Apple
+touch icon), and an install affordance that behaves the same everywhere.
 
-Deliberately last: it is the one piece that benefits from the routes being settled first. Noted as
-low priority per your instruction, scheduled into phase 7 alongside hardening.
+**The inconsistency you described had a specific cause, and this build had it
+too until it was tested.** The proxy authenticates everything by default, so
+`/manifest.webmanifest` was being redirected to sign-in for anonymous visitors —
+which is precisely why an install prompt never appeared on the login page. The
+manifest and its icons are now in the proxy allow-list; they contain no data.
+
+Verified: the manifest returns 200 unauthenticated, and all four routes checked
+(sign-in, dashboard, employees, documents) link it.
+
+Two platform paths, because they genuinely differ: Chromium fires
+`beforeinstallprompt`, which is captured and replayed from our own button; iOS
+Safari fires nothing and exposes no API, so iOS users get the Share → "Sur
+l'écran d'accueil" instruction and nobody already running installed sees
+anything. Dismissal is remembered per browser.
+
+A service worker is deliberately **not** included. The documented use for one
+here is push notifications, which nothing in the application sends yet, and an
+offline cache over per-firm personnel data would be a data-leak surface rather
+than a feature. Add one when there is a push story to serve.

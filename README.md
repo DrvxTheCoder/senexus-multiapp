@@ -1,21 +1,111 @@
-# Next.js template
+# Senexus MultiApp
 
-This is a Next.js template with shadcn/ui.
+Gestion du personnel, des contrats et des clients du groupe Senexus.
 
-## Adding components
+Next.js 16 (App Router, Turbopack, React Compiler) · Prisma · PostgreSQL ·
+Auth.js v5 · Tailwind v4 · shadcn on Base UI.
 
-To add components to your app, run the following command:
+---
+
+## The one rule
+
+**The database schema is frozen.** It is live, it holds real personnel records,
+and it is shared with the application this one replaces.
+
+- `prisma/schema.prisma` is byte-for-byte the production schema
+  (sha256 `86188a02…`). Do not edit it.
+- Run `prisma generate` only. **Never** `migrate dev`, `migrate deploy`,
+  `db push` or `db pull`. There is no `prisma/migrations/` directory and there
+  must not be one.
+- Need a value the schema cannot supply? Derive it in the query layer, or add it
+  to `docs/OPEN_QUESTIONS.md`. Do not add a column.
+
+Verify at any time:
 
 ```bash
-npx shadcn@latest add button
+pnpm exec prisma migrate diff \
+  --from-schema-datamodel prisma/schema.prisma \
+  --to-schema-datasource prisma/schema.prisma   # → "No difference detected."
 ```
 
-This will place the ui components in the `components` directory.
+## Getting started
 
-## Using components
-
-To use the components in your app, import them as follows:
-
-```tsx
-import { Button } from "@/components/ui/button";
+```bash
+pnpm install
+cp .env.example .env          # then set DATABASE_URL and AUTH_SECRET
+pnpm exec prisma generate
+pnpm dev
 ```
+
+Against an empty local database, seed production-shaped fixtures:
+
+```bash
+pnpm db:seed:dev
+```
+
+The seed refuses to run against anything but localhost and never touches users,
+firms, holdings or modules. It creates ~490 employees, ~930 contracts and ~2 200
+documents with realistic distributions, plus three sign-in accounts — including
+a `RESPONSABLE` restricted to two clients, which is what makes the role-scoping
+guarantees testable.
+
+## Scripts
+
+| Command | What it does |
+| --- | --- |
+| `pnpm dev` | Development server |
+| `pnpm dev:clean` | Same, after clearing the Turbopack disk cache — use when a deleted file is still referenced |
+| `pnpm build` / `pnpm start` | Production build and server |
+| `pnpm test` | Unit tests (the 730-day ceiling rules) |
+| `pnpm typecheck` / `pnpm lint` | TypeScript and ESLint |
+| `pnpm db:seed:dev` | Local development fixtures |
+
+Two harnesses worth knowing:
+
+```bash
+pnpm exec vite-node -c vitest.config.ts scripts/check-query-layer.mts   # role scoping + timings
+node scripts/gen-data-model.mjs                                          # regenerate docs/DATA_MODEL.md
+```
+
+## How it is put together
+
+- **`src/lib/queries/*`** — query *shapes*: zod schemas and URL parsers. Runs in
+  the browser.
+- **`src/server/queries/*`** — query *resolvers*: Prisma and raw SQL. Marked
+  `server-only`, and the split above is what keeps the database out of the
+  client bundle.
+- **`src/server/domain/*`** — business rules. The 730-day ceiling lives in one
+  file and is unit tested.
+- **`src/server/auth/require-firm-access.ts`** — the single authorisation
+  helper. Every action, route handler and page calls it first.
+
+Four properties the code is arranged to guarantee:
+
+1. **The URL is the query.** Filters, sort and page live in the URL, so a list is
+   shareable and restores exactly. A saved view is the same query stored in
+   `DashboardView.config`.
+2. **Role scoping lives in the where-builder**, never in a handler — so the
+   list, the facet counts, the summary, the export and the bulk actions inherit
+   it automatically. This is verified, not assumed: see the harness above.
+3. **Nothing loads a full table.** Filtering, sorting, pagination and every count
+   are SQL. The largest set materialised in a request is one page of 50.
+4. **No raw storage URL reaches the HTML.** Files are served through
+   `/[firmSlug]/api/files/[documentId]` behind `requireFirmAccess`.
+
+## Documentation
+
+| File | Contents |
+| --- | --- |
+| `docs/DATA_MODEL.md` | Every model, field, relation and constraint, plus how tenancy and the ceiling actually work |
+| `docs/OPEN_QUESTIONS.md` | Decisions taken, with reasons, and what is still open |
+| `docs/PERF.md` | Measured p95 timings and the accessibility audit |
+
+## Notes for whoever picks this up
+
+- Error tracking is **not** wired. GlitchTip was removed after it was confirmed
+  never to have worked; the PII scrubber written for it is in history at
+  commit `ea746e4` and can be lifted onto whatever replaces it.
+- Settings is read-only. It shows what governs behaviour; editing arrives with
+  the write layer.
+- Payroll, missions, absences and IPM have models in the schema but were never
+  implemented and are out of scope.

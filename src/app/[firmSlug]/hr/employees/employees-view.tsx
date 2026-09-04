@@ -251,6 +251,10 @@ export function EmployeesView({
       },
       {
         id: "name",
+        // TanStack only treats a column as sortable when it has an accessor,
+        // even in manual mode where the value is never used for sorting.
+        // Without one the header renders no sort control at all.
+        accessorFn: (row: EmployeeRow) => row.id,
         header: "Employé",
         cell: ({ row }) => (
           <div className="flex items-center gap-2.5">
@@ -273,6 +277,10 @@ export function EmployeesView({
       },
       {
         id: "status",
+        // TanStack only treats a column as sortable when it has an accessor,
+        // even in manual mode where the value is never used for sorting.
+        // Without one the header renders no sort control at all.
+        accessorFn: (row: EmployeeRow) => row.id,
         header: "Statut",
         cell: ({ row }) => (
           <StatusPill dot tone={STATUS_TONE[row.original.status] ?? "muted"}>
@@ -282,6 +290,10 @@ export function EmployeesView({
       },
       {
         id: "client",
+        // TanStack only treats a column as sortable when it has an accessor,
+        // even in manual mode where the value is never used for sorting.
+        // Without one the header renders no sort control at all.
+        accessorFn: (row: EmployeeRow) => row.id,
         header: "Client",
         cell: ({ row }) =>
           row.original.client ? (
@@ -295,6 +307,10 @@ export function EmployeesView({
       },
       {
         id: "contract",
+        // TanStack only treats a column as sortable when it has an accessor,
+        // even in manual mode where the value is never used for sorting.
+        // Without one the header renders no sort control at all.
+        accessorFn: (row: EmployeeRow) => row.id,
         header: "Contrat",
         cell: ({ row }) => {
           const contract = row.original.currentContract
@@ -313,6 +329,10 @@ export function EmployeesView({
       },
       {
         id: "ceiling",
+        // TanStack only treats a column as sortable when it has an accessor,
+        // even in manual mode where the value is never used for sorting.
+        // Without one the header renders no sort control at all.
+        accessorFn: (row: EmployeeRow) => row.id,
         header: "Plafond 730 j",
         cell: ({ row }) => (
           <InterimMeter
@@ -324,6 +344,10 @@ export function EmployeesView({
       },
       {
         id: "seniority",
+        // TanStack only treats a column as sortable when it has an accessor,
+        // even in manual mode where the value is never used for sorting.
+        // Without one the header renders no sort control at all.
+        accessorFn: (row: EmployeeRow) => row.id,
         header: "Ancienneté",
         meta: { align: "right" },
         cell: ({ row }) => (
@@ -336,8 +360,8 @@ export function EmployeesView({
       },
       {
         id: "gaps",
-        header: "Dossier",
         enableSorting: false,
+        header: "Dossier",
         cell: ({ row }) =>
           row.original.missing.length === 0 ? (
             <span className="text-[11.5px] text-ink-3">complet</span>

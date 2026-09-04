@@ -82,7 +82,9 @@ export default async function FirmLayout({
               </Suspense>
             }
           />
-          <div className="relative flex min-w-0 flex-1 flex-col">{children}</div>
+          <main id="main" className="relative flex min-w-0 flex-1 flex-col">
+            {children}
+          </main>
           <CommandPalette />
         </div>
       </FirmProvider>

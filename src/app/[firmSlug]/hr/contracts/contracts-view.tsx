@@ -345,6 +345,10 @@ export function ContractsView({
       },
       {
         id: "employee",
+        // TanStack only treats a column as sortable when it has an accessor,
+        // even in manual mode where the value is never used for sorting.
+        // Without one the header renders no sort control at all.
+        accessorFn: (row: ContractRow) => row.id,
         header: "Employé",
         meta: { label: "Employé" },
         cell: ({ row }) => {
@@ -371,12 +375,20 @@ export function ContractsView({
       },
       {
         id: "type",
+        // TanStack only treats a column as sortable when it has an accessor,
+        // even in manual mode where the value is never used for sorting.
+        // Without one the header renders no sort control at all.
+        accessorFn: (row: ContractRow) => row.id,
         header: "Type",
         meta: { label: "Type" },
         cell: ({ row }) => <TagCode>{row.original.type}</TagCode>,
       },
       {
         id: "client",
+        // TanStack only treats a column as sortable when it has an accessor,
+        // even in manual mode where the value is never used for sorting.
+        // Without one the header renders no sort control at all.
+        accessorFn: (row: ContractRow) => row.id,
         header: "Client",
         meta: { label: "Client" },
         cell: ({ row }) =>
@@ -391,6 +403,10 @@ export function ContractsView({
       },
       {
         id: "period",
+        // TanStack only treats a column as sortable when it has an accessor,
+        // even in manual mode where the value is never used for sorting.
+        // Without one the header renders no sort control at all.
+        accessorFn: (row: ContractRow) => row.id,
         header: "Période",
         meta: { label: "Période" },
         cell: ({ row }) => (
@@ -409,6 +425,10 @@ export function ContractsView({
       },
       {
         id: "remaining",
+        // TanStack only treats a column as sortable when it has an accessor,
+        // even in manual mode where the value is never used for sorting.
+        // Without one the header renders no sort control at all.
+        accessorFn: (row: ContractRow) => row.id,
         header: "Reste",
         meta: { align: "right", label: "Jours restants" },
         cell: ({ row }) => {
@@ -438,6 +458,10 @@ export function ContractsView({
       },
       {
         id: "ceiling",
+        // TanStack only treats a column as sortable when it has an accessor,
+        // even in manual mode where the value is never used for sorting.
+        // Without one the header renders no sort control at all.
+        accessorFn: (row: ContractRow) => row.id,
         header: "Plafond 730 j",
         meta: { label: "Plafond 730 j" },
         cell: ({ row }) => (
@@ -450,6 +474,10 @@ export function ContractsView({
       },
       {
         id: "visa",
+        // TanStack only treats a column as sortable when it has an accessor,
+        // even in manual mode where the value is never used for sorting.
+        // Without one the header renders no sort control at all.
+        accessorFn: (row: ContractRow) => row.id,
         header: "Visa",
         meta: { label: "Visa" },
         cell: ({ row }) =>
@@ -464,6 +492,10 @@ export function ContractsView({
       },
       {
         id: "status",
+        // TanStack only treats a column as sortable when it has an accessor,
+        // even in manual mode where the value is never used for sorting.
+        // Without one the header renders no sort control at all.
+        accessorFn: (row: ContractRow) => row.id,
         header: "Statut",
         meta: { label: "Statut" },
         cell: ({ row }) => (
