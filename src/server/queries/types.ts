@@ -1,7 +1,5 @@
 import { z } from "zod"
 
-import { sortSpecSchema } from "@/lib/queries/query-primitives"
-
 export {
   paginationSchema,
   sortSpecSchema,
