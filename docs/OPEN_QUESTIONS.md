@@ -124,7 +124,7 @@ which is not what "server-side per user" means. Correct me if you would rather u
 
 ---
 
-## Q7 — Auth.js v5, and the existing password hashes · `ASSUMED`
+## Q7 — Auth.js v5, and the existing password hashes · `CLOSED` (verified in phase 1)
 
 Legacy runs `next-auth@4` with a credentials provider over bcrypt `User.passwordHash`. v4 does not
 support Next 16; the brief specifies Auth.js v5, JWT strategy.
@@ -132,6 +132,11 @@ support Next 16; the brief specifies Auth.js v5, JWT strategy.
 **Assumption:** Auth.js v5 with the same credentials provider and the same bcrypt verification, so
 **every existing password keeps working** and no user has to reset anything. Memberships and roles
 go into the JWT at sign-in per §3.2. The `sessions` table stays unused.
+
+**Verified.** Built and tested end to end against the local database: an existing `users.passwordHash`
+row authenticates through Auth.js v5, the JWT carries the memberships, and the firm layout resolves
+without a further query. `AUTH_SECRET` is the v5 name and the config falls back to the existing
+`NEXTAUTH_SECRET`, so no deployment variable has to change.
 
 ---
 
@@ -144,6 +149,13 @@ project so the rebuild has its own error stream? A fresh project is cleaner duri
 
 Note the brief prints the DSN and key in plain text; they will live in `.env` only, and
 `.env.example` gets placeholders. `.env` is already gitignored here.
+
+**Found while wiring it up:** the `NEXT_PUBLIC_SENTRY_DSN` currently in `.env` is not a DSN — it is
+the bare host `https://glitchtip.senexus-app.cloud`, with no key and no project id. The SDK rejects
+it at boot (`Invalid Sentry Dsn`), so **the old application is almost certainly reporting nothing**.
+Whichever project you pick, the value needs the full
+`https://<key>@glitchtip.senexus-app.cloud/<project-id>` form. Telemetry is wired and scrubbed but
+stays off until you answer, so nothing is transmitted in the meantime.
 
 ---
 
@@ -180,3 +192,25 @@ specific roles only, or if there are other decision types.
 decimal in input either. Worth knowing that `Decimal(10,2)` caps a single value at 99 999 999,99 —
 fine per salary, and aggregate sums are computed in SQL and returned wider, so payroll totals are not
 capped.
+
+---
+
+## Q12 — TanStack Table is on v9 now, not v8 · `ASSUMED`
+
+The brief specifies "TanStack Table v8 in manual mode". The current stable release of
+`@tanstack/react-table` is **9.2.4**, which is what a fresh install resolves to, and it is what is
+installed here.
+
+**Assumption:** build the `DataTable` on v9, still fully manual (server-driven pagination, sorting,
+filtering). Manual mode is unchanged in principle; some option names moved. Say so if you would
+rather pin v8 to match the brief literally — it is a one-line change now and an expensive one after
+the resource pages are built on it.
+
+---
+
+## Q13 — The dev sign-in password is in the legacy seed · `FYI`
+
+`senexus-hr/prisma/seed.ts` hard-codes an admin account and its password, and that account exists in
+the local development database. That is fine for a local seed, but the same file would create the
+same well-known credentials anywhere it is run. Worth confirming it has never been run against
+production.
