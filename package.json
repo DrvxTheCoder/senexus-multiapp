@@ -10,7 +10,9 @@
     "lint": "eslint",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit",
-    "db:seed:dev": "node prisma/seed.dev.mjs"
+    "db:seed:dev": "node prisma/seed.dev.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.3",
@@ -47,6 +49,8 @@
     "prettier": "^3.8.3",
     "prettier-plugin-tailwindcss": "^0.8.0",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vite-node": "^6.0.0",
+    "vitest": "^5.0.0"
   }
 }
