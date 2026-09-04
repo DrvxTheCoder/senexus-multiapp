@@ -76,10 +76,12 @@ export const WORKSPACE_NAV: NavGroup = {
       module: "hr",
     },
     {
+      // Its own module (Q4), so its route sits at the firm root rather than
+      // under /hr, and a firm can switch it off independently.
       label: "Documents",
-      href: "/hr/documents",
+      href: "/documents",
       icon: Folder01Icon,
-      module: "hr",
+      module: "documents",
     },
     {
       label: "Paramètres",
