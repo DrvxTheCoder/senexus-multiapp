@@ -1,4 +1,11 @@
+import { Suspense } from "react"
+
 import { AppSidebar } from "@/components/shell/app-sidebar"
+import { CommandPalette } from "@/components/command-palette"
+import {
+  SidebarClientGroup,
+  SidebarRiskCard,
+} from "@/components/shell/sidebar-context"
 import { FirmProvider } from "@/components/firm-provider"
 import { getSession } from "@/server/auth/require-firm-access"
 import { requireFirmPage } from "@/server/auth/firm-page"
@@ -60,8 +67,23 @@ export default async function FirmLayout({
         }}
       >
         <div className="flex h-svh overflow-hidden bg-paper">
-          <AppSidebar initialCollapsed={uiState.sidebarCollapsed} />
+          <AppSidebar
+            initialCollapsed={uiState.sidebarCollapsed}
+            // Server-rendered slots: the sidebar never fetches anything itself.
+            // Suspense keeps a slow aggregate from delaying the whole shell.
+            clientNav={
+              <Suspense fallback={null}>
+                <SidebarClientGroup ctx={ctx} />
+              </Suspense>
+            }
+            riskCard={
+              <Suspense fallback={null}>
+                <SidebarRiskCard ctx={ctx} />
+              </Suspense>
+            }
+          />
           <div className="relative flex min-w-0 flex-1 flex-col">{children}</div>
+          <CommandPalette />
         </div>
       </FirmProvider>
     </>

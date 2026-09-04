@@ -14,6 +14,7 @@ import {
   INTERIM_WARNING_DAYS,
   toneFor,
 } from "@/server/domain/interim-ceiling"
+import { interimCeilingCte } from "@/server/queries/ceiling-sql"
 import type { Facets, Paged, Selection } from "@/server/queries/types"
 
 /* ==========================================================================
@@ -129,46 +130,6 @@ function whereFrom(predicates: Predicates, exclude: PredicateKey[] = []): Prisma
 }
 
 /**
- * Cumulative interim days per employee, within this firm only.
- *
- * The ceiling is per employer (§6), so the CTE is firm-scoped: days worked for
- * another group firm are invisible here by construction, not by convention.
- *
- * `range_agg` unions overlapping contracts so two overlapping periods count
- * once, which a `SUM(endDate - startDate)` would get wrong. Bounds are
- * half-open with `+ 1` on the end so a single-day contract counts as one day.
- *
- * Computing it here rather than in JavaScript is what allows the list to be
- * filtered and sorted by the ceiling in SQL, which §3.6 requires.
- */
-function ceilingCte(firmId: string): Prisma.Sql {
-  return Prisma.sql`
-    interim_periods AS (
-      SELECT
-        c."employeeId" AS employee_id,
-        daterange(c."startDate"::date,
-                  (LEAST(COALESCE(c."endDate", now()), now()))::date + 1) AS worked,
-        daterange(c."startDate"::date,
-                  COALESCE(c."endDate", now())::date + 1) AS contracted
-      FROM contracts c
-      WHERE c."firmId" = ${firmId}
-        AND c."type" = 'INTERIM'
-        AND c."startDate" <= now()
-    ),
-    ceiling AS (
-      SELECT
-        employee_id,
-        (SELECT COALESCE(SUM(upper(r) - lower(r)), 0)
-           FROM unnest(range_agg(worked)) r) AS used_days,
-        (SELECT COALESCE(SUM(upper(r) - lower(r)), 0)
-           FROM unnest(range_agg(contracted)) r) AS projected_days
-      FROM interim_periods
-      GROUP BY employee_id
-    )
-  `
-}
-
-/**
  * §4.7 — aging is a first-class column and the default sort is urgency, not
  * name. Contracts with no end date (CDI) sort last rather than first.
  */
@@ -271,7 +232,7 @@ export async function listContracts(
   const offset = (q.page - 1) * q.perPage
 
   const idRows = await db.$queryRaw<IdRow[]>(Prisma.sql`
-    WITH ${ceilingCte(ctx.firmId)}
+    WITH ${interimCeilingCte(ctx.firmId)}
     SELECT
       c."id",
       cl.used_days,
@@ -401,7 +362,7 @@ async function facetCounts(
   labelSql: Prisma.Sql
 ): Promise<CountRow[]> {
   return db.$queryRaw<CountRow[]>(Prisma.sql`
-    WITH ${ceilingCte(ctx.firmId)}
+    WITH ${interimCeilingCte(ctx.firmId)}
     SELECT ${valueSql} AS value, ${labelSql} AS label, COUNT(*) AS count
     FROM contracts c
     JOIN employees e ON e."id" = c."employeeId"
@@ -498,7 +459,7 @@ export async function contractSummary(
       over_ceiling: bigint
     }[]
   >(Prisma.sql`
-    WITH ${ceilingCte(ctx.firmId)}
+    WITH ${interimCeilingCte(ctx.firmId)}
     SELECT
       COUNT(*) AS matching,
       COUNT(*) FILTER (WHERE c."status" = 'ACTIVE') AS active,
@@ -576,7 +537,7 @@ export async function resolveContractSelection(
   if ("ids" in selection) {
     const predicates = buildPredicates(EMPTY_CONTRACT_QUERY, ctx)
     const rows = await db.$queryRaw<{ id: string }[]>(Prisma.sql`
-      WITH ${ceilingCte(ctx.firmId)}
+      WITH ${interimCeilingCte(ctx.firmId)}
       SELECT c."id"
       FROM contracts c
       JOIN employees e ON e."id" = c."employeeId"
@@ -594,7 +555,7 @@ export async function resolveContractSelection(
     : Prisma.empty
 
   const rows = await db.$queryRaw<{ id: string }[]>(Prisma.sql`
-    WITH ${ceilingCte(ctx.firmId)}
+    WITH ${interimCeilingCte(ctx.firmId)}
     SELECT c."id"
     FROM contracts c
     JOIN employees e ON e."id" = c."employeeId"

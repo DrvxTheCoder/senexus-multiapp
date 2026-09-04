@@ -2,13 +2,20 @@ import type { Metadata } from "next"
 import { notFound } from "next/navigation"
 
 import { Panel } from "@/components/panel"
+import { RecordPager } from "@/components/record-pager"
 import { InterimMeterPanel } from "@/components/interim-meter"
 import { Avatar, StatusPill, TagCode } from "@/components/primitives"
 import { TopBar } from "@/components/shell/top-bar"
 import { db } from "@/lib/db"
 import { formatCurrency, formatDate, formatNumber, initials } from "@/lib/format"
+import {
+  loadEmployeeSearchParams,
+  serializeEmployeeSearchParams,
+  toEmployeeQuery,
+} from "@/lib/queries/employee-params"
 import { requireFirmPage } from "@/server/auth/firm-page"
 import { computeCeiling } from "@/server/domain/interim-ceiling"
+import { employeeIdSequence } from "@/server/queries/employees"
 
 export const metadata: Metadata = { title: "Fiche employé" }
 
@@ -23,9 +30,11 @@ export const metadata: Metadata = { title: "Fiche employé" }
  */
 export default async function EmployeePage({
   params,
+  searchParams,
 }: PageProps<"/[firmSlug]/hr/employees/[employeeId]">) {
   const { firmSlug, employeeId } = await params
   const ctx = await requireFirmPage(firmSlug, { module: "hr" })
+  const raw = await searchParams
 
   const employee = await db.employee.findFirst({
     // Tenancy is a predicate, not an assumption: an id from another firm is a
@@ -71,6 +80,19 @@ export default async function EmployeePage({
 
   if (!employee) notFound()
 
+  // §5.5 — prev/next walks the result set the user arrived from, not the table
+  // by id. The query rides along in the URL, so the neighbours of employee 14 of
+  // "27 at risk" are the other 26, in the same order.
+  const listParams = loadEmployeeSearchParams(raw)
+  const listQuery = toEmployeeQuery(listParams)
+  const sequence = await employeeIdSequence(listQuery, ctx)
+  const index = sequence.indexOf(employeeId)
+  const suffix = serializeEmployeeSearchParams(listParams)
+  const neighbour = (offset: number) => {
+    const id = index === -1 ? undefined : sequence[index + offset]
+    return id ? `/${firmSlug}/hr/employees/${id}${suffix}` : null
+  }
+
   const current = employee.contracts.find((contract) => contract.status === "ACTIVE")
   const ceiling = computeCeiling(
     employee.contracts.map((contract) => ({
@@ -94,6 +116,15 @@ export default async function EmployeePage({
 
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-[1420px] p-4.5">
+          <RecordPager
+            backHref={`/${firmSlug}/hr/employees${suffix}`}
+            backLabel="Employés"
+            position={index === -1 ? null : index + 1}
+            total={sequence.length}
+            prevHref={neighbour(-1)}
+            nextHref={neighbour(1)}
+          />
+
           <Panel padded={false}>
             <div className="flex items-center gap-3.5 p-[15px]">
               <Avatar

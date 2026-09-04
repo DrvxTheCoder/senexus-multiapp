@@ -6,7 +6,6 @@ import { useQueryStates } from "nuqs"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
-  ArrowRight01Icon,
   Cancel01Icon,
   Download01Icon,
   RefreshIcon,
@@ -21,6 +20,7 @@ import { FilterChips, type FilterChip } from "@/components/filters/filter-chips"
 import { SavedViews, type ViewTab } from "@/components/filters/saved-views"
 import { InterimMeter } from "@/components/interim-meter"
 import { Panel } from "@/components/panel"
+import { Pager, RowCheckbox } from "@/components/list-controls"
 import {
   Avatar,
   ClientDot,
@@ -33,7 +33,7 @@ import { RenewalPreflightDialog } from "@/app/[firmSlug]/hr/contracts/renewal-pr
 import { contractSearchParams, toContractQuery } from "@/lib/queries/contract-params"
 import { formatDate, formatDays, formatNumber, initials } from "@/lib/format"
 import { clientDotVar } from "@/lib/client-color"
-import { removeContractView, saveContractView } from "@/server/actions/contracts"
+import { removeResourceView, saveResourceView } from "@/server/actions/views"
 import type { ContractRow, ContractSummary } from "@/server/queries/contracts"
 import type { Paged } from "@/server/queries/types"
 import type { SavedView } from "@/server/queries/saved-views"
@@ -208,7 +208,7 @@ export function ContractsView({
       onSelect: () => applyPatch(view.query as Record<string, unknown>),
       onDelete: () => {
         startTransition(async () => {
-          await removeContractView(firmSlug, view.id)
+          await removeResourceView(firmSlug, view.id)
           router.refresh()
         })
       },
@@ -329,14 +329,14 @@ export function ContractsView({
         enableSorting: false,
         meta: { width: 34 },
         header: () => (
-          <Checkbox
+          <RowCheckbox
             checked={allOnPage}
             onChange={togglePage}
             label="Sélectionner la page"
           />
         ),
         cell: ({ row }) => (
-          <Checkbox
+          <RowCheckbox
             checked={allMatching !== selected.has(row.original.id)}
             onChange={() => toggleRow(row.original.id)}
             label={`Sélectionner ${row.original.employee.lastName}`}
@@ -524,23 +524,11 @@ export function ContractsView({
             </span>
           ),
           action: (
-            <span className="flex items-center gap-2">
-              <span className="text-ink-3">
-                Page {formatNumber(page.page)} sur {formatNumber(Math.max(1, page.pageCount))}
-              </span>
-              <PagerButton
-                disabled={page.page <= 1}
-                label="Page précédente"
-                onClick={() => void setParams({ page: page.page - 1 })}
-                direction="prev"
-              />
-              <PagerButton
-                disabled={page.page >= page.pageCount}
-                label="Page suivante"
-                onClick={() => void setParams({ page: page.page + 1 })}
-                direction="next"
-              />
-            </span>
+            <Pager
+              page={page.page}
+              pageCount={page.pageCount}
+              onChange={(next) => void setParams({ page: next })}
+            />
           ),
         }}
       >
@@ -549,7 +537,7 @@ export function ContractsView({
           canSave={!anyBuiltInActive && chips.length > 0}
           onSave={(name) => {
             startTransition(async () => {
-              await saveContractView(firmSlug, name, query)
+              await saveResourceView(firmSlug, "contracts", name, params)
               router.refresh()
             })
           }}
@@ -704,82 +692,5 @@ export function ContractsView({
         busy={pending}
       />
     </>
-  )
-}
-
-/* -------------------------------------------------------------------------- */
-
-function Checkbox({
-  checked,
-  onChange,
-  label,
-}: {
-  checked: boolean
-  onChange: () => void
-  label: string
-}) {
-  return (
-    <span
-      role="checkbox"
-      aria-checked={checked}
-      aria-label={label}
-      tabIndex={0}
-      onClick={(event) => {
-        event.stopPropagation()
-        onChange()
-      }}
-      onKeyDown={(event) => {
-        if (event.key === " " || event.key === "Enter") {
-          event.preventDefault()
-          event.stopPropagation()
-          onChange()
-        }
-      }}
-      className={cn(
-        "grid size-[15px] cursor-pointer place-items-center rounded border-[1.5px] border-line-2 bg-surface transition-colors",
-        checked && "border-brand bg-brand text-brand-contrast"
-      )}
-    >
-      {checked ? (
-        <svg viewBox="0 0 10 10" className="size-2.5" aria-hidden>
-          <path
-            d="M1.5 5.2 4 7.5 8.5 2.5"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      ) : null}
-    </span>
-  )
-}
-
-function PagerButton({
-  disabled,
-  onClick,
-  label,
-  direction,
-}: {
-  disabled: boolean
-  onClick: () => void
-  label: string
-  direction: "prev" | "next"
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      aria-label={label}
-      className="inline-flex h-[25px] items-center rounded-md border border-line bg-surface px-2 text-ink-2 disabled:opacity-40 disabled:hover:bg-surface hover:bg-sub"
-    >
-      <HugeiconsIcon
-        icon={ArrowRight01Icon}
-        size={13}
-        className={cn(direction === "prev" && "rotate-180")}
-      />
-    </button>
   )
 }
