@@ -1,26 +1,18 @@
 import { z } from "zod"
 
+import { sortSpecSchema } from "@/lib/queries/query-primitives"
+
+export {
+  paginationSchema,
+  sortSpecSchema,
+  type SortSpec,
+} from "@/lib/queries/query-primitives"
+
 /**
- * §3.5 — shared vocabulary for every list resource.
- *
- * Filtering, sorting, pagination, faceted counts, export, saved views and
- * "select all matching" are all the same query. These are the pieces each
- * resource schema is assembled from, so the URL, the saved view, the export
- * and the bulk action cannot drift apart.
+ * Server-side result shapes. The query *inputs* live in
+ * `src/lib/queries/query-primitives.ts` because the client needs them; what a
+ * resolver returns is only ever read on the server.
  */
-
-export const sortSpecSchema = z.object({
-  id: z.string(),
-  desc: z.boolean().default(false),
-})
-
-export type SortSpec = z.infer<typeof sortSpecSchema>
-
-/** Page size is capped: no caller may ask the server to materialise the world. */
-export const paginationSchema = {
-  page: z.coerce.number().int().min(1).default(1),
-  perPage: z.coerce.number().int().min(10).max(200).default(50),
-}
 
 export type FacetBucket = {
   value: string

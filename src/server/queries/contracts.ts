@@ -1,9 +1,12 @@
 import "server-only"
 
 import { Prisma } from "@prisma/client"
-import { z } from "zod"
 
 import { db } from "@/lib/db"
+import {
+  EMPTY_CONTRACT_QUERY,
+  type ContractQuery,
+} from "@/lib/queries/contract-query"
 import type { FirmContext } from "@/server/auth/require-firm-access"
 import { clientScopeSql } from "@/server/queries/scope"
 import {
@@ -11,55 +14,20 @@ import {
   INTERIM_WARNING_DAYS,
   toneFor,
 } from "@/server/domain/interim-ceiling"
-import {
-  paginationSchema,
-  sortSpecSchema,
-  type Facets,
-  type Paged,
-  type Selection,
-} from "@/server/queries/types"
+import type { Facets, Paged, Selection } from "@/server/queries/types"
 
 /* ==========================================================================
- * The query
- *
- * §3.5 — one schema, one resolver. The URL is a serialised ContractQuery, a
- * saved view is a serialised ContractQuery, an export is the same query with a
- * different serialiser, and a bulk action takes the query rather than a list of
- * ids. Nothing here is duplicated per consumer.
+ * The query lives in src/lib/queries/contract-query.ts, because the URL
+ * parsers and the filter bar need it and they run in the browser. Re-exported
+ * here so a resolver consumer has one import.
  * ========================================================================== */
 
-export const CONTRACT_SORT_IDS = [
-  "employee",
-  "type",
-  "client",
-  "period",
-  "remaining",
-  "ceiling",
-  "visa",
-  "status",
-] as const
-
-export const contractQuerySchema = z.object({
-  search: z.string().trim().max(120).optional(),
-  type: z.array(z.enum(["CDI", "CDD", "INTERIM", "STAGE", "PRESTATION"])).optional(),
-  status: z.array(z.enum(["ACTIVE", "EXPIRED", "TERMINATED", "RENEWED"])).optional(),
-  clientId: z.array(z.string()).optional(),
-  departmentId: z.array(z.string()).optional(),
-  /** `true` = visa obtained, `false` = still awaiting the labour inspectorate. */
-  vise: z.boolean().optional(),
-  /** Active contracts whose endDate falls inside this many days. */
-  expiringWithin: z.coerce.number().int().min(1).max(400).optional(),
-  /** Cumulative interim days, computed in SQL — see `ceilingCte`. */
-  interimDaysMin: z.coerce.number().int().min(0).max(2000).optional(),
-  interimDaysMax: z.coerce.number().int().min(0).max(2000).optional(),
-  sort: z.array(sortSpecSchema).default([]),
-  ...paginationSchema,
-  columns: z.array(z.string()).optional(),
-})
-
-export type ContractQuery = z.infer<typeof contractQuerySchema>
-
-export const EMPTY_CONTRACT_QUERY: ContractQuery = contractQuerySchema.parse({})
+export {
+  contractQuerySchema,
+  EMPTY_CONTRACT_QUERY,
+  CONTRACT_SORT_IDS,
+  type ContractQuery,
+} from "@/lib/queries/contract-query"
 
 /* ==========================================================================
  * Predicates

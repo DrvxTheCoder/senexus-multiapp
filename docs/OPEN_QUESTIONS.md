@@ -194,11 +194,18 @@ accepted on input either. Implemented once in `src/lib/format.ts`; no component 
 
 ---
 
-## Q12 — TanStack Table is on v9, not v8 · `ASSUMED`
+## Q12 — TanStack Table version · `DECIDED` — pinned to v8, as the brief says
 
-The brief specifies v8; the current stable release is **9.2.4**, which is what is installed.
-Proceeding with v9 in fully manual mode (server-driven pagination, sorting, filtering). Say so if you
-want v8 pinned to match the brief literally — cheap now, expensive once the resource pages sit on it.
+Unanswered, and the decision could not wait past the first table, so: **v8.21.3 is installed**.
+
+v9 is a ground-up redesign — an atom store, opt-in feature registration, a different `useTable`
+signature — with thin documentation. In manual mode the library does no filtering, sorting or
+pagination work at all; it owns column definitions, header and cell rendering, and selection. v9
+therefore buys nothing here and costs exploratory risk on the one component every resource page
+depends on.
+
+Migrating later is contained: it touches `src/components/data-table.tsx` and nothing else, because
+no page talks to TanStack directly.
 
 ---
 

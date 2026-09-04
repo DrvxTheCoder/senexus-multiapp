@@ -13,11 +13,13 @@ import { PrismaClient } from "@prisma/client"
 import type { FirmContext } from "@/server/auth/require-firm-access"
 import {
   EMPTY_CONTRACT_QUERY,
+  type ContractQuery,
+} from "@/lib/queries/contract-query"
+import {
   contractSummary,
   listContracts,
   resolveContractSelection,
   streamContractsForExport,
-  type ContractQuery,
 } from "@/server/queries/contracts"
 
 const db = new PrismaClient()

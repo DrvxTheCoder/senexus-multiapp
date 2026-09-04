@@ -11,7 +11,7 @@ import {
 import {
   contractQuerySchema,
   type ContractQuery,
-} from "@/server/queries/contracts"
+} from "@/lib/queries/contract-query"
 
 /**
  * §3.5 — the URL *is* the query.
