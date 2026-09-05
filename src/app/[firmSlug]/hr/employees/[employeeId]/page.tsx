@@ -530,6 +530,7 @@ export default async function EmployeePage({
                         fileName={document.fileName}
                         documentType={document.documentType}
                         fileSize={document.fileSize}
+                        mimeType={document.mimeType}
                         expiryDate={document.expiryDate}
                         isVerified={document.isVerified}
                         firmSlug={firmSlug}

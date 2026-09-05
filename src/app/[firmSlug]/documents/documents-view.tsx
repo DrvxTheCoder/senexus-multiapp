@@ -10,9 +10,14 @@ import {
 } from "nuqs"
 import type { ColumnDef } from "@tanstack/react-table"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { Search01Icon } from "@hugeicons/core-free-icons"
+import { EyeIcon, Search01Icon } from "@hugeicons/core-free-icons"
 
 import { DataTable } from "@/components/data-table"
+import {
+  DOCUMENT_TYPE_LABELS,
+  DocumentPreviewDialog,
+  type PreviewDocument,
+} from "@/components/document-preview"
 import { FacetFilter } from "@/components/filters/facet-filter"
 import { Pager } from "@/components/list-controls"
 import { Panel } from "@/components/panel"
@@ -20,21 +25,6 @@ import { Avatar, EmptyState, StatusPill, TwoFacts } from "@/components/primitive
 import { formatDate, formatNumber, initials } from "@/lib/format"
 import type { DocumentRow, DocumentSummary } from "@/server/queries/documents"
 import type { Paged } from "@/server/queries/types"
-
-const TYPE_LABELS: Record<string, string> = {
-  CV: "CV",
-  ID_CARD: "Copie CNI",
-  PASSPORT: "Passeport",
-  CONTRACT: "Contrat de travail",
-  PAYSLIP: "Bulletin de paie",
-  CERTIFICATE: "Attestation",
-  DIPLOMA: "Diplôme",
-  MEDICAL_CERTIFICATE: "Certificat médical",
-  LEGAL_DOCUMENT: "Document légal",
-  MISSION_REPORT: "Rapport de mission",
-  EXPENSE_RECEIPT: "Justificatif de frais",
-  OTHER: "Autre",
-}
 
 const searchParamsDef = {
   q: parseAsString,
@@ -62,6 +52,7 @@ export function DocumentsView({
   scoped: boolean
 }) {
   const router = useRouter()
+  const [preview, setPreview] = React.useState<PreviewDocument | null>(null)
   const [params, setParams] = useQueryStates(searchParamsDef, {
     shallow: false,
     history: "push",
@@ -107,7 +98,7 @@ export function DocumentsView({
         header: "Pièce",
         cell: ({ row }) => (
           <TwoFacts
-            primary={TYPE_LABELS[row.original.documentType] ?? row.original.documentType}
+            primary={DOCUMENT_TYPE_LABELS[row.original.documentType] ?? row.original.documentType}
             secondary={row.original.fileName}
           />
         ),
@@ -153,6 +144,27 @@ export function DocumentsView({
           ) : (
             <StatusPill tone="signal">En attente</StatusPill>
           ),
+      },
+      {
+        id: "preview",
+        header: "",
+        meta: { align: "right" },
+        cell: ({ row }) => (
+          <button
+            type="button"
+            aria-haspopup="dialog"
+            aria-label={`Aperçu de ${row.original.fileName}`}
+            title="Aperçu"
+            // The row itself opens the employee record; this must not do both.
+            onClick={(event) => {
+              event.stopPropagation()
+              setPreview(row.original)
+            }}
+            className="grid size-7 place-items-center rounded-[7px] text-ink-3 transition-colors hover:bg-sunken hover:text-ink"
+          >
+            <HugeiconsIcon icon={EyeIcon} size={15} strokeWidth={1.8} />
+          </button>
+        ),
       },
     ],
     [now]
@@ -258,6 +270,12 @@ export function DocumentsView({
             description="Aucun document ne correspond aux filtres."
           />
         }
+      />
+
+      <DocumentPreviewDialog
+        document={preview}
+        firmSlug={firmSlug}
+        onClose={() => setPreview(null)}
       />
     </Panel>
   )

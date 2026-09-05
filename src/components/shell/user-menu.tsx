@@ -26,6 +26,7 @@ import { ROLE_LABELS, roleLabel } from "@/components/shell/role-labels"
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
@@ -45,6 +46,10 @@ import { cn } from "@/lib/utils"
  * switching used to live in a second dropdown up in the brand block; putting
  * both in one place means the brand block can be what it should be — the firm's
  * identity plus the two controls that act on the sidebar itself.
+ *
+ * Each labelled section is a real `<Menu.Group>`: `DropdownMenuLabel` renders a
+ * Base UI `GroupLabel`, which throws outside its group and, inside one, ties
+ * the label to the section for a screen reader.
  *
  * The theme is a three-way choice rendered as an inline segmented control
  * rather than three stacked rows: it is a setting with a current value, not a
@@ -149,13 +154,12 @@ export function UserMenu({ collapsed }: { collapsed: boolean }) {
 
         <DropdownMenuSeparator />
 
-        <DropdownMenuLabel className="text-[11px] font-medium text-ink-3">
-          Entreprises
-        </DropdownMenuLabel>
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="text-[11px] font-medium text-ink-3">
+            Entreprises
+          </DropdownMenuLabel>
 
-        {firm.memberships.map((membership) => {
-          const current = membership.firmSlug === firm.slug
-          return (
+          {firm.memberships.map((membership) => (
             <DropdownMenuItem
               key={membership.firmId}
               className="gap-2.5 py-1.5"
@@ -171,7 +175,7 @@ export function UserMenu({ collapsed }: { collapsed: boolean }) {
                   <span className="min-w-0 flex-1 truncate text-[13px]">
                     {membership.firmName}
                   </span>
-                  {current ? (
+                  {membership.firmSlug === firm.slug ? (
                     <HugeiconsIcon
                       icon={Tick02Icon}
                       size={14}
@@ -186,69 +190,71 @@ export function UserMenu({ collapsed }: { collapsed: boolean }) {
                 </Link>
               }
             />
-          )
-        })}
+          ))}
 
-        {canAdminister ? (
-          <>
-            <DropdownMenuItem
-              className="gap-2.5 py-1.5 text-ink-2"
-              render={
-                <Link href="/admin/firms">
-                  <span
-                    aria-hidden
-                    className="grid size-5 shrink-0 place-items-center rounded-[5px] border border-dashed border-line-2 text-ink-3"
-                  >
-                    <HugeiconsIcon icon={Add01Icon} size={12} strokeWidth={2} />
-                  </span>
-                  <span className="text-[13px]">Nouvelle entreprise</span>
-                </Link>
-              }
-            />
-            <DropdownMenuItem
-              className="gap-2.5 py-1.5 text-ink-2"
-              render={
-                <Link href="/admin">
-                  <span
-                    aria-hidden
-                    className="grid size-5 shrink-0 place-items-center text-ink-3"
-                  >
-                    <HugeiconsIcon icon={Settings02Icon} size={14} />
-                  </span>
-                  <span className="text-[13px]">Administration</span>
-                </Link>
-              }
-            />
-          </>
-        ) : null}
+          {canAdminister ? (
+            <>
+              <DropdownMenuItem
+                className="gap-2.5 py-1.5 text-ink-2"
+                render={
+                  <Link href="/admin/firms">
+                    <span
+                      aria-hidden
+                      className="grid size-5 shrink-0 place-items-center rounded-[5px] border border-dashed border-line-2 text-ink-3"
+                    >
+                      <HugeiconsIcon icon={Add01Icon} size={12} strokeWidth={2} />
+                    </span>
+                    <span className="text-[13px]">Nouvelle entreprise</span>
+                  </Link>
+                }
+              />
+              <DropdownMenuItem
+                className="gap-2.5 py-1.5 text-ink-2"
+                render={
+                  <Link href="/admin">
+                    <span
+                      aria-hidden
+                      className="grid size-5 shrink-0 place-items-center text-ink-3"
+                    >
+                      <HugeiconsIcon icon={Settings02Icon} size={14} />
+                    </span>
+                    <span className="text-[13px]">Administration</span>
+                  </Link>
+                }
+              />
+            </>
+          ) : null}
+        </DropdownMenuGroup>
 
         <DropdownMenuSeparator />
 
-        <DropdownMenuLabel className="text-[11px] font-medium text-ink-3">
-          Compte
-        </DropdownMenuLabel>
+        <DropdownMenuGroup>
+          <DropdownMenuLabel className="text-[11px] font-medium text-ink-3">
+            Compte
+          </DropdownMenuLabel>
 
-        <DropdownMenuItem
-          className="gap-2.5 py-1.5"
-          render={
-            <Link href={profileHref}>
-              <HugeiconsIcon icon={UserSettings01Icon} size={15} />
-              <span className="text-[13px]">Profil</span>
-              <DropdownMenuShortcut>⇧{MOD}P</DropdownMenuShortcut>
-            </Link>
-          }
-        />
-        <DropdownMenuItem
-          className="gap-2.5 py-1.5"
-          render={
-            <Link href={`/${firm.slug}/settings`}>
-              <HugeiconsIcon icon={Settings02Icon} size={15} />
-              <span className="text-[13px]">Préférences</span>
-            </Link>
-          }
-        />
+          <DropdownMenuItem
+            className="gap-2.5 py-1.5"
+            render={
+              <Link href={profileHref}>
+                <HugeiconsIcon icon={UserSettings01Icon} size={15} />
+                <span className="text-[13px]">Profil</span>
+                <DropdownMenuShortcut>⇧{MOD}P</DropdownMenuShortcut>
+              </Link>
+            }
+          />
+          <DropdownMenuItem
+            className="gap-2.5 py-1.5"
+            render={
+              <Link href={`/${firm.slug}/settings`}>
+                <HugeiconsIcon icon={Settings02Icon} size={15} />
+                <span className="text-[13px]">Préférences</span>
+              </Link>
+            }
+          />
 
-        <ThemeRow />
+          <ThemeRow />
+        </DropdownMenuGroup>
 
         <DropdownMenuSeparator />
 

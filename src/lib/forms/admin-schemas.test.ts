@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest"
 
 import {
+  clientAssignmentFormSchema,
   createFirmSchema,
   createUserSchema,
+  deleteFirmFormSchema,
   firmModuleSchema,
   moduleSchema,
+  passwordPairSchema,
   resetPasswordSchema,
   slugField,
+  userBaseSchema,
   USER_ROLES,
 } from "@/lib/forms/admin-schemas"
 
@@ -168,5 +172,56 @@ describe("firmModuleSchema", () => {
     expect(firmModuleSchema.safeParse({ firmId: "f1", moduleId: "m1" }).success).toBe(
       false
     )
+  })
+})
+
+/**
+ * These are the exact schemas the dialogs parse against. They live in this
+ * module rather than being derived at the call site with `.omit()`, so that a
+ * broken one fails here instead of the first time someone opens the dialog —
+ * which is how `resetPasswordSchema.omit({ id: true })` reached production and
+ * threw "cannot be used on object schemas containing refinements".
+ */
+describe("dialog schemas", () => {
+  it("passwordPairSchema is the reset dialog's shape, refinement intact", () => {
+    expect(
+      passwordPairSchema.safeParse({
+        password: "motdepasse1",
+        confirmPassword: "motdepasse1",
+      }).success
+    ).toBe(true)
+
+    const mismatch = passwordPairSchema.safeParse({
+      password: "motdepasse1",
+      confirmPassword: "motdepasse2",
+    })
+    expect(mismatch.success).toBe(false)
+    if (!mismatch.success) {
+      expect(mismatch.error.issues[0]?.path).toEqual(["confirmPassword"])
+    }
+  })
+
+  it("deleteFirmFormSchema asks only for the typed name", () => {
+    expect(deleteFirmFormSchema.safeParse({ confirmName: "" }).success).toBe(false)
+    expect(
+      deleteFirmFormSchema.safeParse({ confirmName: "Connect Interim" }).success
+    ).toBe(true)
+  })
+
+  it("clientAssignmentFormSchema asks only for the client ids", () => {
+    expect(clientAssignmentFormSchema.safeParse({ clientIds: [] }).success).toBe(
+      true
+    )
+    expect(clientAssignmentFormSchema.safeParse({}).success).toBe(false)
+  })
+
+  it("userBaseSchema is the edit wizard's shape — no password, no id", () => {
+    const values = {
+      name: "Awa Ndiaye",
+      email: "awa@senexus.sn",
+      role: "MANAGER" as const,
+      firmIds: ["firm-1"],
+    }
+    expect(userBaseSchema.safeParse(values).success).toBe(true)
   })
 })

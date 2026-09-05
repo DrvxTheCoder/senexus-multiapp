@@ -34,8 +34,7 @@ import {
 import {
   THEME_PRESETS,
   createFirmSchema,
-  deleteFirmSchema,
-  updateFirmSchema,
+  deleteFirmFormSchema,
   type FirmInput,
 } from "@/lib/forms/admin-schemas"
 import { formatNumber } from "@/lib/format"
@@ -232,7 +231,9 @@ function FirmDialog({
   const isEdit = firm !== null
 
   const form = useForm<FirmInput>({
-    resolver: zodResolver(isEdit ? updateFirmSchema.omit({ id: true }) : createFirmSchema),
+    // `updateFirmSchema` is `firmSchema` plus an id the dialog does not
+    // collect, so both branches parse the same shape.
+    resolver: zodResolver(createFirmSchema),
     defaultValues: {
       name: firm?.name ?? "",
       slug: firm?.slug ?? "",
@@ -419,7 +420,7 @@ function DeleteFirmDialog({
 }) {
   const router = useRouter()
   const form = useForm<{ confirmName: string }>({
-    resolver: zodResolver(deleteFirmSchema.omit({ id: true })),
+    resolver: zodResolver(deleteFirmFormSchema),
     defaultValues: { confirmName: "" },
   })
 

@@ -39,10 +39,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
-  clientAssignmentSchema,
+  clientAssignmentFormSchema,
   createUserSchema,
-  resetPasswordSchema,
-  updateUserSchema,
+  passwordPairSchema,
+  userBaseSchema,
+  type PasswordPairInput,
 } from "@/lib/forms/admin-schemas"
 import { formatDateProse, formatNumber, initials } from "@/lib/format"
 import {
@@ -316,7 +317,9 @@ function UserWizard({
 
   const form = useForm<WizardValues>({
     resolver: zodResolver(
-      isEdit ? updateUserSchema.omit({ id: true }) : createUserSchema
+      // `updateUserSchema` is `userBaseSchema` plus an id the wizard does not
+      // collect; creation adds the password pair.
+      isEdit ? userBaseSchema : createUserSchema
     ),
     defaultValues: {
       name: user?.name ?? "",
@@ -642,8 +645,11 @@ function ResetPasswordDialog({
   user: AdminUser
   onClose: () => void
 }) {
-  const form = useForm<{ password: string; confirmPassword: string }>({
-    resolver: zodResolver(resetPasswordSchema.omit({ id: true })),
+  // `resetPasswordSchema` carries the id the action needs and a refinement;
+  // zod refuses `.omit()` on a refined object, so the dialog parses the pair
+  // schema built from the same field and the same refinement.
+  const form = useForm<PasswordPairInput>({
+    resolver: zodResolver(passwordPairSchema),
     defaultValues: { password: "", confirmPassword: "" },
   })
 
@@ -740,7 +746,7 @@ function ClientAssignmentsDialog({
   const firm = memberFirms.find((entry) => entry.id === firmId)
 
   const form = useForm<{ clientIds: string[] }>({
-    resolver: zodResolver(clientAssignmentSchema.omit({ userId: true, firmId: true })),
+    resolver: zodResolver(clientAssignmentFormSchema),
     defaultValues: { clientIds: assigned[firmId] ?? [] },
   })
 

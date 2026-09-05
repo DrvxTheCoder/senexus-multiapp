@@ -148,13 +148,15 @@ export function AdminSidebar({
           }
         />
         <DropdownMenuContent side="top" align="start" className="w-60">
-          <DropdownMenuLabel className="text-[11px] font-medium text-ink-3">
-            Thème
-          </DropdownMenuLabel>
           <DropdownMenuRadioGroup
             value={theme ?? "system"}
             onValueChange={(value) => setTheme(String(value))}
           >
+            {/* Inside the radio group, not before it: `DropdownMenuLabel` is a
+                Base UI GroupLabel and throws outside its group. */}
+            <DropdownMenuLabel className="text-[11px] font-medium text-ink-3">
+              Thème
+            </DropdownMenuLabel>
             <DropdownMenuRadioItem value="light">
               <HugeiconsIcon icon={Sun03Icon} size={15} />
               Clair

@@ -80,6 +80,17 @@ export const deleteFirmSchema = z.object({
   confirmName: z.string().min(1, "Saisissez le nom de l'entreprise."),
 })
 
+/**
+ * The dialog's half of the schemas above.
+ *
+ * A dialog collects fewer fields than its action takes — no `id`, no `userId` —
+ * and the temptation is to write `actionSchema.omit({ id: true })` at the call
+ * site. Two reasons not to: zod refuses `.omit()` outright on a refined object,
+ * and a schema built inside a component is never exercised until someone opens
+ * that dialog. Declared here, they are covered by the schema tests.
+ */
+export const deleteFirmFormSchema = deleteFirmSchema.omit({ id: true })
+
 /* ==========================================================================
  * Users
  * ========================================================================== */
@@ -105,19 +116,30 @@ export const userBaseSchema = z.object({
   employeeId: z.string().optional(),
 })
 
-export const createUserSchema = userBaseSchema
-  .extend({
+/**
+ * The password pair, refined so a mismatch lands on the confirmation field.
+ *
+ * Declared separately from `resetPasswordSchema` rather than derived from it:
+ * zod refuses `.omit()` on a refined object, so a dialog that only collects the
+ * two passwords cannot strip the `id` off the action's schema. Both are built
+ * from the same field and the same refinement instead.
+ */
+const PASSWORD_MISMATCH = {
+  message: "Les mots de passe ne correspondent pas.",
+  path: ["confirmPassword"],
+}
+
+const passwordsMatch = (values: {
+  password: string
+  confirmPassword: string
+}) => values.password === values.confirmPassword
+
+export const passwordPairSchema = z
+  .object({
     password: passwordField,
     confirmPassword: z.string(),
   })
-  .refine((values) => values.password === values.confirmPassword, {
-    message: "Les mots de passe ne correspondent pas.",
-    path: ["confirmPassword"],
-  })
-
-export const updateUserSchema = userBaseSchema.extend({ id: z.string().min(1) })
-
-export const deleteUserSchema = z.object({ id: z.string().min(1) })
+  .refine(passwordsMatch, PASSWORD_MISMATCH)
 
 export const resetPasswordSchema = z
   .object({
@@ -125,10 +147,23 @@ export const resetPasswordSchema = z
     password: passwordField,
     confirmPassword: z.string(),
   })
-  .refine((values) => values.password === values.confirmPassword, {
-    message: "Les mots de passe ne correspondent pas.",
-    path: ["confirmPassword"],
+  .refine(passwordsMatch, PASSWORD_MISMATCH)
+
+export type PasswordPairInput = z.infer<typeof passwordPairSchema>
+
+export const createUserSchema = userBaseSchema
+  .extend({
+    password: passwordField,
+    confirmPassword: z.string(),
   })
+  .refine(
+    (values) => values.password === values.confirmPassword,
+    PASSWORD_MISMATCH
+  )
+
+export const updateUserSchema = userBaseSchema.extend({ id: z.string().min(1) })
+
+export const deleteUserSchema = z.object({ id: z.string().min(1) })
 
 export type CreateUserInput = z.infer<typeof createUserSchema>
 export type UpdateUserInput = z.infer<typeof updateUserSchema>
@@ -141,6 +176,12 @@ export const clientAssignmentSchema = z.object({
   userId: z.string().min(1),
   firmId: z.string().min(1),
   clientIds: z.array(z.string()),
+})
+
+/** The dialog picks the clients; the user and the firm come from its props. */
+export const clientAssignmentFormSchema = clientAssignmentSchema.omit({
+  userId: true,
+  firmId: true,
 })
 
 /* ==========================================================================

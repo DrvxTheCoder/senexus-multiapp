@@ -56,7 +56,7 @@ guarantees testable.
 | `pnpm dev` | Development server |
 | `pnpm dev:clean` | Same, after clearing the Turbopack disk cache — use when a deleted file is still referenced |
 | `pnpm build` / `pnpm start` | Production build and server |
-| `pnpm test` | Unit tests (ceiling rules, form schemas) |
+| `pnpm test` | Unit tests: ceiling rules, form schemas, and jsdom smoke tests for the menus and dialogs |
 | `pnpm typecheck` / `pnpm lint` | TypeScript and ESLint |
 | `pnpm db:seed:dev` | Local development fixtures |
 | `pnpm check:queries` | Role-scoping harness and query timings |
@@ -75,6 +75,11 @@ It signs in as a STAFF account and attempts every administration action, which
 is the only way to show that authorisation holds on the *actions* and not merely
 on the pages. It writes two throwaway accounts and deletes them again, and
 refuses to run against anything but a local database.
+
+What neither `check:admin` nor a build can see is a menu or a dialog, because
+their content only mounts once someone clicks. `pnpm test` opens them in jsdom
+instead — that is what `src/components/shell/shell-menus.test.tsx` is for, after
+two client-only crashes shipped past a green build.
 
 ```bash
 node scripts/gen-data-model.mjs   # regenerate docs/DATA_MODEL.md
