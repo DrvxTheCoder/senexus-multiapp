@@ -67,3 +67,51 @@ export const resolveAssignedClientIds = cache(
     return rows.map((row) => row.clientId)
   }
 )
+
+export type UserFirmSummary = {
+  firmId: string
+  firmSlug: string
+  firmName: string
+  role: string
+  /** Empty string in the live data means "no logo", so it is normalised away. */
+  logo: string | null
+  themeColor: string | null
+}
+
+/**
+ * The caller's firms, with the presentation details the switcher and the firm
+ * chooser need.
+ *
+ * The JWT deliberately carries only identity and role (§3.2) — putting logo
+ * URLs in a cookie would grow every request to save one small indexed query.
+ * `user_firms` is unique on (userId, firmId), so this reads through that index.
+ */
+export const resolveUserFirms = cache(
+  async (userId: string): Promise<UserFirmSummary[]> => {
+    const rows = await db.userFirm.findMany({
+      where: { userId },
+      select: {
+        role: true,
+        firm: {
+          select: {
+            id: true,
+            slug: true,
+            name: true,
+            logo: true,
+            themeColor: true,
+          },
+        },
+      },
+      orderBy: { firm: { name: "asc" } },
+    })
+
+    return rows.map((row) => ({
+      firmId: row.firm.id,
+      firmSlug: row.firm.slug,
+      firmName: row.firm.name,
+      role: row.role,
+      logo: row.firm.logo?.trim() ? row.firm.logo : null,
+      themeColor: row.firm.themeColor,
+    }))
+  }
+)

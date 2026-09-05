@@ -7,7 +7,7 @@ import {
   SidebarRiskCard,
 } from "@/components/shell/sidebar-context"
 import { FirmProvider } from "@/components/firm-provider"
-import { getSession } from "@/server/auth/require-firm-access"
+import { resolveUserFirms } from "@/server/firms/resolve-firm"
 import { requireFirmPage } from "@/server/auth/firm-page"
 import { buildFirmTheme } from "@/server/firms/theme"
 import { getUiState } from "@/server/preferences/ui-state"
@@ -32,8 +32,9 @@ export default async function FirmLayout({
 
   const ctx = await requireFirmPage(firmSlug)
 
-  const [session, uiState] = await Promise.all([
-    getSession(),
+  const [memberships, uiState] = await Promise.all([
+    // Logos and brand colours are not in the JWT — see resolveUserFirms.
+    resolveUserFirms(ctx.userId),
     getUiState(ctx.userId, ctx.firmId),
   ])
 
@@ -58,7 +59,7 @@ export default async function FirmLayout({
           themeHex: theme.hex,
           modules: ctx.firm.modules,
           role: ctx.role,
-          memberships: session?.user.memberships ?? [],
+          memberships,
           user: {
             id: ctx.userId,
             name: ctx.userName,
