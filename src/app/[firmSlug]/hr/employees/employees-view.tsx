@@ -5,8 +5,25 @@ import { useRouter } from "next/navigation"
 import { useQueryStates } from "nuqs"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { Cancel01Icon, Download01Icon, Search01Icon } from "@hugeicons/core-free-icons"
+import {
+  ArrowDataTransferHorizontalIcon,
+  Cancel01Icon,
+  Delete02Icon,
+  Download01Icon,
+  Edit02Icon,
+  PlusSignIcon,
+  Search01Icon,
+  Upload04Icon,
+} from "@hugeicons/core-free-icons"
 
+import {
+  DeleteEmployeeDialog,
+  EmployeeDialog,
+  type EmployeeDefaults,
+  type EmployeeOption,
+} from "@/app/[firmSlug]/hr/employees/employee-dialogs"
+import { ImportEmployeesDialog } from "@/app/[firmSlug]/hr/employees/import-dialog"
+import { BulkTransferDialog } from "@/app/[firmSlug]/hr/transfers/transfer-dialogs"
 import { BulkActionBar } from "@/components/bulk-action-bar"
 import { DataTable } from "@/components/data-table"
 import { FacetFilter } from "@/components/filters/facet-filter"
@@ -65,6 +82,9 @@ export function EmployeesView({
   summary,
   savedViews,
   departments,
+  clients,
+  transferTargets,
+  canWrite,
   scoped,
 }: {
   firmSlug: string
@@ -72,9 +92,21 @@ export function EmployeesView({
   summary: EmployeeSummary
   savedViews: SavedView[]
   departments: { id: string; name: string }[]
+  clients: EmployeeOption[]
+  /** Sibling firms in the holding, for a transfer. */
+  transferTargets: { id: string; name: string }[]
+  canWrite: boolean
   scoped: boolean
 }) {
   const router = useRouter()
+  const [dialog, setDialog] = React.useState<
+    | { kind: "create" }
+    | { kind: "edit"; employee: EmployeeDefaults }
+    | { kind: "delete"; employee: { id: string; matricule: string; name: string } }
+    | { kind: "import" }
+    | { kind: "transfer"; ids: string[] }
+    | null
+  >(null)
   const [params, setParams] = useQueryStates(employeeSearchParams, {
     shallow: false,
     history: "push",
@@ -372,9 +404,61 @@ export function EmployeesView({
             </StatusPill>
           ),
       },
+      ...(canWrite
+        ? [
+            {
+              id: "actions",
+              enableSorting: false,
+              header: "",
+              meta: { align: "right" as const },
+              cell: ({ row }: { row: { original: EmployeeRow } }) => (
+                <div className="flex items-center justify-end gap-0.5">
+                  {/*
+                    Editing opens on the record, not here: the wizard writes
+                    every personal field, and the list only carries a handful of
+                    them. Opening it from a partial row would blank the rest.
+                  */}
+                  <button
+                    type="button"
+                    aria-label={`Modifier ${row.original.firstName} ${row.original.lastName}`}
+                    title="Modifier"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      router.push(
+                        `/${firmSlug}/hr/employees/${row.original.id}?edit=1`
+                      )
+                    }}
+                    className="grid size-7 place-items-center rounded-[7px] text-ink-3 hover:bg-sunken hover:text-ink"
+                  >
+                    <HugeiconsIcon icon={Edit02Icon} size={14} strokeWidth={1.8} />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Supprimer ${row.original.firstName} ${row.original.lastName}`}
+                    title="Supprimer"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      setDialog({
+                        kind: "delete",
+                        employee: {
+                          id: row.original.id,
+                          matricule: row.original.matricule,
+                          name: `${row.original.firstName} ${row.original.lastName}`,
+                        },
+                      })
+                    }}
+                    className="grid size-7 place-items-center rounded-[7px] text-ink-3 hover:bg-alert-tint hover:text-alert"
+                  >
+                    <HugeiconsIcon icon={Delete02Icon} size={14} strokeWidth={1.8} />
+                  </button>
+                </div>
+              ),
+            },
+          ]
+        : []),
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [allOnPage, selection]
+    [allOnPage, selection, canWrite, firmSlug, router]
   )
 
   const sorting: SortingState = query.sort.map((entry) => ({
@@ -404,6 +488,28 @@ export function EmployeesView({
           },
         ]}
         padded={false}
+        tools={
+          canWrite ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setDialog({ kind: "import" })}
+                className="inline-flex h-[30px] items-center gap-1.5 rounded-[7px] border border-line bg-surface px-2.5 text-[12.5px] hover:bg-sub"
+              >
+                <HugeiconsIcon icon={Upload04Icon} size={13} />
+                Importer
+              </button>
+              <button
+                type="button"
+                onClick={() => setDialog({ kind: "create" })}
+                className="inline-flex h-[30px] items-center gap-1.5 rounded-[7px] bg-ink px-2.5 text-[12.5px] font-medium text-paper hover:opacity-90"
+              >
+                <HugeiconsIcon icon={PlusSignIcon} size={13} />
+                Nouvel employé
+              </button>
+            </>
+          ) : null
+        }
         footer={{
           summary: (
             <span className="num">
@@ -567,8 +673,57 @@ export function EmployeesView({
               window.location.href = `/${firmSlug}/hr/employees/export${window.location.search}`
             },
           },
+          ...(canWrite && transferTargets.length > 0
+            ? [
+                {
+                  id: "transfer",
+                  label: "Transférer",
+                  icon: ArrowDataTransferHorizontalIcon,
+                  // Deliberately ids-only: a transfer writes one row per
+                  // employee and reserves one matricule each, so it must know
+                  // exactly who. "Everything matching" is not a safe input here.
+                  warning: selection.allMatching,
+                  onRun: () =>
+                    setDialog({ kind: "transfer", ids: [...selection.ids] }),
+                },
+              ]
+            : []),
         ]}
       />
+
+      {dialog?.kind === "create" || dialog?.kind === "edit" ? (
+        <EmployeeDialog
+          firmSlug={firmSlug}
+          employee={dialog.kind === "edit" ? dialog.employee : null}
+          clients={clients}
+          departments={departments}
+          onClose={() => setDialog(null)}
+        />
+      ) : null}
+
+      {dialog?.kind === "delete" ? (
+        <DeleteEmployeeDialog
+          firmSlug={firmSlug}
+          employee={dialog.employee}
+          onClose={() => setDialog(null)}
+        />
+      ) : null}
+
+      {dialog?.kind === "import" ? (
+        <ImportEmployeesDialog
+          firmSlug={firmSlug}
+          onClose={() => setDialog(null)}
+        />
+      ) : null}
+
+      {dialog?.kind === "transfer" ? (
+        <BulkTransferDialog
+          firmSlug={firmSlug}
+          employeeIds={dialog.ids}
+          firms={transferTargets}
+          onClose={() => setDialog(null)}
+        />
+      ) : null}
     </>
   )
 }

@@ -1,0 +1,127 @@
+"use client"
+
+import * as React from "react"
+
+import { cn } from "@/lib/utils"
+
+/**
+ * The field wrapper every form uses.
+ *
+ * It exists so that a label, its control, its error and its hint are wired to
+ * each other **once** rather than in thirty forms: the label points at the
+ * control, the error is announced, and `aria-invalid` / `aria-describedby` are
+ * derived rather than remembered. Getting that wrong is the most common way a
+ * form ends up unusable with a screen reader.
+ */
+export function Field({
+  label,
+  htmlFor,
+  error,
+  hint,
+  required,
+  className,
+  children,
+}: {
+  label: string
+  htmlFor: string
+  error?: string
+  hint?: string
+  required?: boolean
+  className?: string
+  children: React.ReactNode
+}) {
+  const errorId = error ? `${htmlFor}-error` : undefined
+  const hintId = hint ? `${htmlFor}-hint` : undefined
+
+  return (
+    <div className={cn("space-y-1.5", className)}>
+      <label htmlFor={htmlFor} className="block text-[12.5px] text-ink-2">
+        {label}
+        {required ? (
+          <span aria-hidden className="ml-0.5 text-alert">
+            *
+          </span>
+        ) : null}
+      </label>
+
+      {children}
+
+      {hint && !error ? (
+        <p id={hintId} className="text-[11.5px] text-ink-3">
+          {hint}
+        </p>
+      ) : null}
+
+      {error ? (
+        <p id={errorId} role="alert" className="text-[11.5px] text-alert">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+/** Props to spread onto the control inside a `Field`, so the wiring matches. */
+export function fieldProps(name: string, error?: string) {
+  return {
+    id: name,
+    name,
+    "aria-invalid": error ? true : undefined,
+    "aria-describedby": error ? `${name}-error` : undefined,
+  } as const
+}
+
+export const inputClass =
+  "h-9 w-full rounded-[7px] border border-line bg-surface px-2.5 text-[13px] outline-none transition-colors focus:border-brand aria-invalid:border-alert"
+
+export const selectClass = inputClass
+
+/** The primary submit button used across dialogs and forms. */
+export function SubmitButton({
+  pending,
+  children,
+  pendingLabel,
+  className,
+  disabled,
+}: {
+  pending: boolean
+  children: React.ReactNode
+  pendingLabel?: string
+  className?: string
+  disabled?: boolean
+}) {
+  return (
+    <button
+      type="submit"
+      disabled={pending || disabled}
+      className={cn(
+        "inline-flex h-9 items-center justify-center rounded-[7px] bg-ink px-3 text-[13px] font-medium text-paper transition-opacity hover:opacity-90 disabled:opacity-50",
+        className
+      )}
+    >
+      {pending ? (pendingLabel ?? "Enregistrement…") : children}
+    </button>
+  )
+}
+
+/** A form-level message, for failures that belong to no single field. */
+export function FormMessage({
+  tone = "error",
+  children,
+}: {
+  tone?: "error" | "success"
+  children: React.ReactNode
+}) {
+  if (!children) return null
+  return (
+    <p
+      role="alert"
+      className={cn(
+        "rounded-md px-2.5 py-1.5 text-[12.5px]",
+        tone === "error" ? "bg-alert-tint text-alert" : "bg-ok-tint text-ok"
+      )}
+    >
+      {children}
+    </p>
+  )
+}

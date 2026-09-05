@@ -23,10 +23,16 @@ export const dynamic = "force-dynamic"
  * confirm that the id exists.
  */
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ firmSlug: string; documentId: string }> }
 ) {
   const { firmSlug, documentId } = await params
+
+  // `?download=1` is what makes the Télécharger button save rather than
+  // navigate. Everything else keeps `inline`, so the preview dialog and a new
+  // tab both render the file instead of prompting.
+  const asAttachment =
+    new URL(request.url).searchParams.get("download") === "1"
 
   try {
     const ctx = await requireFirmAccess(firmSlug)
@@ -82,7 +88,7 @@ export async function GET(
         document.mimeType ?? upstream.headers.get("content-type") ?? "application/octet-stream",
       // `inline` so a PDF opens in the viewer; the filename is still honoured
       // when the user saves it.
-      "Content-Disposition": `inline; filename="${encodeURIComponent(document.fileName)}"`,
+      "Content-Disposition": `${asAttachment ? "attachment" : "inline"}; filename="${encodeURIComponent(document.fileName)}"`,
       // Personnel documents must not be cached by an intermediary.
       "Cache-Control": "private, no-store",
       "X-Content-Type-Options": "nosniff",

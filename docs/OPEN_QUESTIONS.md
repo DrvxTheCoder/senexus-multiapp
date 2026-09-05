@@ -243,3 +243,158 @@ A service worker is deliberately **not** included. The documented use for one
 here is push notifications, which nothing in the application sends yet, and an
 offline cache over per-firm personnel data would be a data-leak surface rather
 than a feature. Add one when there is a push story to serve.
+
+## Q15 — Who reaches `/admin`? · `DECIDED` — OWNER **or** ADMIN, checked on every action
+
+You chose to keep the legacy access rule rather than tighten it: being OWNER or
+ADMIN of any firm grants the cross-tenant console. What was missing was the
+enforcement, not the rule.
+
+Two things this build got wrong first, and now does not:
+
+- `requireHoldingAccess` admitted **OWNER only**, while the firm switcher offered
+  the Administration entry to OWNER *and* ADMIN. An administrator was handed a
+  link that always answered 403. The gate now matches the affordance.
+- The legacy `/api/firms` and `/api/users` routes checked only that a session
+  existed. Any signed-in user could create a firm, delete a colleague, or reset
+  a password — including their own account to OWNER. Every console mutation now
+  goes through `holdingAction`, which authorises before the handler runs and
+  audits inside the same transaction.
+
+This is verified rather than asserted: `pnpm check:admin` signs in as a STAFF
+account against a running production server and fires all nine administration
+actions at it, then reads the database back to prove that nothing was written —
+no firm created, no password changed, no module registered — and that the
+refused attempts left no audit rows. The same harness proves the admin happy
+path end to end: firm create/update/delete with the typed-name confirmation,
+user creation with a hashed password and a pre-verified email, RESPONSABLE
+client assignments replacing rather than merging, and duplicate slug and
+duplicate email arriving as field errors rather than Prisma stack traces.
+
+## Q16 — Matricule prefixes · `DECIDED` — `CI` and `SP`, stored per firm
+
+`generateNextMatricule` in the legacy app took a `prefix` parameter that no
+caller ever passed, so every firm numbered its employees `CI####` — including
+Synergie Pro. That is the root cause of the matricule collisions the transfer
+flow keeps hitting, and the reason `newMatricule` exists on `EmployeeTransfer`
+at all.
+
+The prefix now lives per firm in `FirmModule.settings.matriculePrefix` on the HR
+module — the schema's own JSON extension point, since the schema is frozen and
+there is no column for it — and is editable in the admin firm dialog. Firms with
+nothing configured fall back to initials derived from their slug. Existing
+matricules are never rewritten.
+
+You confirmed `SP` and `CI` are enough for now. Contract types with configurable
+legal durations remain a later change; the ceiling constants are collected in
+one file so that becomes an edit rather than a rewrite.
+
+## Q17 — Sidebar structure · `DECIDED` — ReUI anatomy, one account popover
+
+You pointed at the ReUI template sidebar and asked for its *structure*, keeping
+the module-grouped links as they are. What you singled out was the popover that
+opens from the profile chip.
+
+What changed, and why:
+
+- **Firm switching moved into the account popover.** It used to be a second
+  dropdown hanging off a chevron in the brand block, which meant two menus that
+  both answered "where am I and who am I". The brand block is now identity plus
+  the two controls that act on the shell itself — the alert bell and the
+  collapse toggle — and the popover holds Entreprises, Profil, Préférences,
+  Thème and Déconnexion in one place.
+- **The collapse toggle moved from the footer to the brand row.** It was the
+  last thing in the column, below the account chip, which is the least likely
+  place to look for it.
+- **Theme is an inline three-icon segmented control**, not three stacked rows.
+  It is a setting with a current value rather than three commands, and a
+  segmented control says that at a glance. They are real menu `RadioItem`s, so
+  arrow keys reach them and choosing one does not close the menu.
+- **The shortcuts printed in the menu are wired.** `⇧⌘P` opens the profile and
+  `⇧⌘Q` signs out (`⇧Ctrl` off Apple platforms, detected once at module load so
+  it cannot cause a hydration mismatch). A shortcut printed in a menu and not
+  implemented is worse than no shortcut.
+- **An alert bell** in the brand block, counting the same Décisions queue
+  through the same access-filtered resolver — so a responsable's badge counts
+  only their own portfolio. The badge shows at most `9+`; the exact figure is in
+  its accessible name. It is tinted rather than solid, because `--sx-signal`
+  means the legal ceiling and nothing else, and solid alert loses contrast in
+  the dark theme.
+
+Unchanged, as you asked: the module-grouped links, the "effectif par client"
+group with its per-client dots, the pinned legal-ceiling card, the search field
+that opens the command palette, and the icon-rail collapsed variant.
+
+## Q18 — The write layer · `DONE` — one spine, verified over HTTP
+
+Every mutation in the application goes through `defineAction`: input parsed
+from a schema shared with the form, authorisation from the caller's own session
+before the handler runs, the handler inside a transaction, the audit row written
+to that same transaction, and revalidation only after it commits. There are
+three entry points — `firmAction`, `holdingAction`, `sessionAction` — and no
+fourth way to write.
+
+What that structurally prevents, all of which the legacy application did
+somewhere: authorisation applied by copy-paste and forgotten in places, a firm
+id taken from the client rather than resolved from the session, an audit row
+that survives the failure of the write it describes, and a form whose rules
+disagree with the action's.
+
+**Behaviours kept verbatim.** Creating an employee creates their first contract
+in the same transaction, deriving its dates, position, salary and client from
+the fiche, with the `"Initial contract created during employee onboarding"`
+marker so rows written by either application read the same. Leave days are
+counted Monday to Friday, inclusive of both ends. Bcrypt cost 10.
+
+**Behaviours fixed.**
+
+- Editing an employee used to desynchronise the active contract in silence. The
+  edit now asks, and the result says which contract it touched.
+- Terminating a contract now pulls its end date back to the termination, so the
+  730-day cumulation stops on the day the work did.
+- Deleting a document removes the stored file too. Every deleted document used
+  to leak its blob on the Zipline instance forever.
+- An upload that fails to insert deletes the blob it just wrote, because the
+  upload is a call to another host and cannot join the transaction.
+- The CSV import had no role check at all.
+- Archiving a client is refused while employees or active contracts are still
+  attached, rather than silently emptying a responsable's portfolio.
+
+**Public holidays are not subtracted from leave.** There is nowhere in the
+frozen schema to record the Senegalese calendar, and a hard-coded list would be
+wrong the first time a movable feast shifted. This matches the legacy
+calculation. If it matters, the place to put it is a `FirmModule.settings` key.
+
+## Q19 — Transfers · `DONE` — the four fixes, proven
+
+The state machine is the legacy one, deliberately: the destination firm
+approves, the source firm completes. `requireFirmAccess` authorises one firm and
+a transfer touches two, so each step authorises the **correct side** — the piece
+the legacy code lacked entirely, where any signed-in user could act on any
+transfer.
+
+1. **Duplicate guard.** A new request is refused while any transfer for that
+   employee is in a non-terminal state — `PENDING` **or** `APPROVED`. The legacy
+   guard checked `PENDING` only, which is how one employee ended up with two.
+2. **Destination contract.** Completion now opens a contract in the destination
+   firm. Before, it closed the source contracts, moved the person, and left them
+   belonging to a firm and employed by nobody — visible in the live deployment
+   today. The request dialog had the checkbox and never sent it; the choice is
+   now recorded on the request and honoured at completion.
+3. **Bulk transfer** is one server action in one transaction, replacing a
+   browser-side loop that could half-succeed. Matricules are reserved in
+   sequence inside that transaction, so a batch of thirty cannot hand out the
+   same number twice.
+4. **Client assignment** is written only when the transfer names one. Completion
+   used to set it unconditionally, so a transfer raised without a client
+   silently cleared the employee's existing assignment.
+
+Two further guards that are not fixes so much as the rules stated out loud: the
+effective date gates completion, and the reserved matricule is re-checked at
+both approval and completion, because weeks pass in between and the number can
+be taken.
+
+`pnpm check:hr` proves all of it against a running production server — the
+second request refused at both `PENDING` and `APPROVED`, the employee arriving
+in the destination firm with an `SP` matricule and an **active contract**, and
+every source contract closed.

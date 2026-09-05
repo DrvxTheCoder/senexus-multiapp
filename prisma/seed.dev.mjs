@@ -125,6 +125,8 @@ function drawInterimDays() {
 const FIRMS = {
   "connect-interim": {
     prefix: "CI",
+    displayName: "Connect Interim",
+    themeColor: "#b45309",
     headcount: 430,
     interimShare: 0.68,
     clients: [
@@ -146,8 +148,10 @@ const FIRMS = {
       ["Administration", "ADM"],
     ],
   },
-  "senexus-consulting": {
-    prefix: "SC",
+  "synergie-pro": {
+    prefix: "SP",
+    displayName: "Synergie Pro",
+    themeColor: "#2563eb",
     headcount: 58,
     interimShare: 0.15,
     clients: [
@@ -175,11 +179,66 @@ async function main() {
   const firms = await db.firm.findMany({ select: { id: true, slug: true, name: true } })
   const bySlug = Object.fromEntries(firms.map((f) => [f.slug, f]))
 
-  for (const slug of Object.keys(FIRMS)) {
-    if (!bySlug[slug]) throw new Error(`Firm "${slug}" is missing from the database.`)
+  // A fresh database has no firms at all, and refusing to run was a poor first
+  // experience: the seed now creates what it needs under the single holding.
+  // One holding, whatever it is called. Creating a second one is not a
+  // cosmetic mistake: a transfer is only legal between filiales of the *same*
+  // holding, so two holdings silently make every transfer impossible.
+  const holding =
+    (await db.holding.findFirst({
+      orderBy: { createdAt: "asc" },
+      select: { id: true },
+    })) ??
+    (await db.holding.create({
+      data: {
+        name: "Groupe Senexus",
+        description: "Holding du groupe, Dakar.",
+      },
+      select: { id: true },
+    }))
+
+  for (const [slug, config] of Object.entries(FIRMS)) {
+    if (bySlug[slug]) continue
+    bySlug[slug] = await db.firm.create({
+      data: {
+        holdingId: holding.id,
+        slug,
+        name: config.displayName,
+        themeColor: config.themeColor ?? "#0b5d53",
+      },
+      select: { id: true, slug: true, name: true },
+    })
+    console.log(`Created firm ${config.displayName}.`)
   }
 
-  const firmIds = firms.map((f) => f.id)
+  // The second firm was seeded as `senexus-consulting` before the real name was
+  // confirmed. Left behind it becomes a third firm full of stale fixtures that
+  // every dashboard counts. Removed here, and only here — this seed already
+  // refuses to run against anything but a local database.
+  const retired = await db.firm.findUnique({
+    where: { slug: "senexus-consulting" },
+    select: { id: true },
+  })
+  if (retired) {
+    console.log("Removing the retired senexus-consulting fixture…")
+    await db.employeeTransfer.deleteMany({
+      where: { OR: [{ fromFirmId: retired.id }, { toFirmId: retired.id }] },
+    })
+    await db.firm.delete({ where: { id: retired.id } })
+  }
+
+  // A firm seeded before this rule existed may sit under a second holding.
+  await db.firm.updateMany({
+    where: {
+      slug: { in: Object.keys(FIRMS) },
+      NOT: { holdingId: holding.id },
+    },
+    data: { holdingId: holding.id },
+  })
+  await db.holding.deleteMany({ where: { firms: { none: {} } } })
+
+  const seededFirms = Object.keys(FIRMS).map((slug) => bySlug[slug])
+  const firmIds = seededFirms.map((f) => f.id)
 
   // ---- wipe domain data for the seeded firms (never users/firms/holdings) --
   console.log("Clearing existing domain rows…")
@@ -236,12 +295,53 @@ async function main() {
     }
   }
 
-  for (const firm of firms) {
+  for (const firm of seededFirms) {
     await db.firmModule.upsert({
       where: { firmId_moduleId: { firmId: firm.id, moduleId: documentsModule.id } },
       update: { isEnabled: true },
       create: { firmId: firm.id, moduleId: documentsModule.id, isEnabled: true },
     })
+
+    // Every firm needs HR and CRM enabled, or its routes 404.
+    for (const slug of ["hr", "crm"]) {
+      const mod = await db.module.findUnique({ where: { slug } })
+      if (!mod) continue
+      await db.firmModule.upsert({
+        where: { firmId_moduleId: { firmId: firm.id, moduleId: mod.id } },
+        update: { isEnabled: true },
+        create: { firmId: firm.id, moduleId: mod.id, isEnabled: true },
+      })
+    }
+  }
+
+  // ---- matricule prefixes ------------------------------------------------
+  // The single most consequential legacy defect: `generateNextMatricule` took a
+  // prefix nobody passed, so every firm numbered its people `CI####`. The
+  // prefix lives per firm in the HR module's settings — the schema's own JSON
+  // extension point — and the seed writes it so generated matricules match the
+  // ones in the fixtures.
+  if (hrModule) {
+    for (const [slug, config] of Object.entries(FIRMS)) {
+      const firm = bySlug[slug]
+      const existing = await db.firmModule.findUnique({
+        where: { firmId_moduleId: { firmId: firm.id, moduleId: hrModule.id } },
+        select: { settings: true },
+      })
+      await db.firmModule.upsert({
+        where: { firmId_moduleId: { firmId: firm.id, moduleId: hrModule.id } },
+        update: {
+          isEnabled: true,
+          settings: { ...(existing?.settings ?? {}), matriculePrefix: config.prefix },
+        },
+        create: {
+          firmId: firm.id,
+          moduleId: hrModule.id,
+          isEnabled: true,
+          settings: { matriculePrefix: config.prefix },
+        },
+      })
+      console.log(`  ${firm.name}: matricules ${config.prefix}####`)
+    }
   }
 
   // ---- users -------------------------------------------------------------
@@ -284,6 +384,24 @@ async function main() {
       update: { role },
       create: { userId: user.id, firmId: connectInterim.id, role },
     })
+  }
+
+  // The manager also belongs to the destination firm: a transfer is approved by
+  // the receiving side and completed by the sending side, so testing the flow
+  // end to end needs one account that can act on both.
+  for (const firm of seededFirms) {
+    await db.userFirm.upsert({
+      where: { userId_firmId: { userId: manager.id, firmId: firm.id } },
+      update: {},
+      create: { userId: manager.id, firmId: firm.id, role: "MANAGER" },
+    })
+    if (owner) {
+      await db.userFirm.upsert({
+        where: { userId_firmId: { userId: owner.id, firmId: firm.id } },
+        update: {},
+        create: { userId: owner.id, firmId: firm.id, role: "OWNER" },
+      })
+    }
   }
 
   // ---- per-firm data -----------------------------------------------------
@@ -624,7 +742,7 @@ async function main() {
 
   // ---- transfers between the two firms -----------------------------------
   const transferSource = employeesByFirm["connect-interim"].slice(0, 6)
-  const consulting = bySlug["senexus-consulting"]
+  const destination = bySlug["synergie-pro"]
   let transferIndex = 0
   for (const employee of transferSource) {
     const status = ["PENDING", "PENDING", "APPROVED", "REJECTED", "COMPLETED", "CANCELLED"][
@@ -634,7 +752,7 @@ async function main() {
       data: {
         employeeId: employee.id,
         fromFirmId: connectInterim.id,
-        toFirmId: consulting.id,
+        toFirmId: destination.id,
         transferDate: addDays(TODAY, -int(5, 60)),
         effectiveDate: addDays(TODAY, int(-30, 45)),
         reason: pick([
@@ -643,7 +761,7 @@ async function main() {
           "Réaffectation après fin de mission",
         ]),
         status,
-        newMatricule: `SC${String(900 + transferIndex).padStart(4, "0")}`,
+        newMatricule: `SP${String(900 + transferIndex).padStart(4, "0")}`,
         requestedBy: owner?.id ?? manager.id,
         approvedBy: ["APPROVED", "COMPLETED"].includes(status)
           ? (owner?.id ?? manager.id)

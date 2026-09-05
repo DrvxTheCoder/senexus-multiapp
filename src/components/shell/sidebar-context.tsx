@@ -1,4 +1,6 @@
 import Link from "next/link"
+import { HugeiconsIcon } from "@hugeicons/react"
+import { Notification03Icon } from "@hugeicons/core-free-icons"
 
 import { db } from "@/lib/db"
 import { clientDotVar } from "@/lib/client-color"
@@ -9,11 +11,12 @@ import {
   INTERIM_CEILING_DAYS,
   INTERIM_WARNING_DAYS,
 } from "@/server/domain/interim-ceiling"
+import { countDecisions } from "@/server/queries/decisions"
 import { interimCeilingCte } from "@/server/queries/ceiling-sql"
 import { Prisma } from "@prisma/client"
 
 /**
- * §5.1 — the two contextual blocks in the sidebar.
+ * §5.1 — the contextual blocks in the sidebar.
  *
  * Both are server components rendered into slots on the client sidebar, so the
  * shell itself never fetches. Both are firm- and role-scoped, and both are
@@ -21,6 +24,40 @@ import { Prisma } from "@prisma/client"
  * doubles as a filter, and the risk card is the fastest route to the people who
  * need a decision.
  */
+
+/**
+ * The alert bell in the brand block.
+ *
+ * It counts the same queue the Décisions page lists, through the same
+ * access-filtered resolver — so a responsable's badge counts only their own
+ * portfolio. A bell that silently over-counted would be worse than no bell.
+ */
+export async function SidebarAlertBell({ ctx }: { ctx: FirmContext }) {
+  const count = await countDecisions(ctx)
+
+  return (
+    <Link
+      href={`/${ctx.firm.slug}/decisions`}
+      aria-label={
+        count > 0
+          ? `Décisions, ${count} en attente`
+          : "Décisions, rien en attente"
+      }
+      title="Décisions"
+      className="relative grid size-7 shrink-0 place-items-center rounded-[7px] text-ink-3 transition-colors hover:bg-sunken hover:text-ink"
+    >
+      <HugeiconsIcon icon={Notification03Icon} size={16} strokeWidth={1.8} />
+      {count > 0 ? (
+        // Tinted rather than solid: `--sx-signal` means the legal ceiling and
+        // nothing else, and solid alert loses its contrast in the dark theme.
+        // The exact figure is in the label; two glyphs is all this fits.
+        <span className="num absolute -top-px -right-px grid h-[14px] min-w-[14px] place-items-center rounded-full bg-alert-tint px-[3px] text-[9px] leading-none font-semibold text-alert ring-1 ring-alert/20">
+          {count > 9 ? "9+" : count}
+        </span>
+      ) : null}
+    </Link>
+  )
+}
 
 /** "Effectif par client" — the contextual filter group. */
 export async function SidebarClientGroup({ ctx }: { ctx: FirmContext }) {
@@ -53,7 +90,7 @@ export async function SidebarClientGroup({ ctx }: { ctx: FirmContext }) {
 
   return (
     <>
-      <p className="px-5 pt-3 pb-1.5 text-[11px] font-medium text-ink-3">
+      <p className="px-5 pt-3 pb-1.5 text-[11px] font-medium tracking-[0.02em] text-ink-3 uppercase">
         Effectif par client
       </p>
       <ul className="px-2">

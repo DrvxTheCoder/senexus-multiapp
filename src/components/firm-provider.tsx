@@ -3,7 +3,6 @@
 import * as React from "react"
 import type { FirmRole } from "@prisma/client"
 
-import type { FirmMembership } from "@/types/auth"
 
 export type FirmContextValue = {
   id: string
@@ -14,8 +13,15 @@ export type FirmContextValue = {
   themeHex: string | null
   modules: string[]
   role: FirmRole
-  /** Every firm the caller belongs to, for the firm switcher. */
-  memberships: FirmMembership[]
+  /** Every firm the caller belongs to, for the firm switcher, with its mark. */
+  memberships: {
+    firmId: string
+    firmSlug: string
+    firmName: string
+    role: string
+    logo: string | null
+    themeColor: string | null
+  }[]
   user: { id: string; name: string | null; email: string }
 }
 

@@ -15,7 +15,7 @@ import { useFirm } from "@/components/firm-provider"
 import { Avatar, ClientDot } from "@/components/primitives"
 import { clientDotVar } from "@/lib/client-color"
 import { commandSearch } from "@/server/actions/search"
-import { WORKSPACE_NAV, visibleNavItems } from "@/components/shell/nav-config"
+import { visibleNavItems } from "@/components/shell/nav-config"
 import type { SearchHit } from "@/server/queries/search"
 import { cn } from "@/lib/utils"
 
@@ -127,7 +127,7 @@ export function CommandPalette() {
   /* ---- navigation entries, filtered client-side (they are a fixed list) -- */
   const navHits: NavHit[] = React.useMemo(() => {
     const trimmed = term.trim().toLowerCase()
-    return visibleNavItems(WORKSPACE_NAV, firm.modules)
+    return visibleNavItems(firm.modules)
       .filter((item) => !trimmed || item.label.toLowerCase().includes(trimmed))
       .slice(0, trimmed ? 4 : 8)
       .map((item) => ({

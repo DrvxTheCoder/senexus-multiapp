@@ -8,11 +8,20 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import {
   Cancel01Icon,
   Download01Icon,
+  Edit02Icon,
+  PlusSignIcon,
   RefreshIcon,
   Search01Icon,
   ShieldCheckIcon,
+  StopIcon,
 } from "@hugeicons/core-free-icons"
 
+import {
+  ContractDialog,
+  RenewContractDialog,
+  TerminateContractDialog,
+  type ContractDefaults,
+} from "@/app/[firmSlug]/hr/contracts/contract-dialogs"
 import { BulkActionBar } from "@/components/bulk-action-bar"
 import { DataTable } from "@/components/data-table"
 import { FacetFilter } from "@/components/filters/facet-filter"
@@ -33,6 +42,7 @@ import { RenewalPreflightDialog } from "@/app/[firmSlug]/hr/contracts/renewal-pr
 import { contractSearchParams, toContractQuery } from "@/lib/queries/contract-params"
 import { formatDate, formatDays, formatNumber, initials } from "@/lib/format"
 import { clientDotVar } from "@/lib/client-color"
+import { stampVisa } from "@/server/actions/contract-crud"
 import { removeResourceView, saveResourceView } from "@/server/actions/views"
 import type { ContractRow, ContractSummary } from "@/server/queries/contracts"
 import type { Paged } from "@/server/queries/types"
@@ -75,6 +85,7 @@ export function ContractsView({
   summary,
   savedViews,
   clients,
+  employees,
   scoped,
   canRenew,
 }: {
@@ -83,7 +94,9 @@ export function ContractsView({
   summary: ContractSummary
   savedViews: SavedView[]
   clients: { id: string; name: string }[]
+  employees: { id: string; name: string; matricule: string }[]
   scoped: boolean
+  /** MANAGER and above: the same bar that gates every write on this screen. */
   canRenew: boolean
 }) {
   const router = useRouter()
@@ -96,6 +109,17 @@ export function ContractsView({
   const query = toContractQuery(params)
 
   const [preflightOpen, setPreflightOpen] = React.useState(false)
+  const [dialog, setDialog] = React.useState<
+    | { kind: "create" }
+    | { kind: "edit"; contract: ContractDefaults }
+    | { kind: "terminate"; contract: { id: string; employeeName: string } }
+    | {
+        kind: "renew"
+        contract: { id: string; employeeName: string; usedDays: number }
+      }
+    | null
+  >(null)
+  const [visaError, setVisaError] = React.useState<string | null>(null)
   const [pending, startTransition] = React.useTransition()
 
   /* ---- selection state -------------------------------------------------- */
@@ -504,9 +528,101 @@ export function ContractsView({
           </StatusPill>
         ),
       },
+      ...(canRenew
+        ? [
+            {
+              id: "actions",
+              enableSorting: false,
+              header: "",
+              meta: { align: "right" as const },
+              cell: ({ row }: { row: { original: ContractRow } }) => {
+                const contract = row.original
+                const closed =
+                  contract.status === "TERMINATED" ||
+                  contract.status === "RENEWED"
+                const name = `${contract.employee.firstName} ${contract.employee.lastName}`
+
+                return (
+                  <div className="flex items-center justify-end gap-0.5">
+                    <button
+                      type="button"
+                      title={closed ? "Contrat clos" : "Modifier"}
+                      aria-label={`Modifier le contrat de ${name}`}
+                      disabled={closed}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        setDialog({
+                          kind: "edit",
+                          contract: {
+                            id: contract.id,
+                            employeeId: contract.employee.id,
+                            type: contract.type,
+                            startDate: toInput(contract.startDate),
+                            endDate: toInput(contract.endDate),
+                            clientId: contract.client?.id ?? "",
+                            position: contract.position ?? "",
+                            salary:
+                              contract.salary === null
+                                ? ""
+                                : String(Math.round(contract.salary)),
+                            workingHours: "",
+                            trialPeriodEnd: "",
+                            alertThreshold: 30,
+                            isAutoRenewal: false,
+                            isVise: contract.isVise,
+                            notes: "",
+                          },
+                        })
+                      }}
+                      className="grid size-7 place-items-center rounded-[7px] text-ink-3 hover:bg-sunken hover:text-ink disabled:opacity-30"
+                    >
+                      <HugeiconsIcon icon={Edit02Icon} size={14} strokeWidth={1.8} />
+                    </button>
+                    <button
+                      type="button"
+                      title="Renouveler"
+                      aria-label={`Renouveler le contrat de ${name}`}
+                      disabled={closed}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        setDialog({
+                          kind: "renew",
+                          contract: {
+                            id: contract.id,
+                            employeeName: name,
+                            usedDays: contract.ceiling.usedDays,
+                          },
+                        })
+                      }}
+                      className="grid size-7 place-items-center rounded-[7px] text-ink-3 hover:bg-sunken hover:text-ink disabled:opacity-30"
+                    >
+                      <HugeiconsIcon icon={RefreshIcon} size={14} strokeWidth={1.8} />
+                    </button>
+                    <button
+                      type="button"
+                      title="Résilier"
+                      aria-label={`Résilier le contrat de ${name}`}
+                      disabled={contract.status === "TERMINATED"}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        setDialog({
+                          kind: "terminate",
+                          contract: { id: contract.id, employeeName: name },
+                        })
+                      }}
+                      className="grid size-7 place-items-center rounded-[7px] text-ink-3 hover:bg-alert-tint hover:text-alert disabled:opacity-30"
+                    >
+                      <HugeiconsIcon icon={StopIcon} size={14} strokeWidth={1.8} />
+                    </button>
+                  </div>
+                )
+              },
+            },
+          ]
+        : []),
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [allOnPage, allMatching, selected]
+    [allOnPage, allMatching, selected, canRenew]
   )
 
   /* ---- sorting ---------------------------------------------------------- */
@@ -543,6 +659,18 @@ export function ContractsView({
           },
         ]}
         padded={false}
+        tools={
+          canRenew ? (
+            <button
+              type="button"
+              onClick={() => setDialog({ kind: "create" })}
+              className="inline-flex h-[30px] items-center gap-1.5 rounded-[7px] bg-ink px-2.5 text-[12.5px] font-medium text-paper hover:opacity-90"
+            >
+              <HugeiconsIcon icon={PlusSignIcon} size={13} />
+              Nouveau contrat
+            </button>
+          ) : null
+        }
         footer={{
           summary: (
             <span className="num">
@@ -697,6 +825,30 @@ export function ContractsView({
               onRun: () => setPreflightOpen(true),
             },
             {
+              id: "visa",
+              label: "Apposer le visa",
+              icon: ShieldCheckIcon,
+              // ids only: a visa is a per-row stamp, and "everything matching"
+              // would need the resolver to enumerate the query anyway.
+              warning: allMatching,
+              onRun: () => {
+                setVisaError(null)
+                startTransition(async () => {
+                  const result = await stampVisa({
+                    firmSlug,
+                    ids: [...selected],
+                    isVise: true,
+                  })
+                  if (!result.ok) {
+                    setVisaError(result.message)
+                    return
+                  }
+                  clearSelection()
+                  router.refresh()
+                })
+              },
+            },
+            {
               id: "export",
               label: "Exporter",
               icon: Download01Icon,
@@ -705,6 +857,41 @@ export function ContractsView({
               },
             },
           ]}
+        />
+      ) : null}
+
+      {visaError ? (
+        <p
+          role="alert"
+          className="fixed bottom-20 left-1/2 z-30 -translate-x-1/2 rounded-md bg-alert-tint px-3 py-1.5 text-[12.5px] text-alert shadow-lg"
+        >
+          {visaError}
+        </p>
+      ) : null}
+
+      {dialog?.kind === "create" || dialog?.kind === "edit" ? (
+        <ContractDialog
+          firmSlug={firmSlug}
+          contract={dialog.kind === "edit" ? dialog.contract : null}
+          employees={employees}
+          clients={clients}
+          onClose={() => setDialog(null)}
+        />
+      ) : null}
+
+      {dialog?.kind === "terminate" ? (
+        <TerminateContractDialog
+          firmSlug={firmSlug}
+          contract={dialog.contract}
+          onClose={() => setDialog(null)}
+        />
+      ) : null}
+
+      {dialog?.kind === "renew" ? (
+        <RenewContractDialog
+          firmSlug={firmSlug}
+          contract={dialog.contract}
+          onClose={() => setDialog(null)}
         />
       ) : null}
 
@@ -725,4 +912,9 @@ export function ContractsView({
       />
     </>
   )
+}
+
+/** A `Date` as the string an `<input type="date">` expects. */
+function toInput(value: Date | null): string {
+  return value ? new Date(value).toISOString().slice(0, 10) : ""
 }

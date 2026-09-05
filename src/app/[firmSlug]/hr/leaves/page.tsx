@@ -10,6 +10,7 @@ import {
   loadLeaveSearchParams,
   toLeaveQuery,
 } from "@/lib/queries/leave-params"
+import { db } from "@/lib/db"
 import { requireFirmPage } from "@/server/auth/firm-page"
 import {
   leaveQuerySchema,
@@ -18,6 +19,7 @@ import {
   listLeaves,
 } from "@/server/queries/leaves"
 import { isScoped } from "@/server/queries/scope"
+import { roleAtLeast } from "@/types/auth"
 
 export const metadata: Metadata = { title: "Congés" }
 
@@ -70,10 +72,22 @@ async function LeavesPanel({
   const month = parsed.month ?? currentMonth()
 
   // The calendar and the list run the same resolver; only the shape differs.
-  const [page, summary, calendar] = await Promise.all([
+  const [page, summary, calendar, employees] = await Promise.all([
     listLeaves(query, ctx),
     leaveSummary(query, ctx),
     parsed.view === "calendrier" ? leavesInMonth(month, ctx) : Promise.resolve(null),
+    db.employee.findMany({
+      where: {
+        firmId: ctx.firmId,
+        status: { in: ["ACTIVE", "ON_LEAVE"] },
+        ...(ctx.assignedClientIds
+          ? { assignedClientId: { in: ctx.assignedClientIds } }
+          : {}),
+      },
+      select: { id: true, firstName: true, lastName: true, matricule: true },
+      orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+      take: 1000,
+    }),
   ])
 
   return (
@@ -83,6 +97,13 @@ async function LeavesPanel({
       summary={summary}
       calendar={calendar?.rows ?? []}
       month={month}
+      employees={employees.map((employee) => ({
+        id: employee.id,
+        name: `${employee.firstName} ${employee.lastName}`,
+        matricule: employee.matricule,
+      }))}
+      canWrite={roleAtLeast(ctx.role, "STAFF")}
+      canApprove={roleAtLeast(ctx.role, "MANAGER")}
       scoped={isScoped(ctx)}
     />
   )

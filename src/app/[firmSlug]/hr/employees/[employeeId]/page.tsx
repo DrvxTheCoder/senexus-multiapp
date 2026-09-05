@@ -2,6 +2,11 @@ import type { Metadata } from "next"
 import Link from "next/link"
 import { notFound } from "next/navigation"
 
+import {
+  DocumentActions,
+  RecordHeaderActions,
+  UploadDocumentButton,
+} from "@/app/[firmSlug]/hr/employees/[employeeId]/record-actions"
 import { DocumentCard } from "@/components/document-card"
 import { FieldList } from "@/components/field-list"
 import { InterimMeterPanel } from "@/components/interim-meter"
@@ -24,7 +29,9 @@ import {
   serializeEmployeeSearchParams,
   toEmployeeQuery,
 } from "@/lib/queries/employee-params"
+import { db } from "@/lib/db"
 import { requireFirmPage } from "@/server/auth/firm-page"
+import { roleAtLeast } from "@/types/auth"
 import { INTERIM_CEILING_DAYS } from "@/server/domain/interim-ceiling"
 import { getEmployeeRecord } from "@/server/queries/employee-record"
 import { employeeIdSequence } from "@/server/queries/employees"
@@ -114,6 +121,75 @@ export default async function EmployeePage({
   const year = new Date().getFullYear()
   const currentBalances = balances.filter((balance) => balance.year === year)
 
+  const canWrite = roleAtLeast(ctx.role, "MANAGER")
+
+  const [clients, departments, siblings] = await Promise.all([
+    canWrite
+      ? db.client.findMany({
+          where: {
+            firmId: ctx.firmId,
+            status: { in: ["ACTIVE", "PROSPECT"] },
+            ...(ctx.assignedClientIds ? { id: { in: ctx.assignedClientIds } } : {}),
+          },
+          select: { id: true, name: true },
+          orderBy: { name: "asc" },
+        })
+      : Promise.resolve([]),
+    canWrite
+      ? db.department.findMany({
+          where: { firmId: ctx.firmId },
+          select: { id: true, name: true },
+          orderBy: { name: "asc" },
+        })
+      : Promise.resolve([]),
+    canWrite
+      ? db.firm.findMany({
+          where: { holdingId: ctx.firm.holdingId, NOT: { id: ctx.firmId } },
+          orderBy: { name: "asc" },
+          select: {
+            id: true,
+            name: true,
+            clients: {
+              where: { status: { in: ["ACTIVE", "PROSPECT"] } },
+              orderBy: { name: "asc" },
+              select: { id: true, name: true, firmId: true },
+            },
+          },
+        })
+      : Promise.resolve([]),
+  ])
+
+  const toInput = (value: Date | null | undefined) =>
+    value ? new Date(value).toISOString().slice(0, 10) : ""
+
+  const editDefaults = {
+    id: employee.id,
+    name: `${employee.firstName} ${employee.lastName}`,
+    firstName: employee.firstName,
+    lastName: employee.lastName,
+    matricule: employee.matricule,
+    dateOfBirth: toInput(employee.dateOfBirth),
+    placeOfBirth: employee.placeOfBirth ?? "",
+    gender: employee.gender ?? "",
+    maritalStatus: employee.maritalStatus ?? "",
+    nationality: employee.nationality ?? "",
+    cni: employee.cni ?? "",
+    fatherName: employee.fatherName ?? "",
+    motherName: employee.motherName ?? "",
+    phone: employee.phone ?? "",
+    email: employee.email ?? "",
+    address: employee.address ?? "",
+    hireDate: toInput(employee.hireDate),
+    jobTitle: employee.jobTitle ?? "",
+    category: employee.category ?? "",
+    departmentId: employee.department?.id ?? "",
+    assignedClientId: employee.assignedClient?.id ?? "",
+    status: employee.status,
+    netSalary:
+      employee.netSalary === null ? "" : String(Math.round(Number(employee.netSalary))),
+    contractEndDate: toInput(employee.contractEndDate),
+  }
+
   return (
     <>
       <TopBar
@@ -159,6 +235,19 @@ export default async function EmployeePage({
                   </StatusPill>
                 </div>
               </div>
+
+              <RecordHeaderActions
+                firmSlug={firmSlug}
+                employee={editDefaults}
+                clients={clients}
+                departments={departments}
+                transferTargets={siblings.map((firm) => ({
+                  id: firm.id,
+                  name: firm.name,
+                }))}
+                transferClients={siblings.flatMap((firm) => firm.clients)}
+                canWrite={canWrite}
+              />
             </div>
 
             <RecordTabs
@@ -491,6 +580,14 @@ export default async function EmployeePage({
                     value: `${formatNumber(documents.filter((d) => d.isVerified).length)} sur ${formatNumber(documents.length)}`,
                   },
                 ]}
+                tools={
+                  canWrite ? (
+                    <UploadDocumentButton
+                      firmSlug={firmSlug}
+                      employeeId={employee.id}
+                    />
+                  ) : null
+                }
                 footer={{
                   summary: (() => {
                     const pending = documents.filter((d) => !d.isVerified).length
@@ -524,16 +621,30 @@ export default async function EmployeePage({
                 ) : (
                   <div className="grid gap-2.5 pt-1 sm:grid-cols-2 xl:grid-cols-3">
                     {documents.map((document) => (
-                      <DocumentCard
+                      <div
                         key={document.id}
-                        id={document.id}
-                        fileName={document.fileName}
-                        documentType={document.documentType}
-                        fileSize={document.fileSize}
-                        expiryDate={document.expiryDate}
-                        isVerified={document.isVerified}
-                        firmSlug={firmSlug}
-                      />
+                        className="flex items-center gap-1.5"
+                      >
+                        <DocumentCard
+                          id={document.id}
+                          fileName={document.fileName}
+                          documentType={document.documentType}
+                          fileSize={document.fileSize}
+                          mimeType={document.mimeType}
+                          expiryDate={document.expiryDate}
+                          isVerified={document.isVerified}
+                          firmSlug={firmSlug}
+                        />
+                        <DocumentActions
+                          firmSlug={firmSlug}
+                          document={{
+                            id: document.id,
+                            isVerified: document.isVerified,
+                            fileName: document.fileName,
+                          }}
+                          canVerify={canWrite}
+                        />
+                      </div>
                     ))}
                   </div>
                 )}
