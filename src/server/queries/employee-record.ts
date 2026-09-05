@@ -46,6 +46,10 @@ export async function getEmployeeRecord(employeeId: string, ctx: FirmContext) {
       fatherName: true,
       motherName: true,
       netSalary: true,
+      // Needed by the edit wizard, which writes every field it shows: a form
+      // that renders a blank because the query did not select the column would
+      // clear the value on save.
+      contractEndDate: true,
       createdAt: true,
       updatedAt: true,
       assignedClient: { select: { id: true, name: true } },

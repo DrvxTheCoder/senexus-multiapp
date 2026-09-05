@@ -4,25 +4,34 @@ Target from §3.6: **p95 server time under 300 ms for a 50-row list page on a
 500-employee firm.** Met with room to spare.
 
 Measured against the seeded development database, built to production shape:
-488 employees, 932 contracts, 2 202 documents, 15 clients across two firms.
+488 employees, 1 026 contracts, 2 151 documents, 15 clients across two firms of
+one holding — Connect Interim (`CI`) and Synergie Pro (`SP`).
 
 ## Production build (`next build && next start`)
 
 Twelve samples per route, full request time including render and the RSC
-payload, signed in as an unrestricted administrator.
+payload, signed in as an unrestricted administrator. Re-measured after the write
+layer landed: every list now also renders its row actions, and the pages that
+gained a dialog also load the pickers those dialogs need (clients, employees,
+sibling firms).
 
 | Route | p50 | **p95** | fastest |
 | --- | ---: | ---: | ---: |
-| `/hr/contracts` — 50 rows of 932 | 53 ms | **72 ms** | 44 ms |
-| `/hr/employees` — 50 rows of 430 | 144 ms | **157 ms** | 123 ms |
-| `/dashboard` — 7 aggregate panels | 83 ms | **111 ms** | 70 ms |
-| `/hr/employees/[id]` — 5-tab record | 56 ms | **59 ms** | 50 ms |
-| `/crm/clients` | 27 ms | **33 ms** | 19 ms |
-| `/decisions` | 49 ms | **59 ms** | 41 ms |
+| `/hr/employees` — 50 rows of 430 | 162 ms | **191 ms** | 141 ms |
+| `/hr/contracts` — 50 rows of 932 | 77 ms | **119 ms** | 56 ms |
+| `/dashboard` — 7 aggregate panels | 89 ms | **105 ms** | 77 ms |
+| `/decisions` | 51 ms | **64 ms** | 48 ms |
+| `/hr/leaves` | 38 ms | **48 ms** | 36 ms |
+| `/documents` | 34 ms | **42 ms** | 33 ms |
+| `/crm/clients` | 33 ms | **41 ms** | 29 ms |
+| `/hr/transfers` | 30 ms | **37 ms** | 28 ms |
 
-The employees list is the heaviest page: it runs the ceiling CTE, a lateral join
-for each employee's current contract, four facet counts and a five-part summary.
-It is still at half the budget.
+The employees list is still the heaviest page and still at two-thirds of the
+budget: it runs the ceiling CTE, a lateral join for each employee's current
+contract, four facet counts, a five-part summary, and now the client and firm
+lists the create wizard and the transfer dialog need. Those three extra queries
+cost roughly 30 ms of its 191 ms, which is the price of not fetching anything
+from the browser after the page paints.
 
 ## Resolver only (SQL + hydration, no render)
 

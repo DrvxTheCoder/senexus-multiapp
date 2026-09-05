@@ -61,6 +61,7 @@ guarantees testable.
 | `pnpm db:seed:dev` | Local development fixtures |
 | `pnpm check:queries` | Role-scoping harness and query timings |
 | `pnpm check:admin` | The administration console, over real HTTP |
+| `pnpm check:hr` | The HR write layer and the transfer flow, over real HTTP |
 
 `check:admin` needs a **production** server running, because it reads
 server-action ids out of `.next/static` and fires them at the app the way the
@@ -76,7 +77,15 @@ is the only way to show that authorisation holds on the *actions* and not merely
 on the pages. It writes two throwaway accounts and deletes them again, and
 refuses to run against anything but a local database.
 
-What neither `check:admin` nor a build can see is a menu or a dialog, because
+`check:hr` runs the same way and proves the claims inspection cannot settle:
+creating an employee creates their contract in the same transaction, a CSV
+import reports a bad row and a duplicate and still imports the rest, the 730-day
+ceiling blocks a renewal that would cross it, a second transfer is refused while
+one is PENDING *and* while one is APPROVED, and completing a transfer leaves the
+employee with an active contract in the destination firm. It cleans up after
+itself and can be run repeatedly.
+
+What neither harness nor a build can see is a menu or a dialog, because
 their content only mounts once someone clicks. `pnpm test` opens them in jsdom
 instead — that is what `src/components/shell/shell-menus.test.tsx` is for, after
 two client-only crashes shipped past a green build.
@@ -123,8 +132,7 @@ Four properties the code is arranged to guarantee:
 - Error tracking is **not** wired. GlitchTip was removed after it was confirmed
   never to have worked; the PII scrubber written for it is in history at
   commit `ea746e4` and can be lifted onto whatever replaces it.
-- Settings is read-only. It shows what governs behaviour; editing arrives with
-  the write layer.
+- Settings is read-only. It shows what governs behaviour.
 - **Documents is a module row.** The navigation entry and the employee Documents
   tab appear only where a `documents` module exists and is enabled for the firm.
   Production has no such row, which is why the section looked missing rather than

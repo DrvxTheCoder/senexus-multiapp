@@ -10,6 +10,7 @@ import {
   toClientQuery,
 } from "@/lib/queries/client-params"
 import { requireFirmPage } from "@/server/auth/firm-page"
+import { roleAtLeast } from "@/types/auth"
 import {
   clientPlacements,
   clientSummary,
@@ -86,6 +87,7 @@ async function ClientsPanel({
       scoped={isScoped(ctx)}
       openClientId={openClientId}
       placements={placements}
+      canWrite={roleAtLeast(ctx.role, "MANAGER")}
       hrEnabled={ctx.firm.modules.includes("hr")}
     />
   )

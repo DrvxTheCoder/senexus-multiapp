@@ -73,7 +73,7 @@ async function ContractsPanel({
   const ctx = await requireFirmPage(firmSlug, { module: "hr" })
   const query = toContractQuery(loadContractSearchParams(raw))
 
-  const [page, summary, savedViews, clients] = await Promise.all([
+  const [page, summary, savedViews, clients, employees] = await Promise.all([
     listContracts(query, ctx),
     contractSummary(query, ctx),
     listSavedViews(ctx, "contracts"),
@@ -89,6 +89,20 @@ async function ContractsPanel({
       select: { id: true, name: true },
       orderBy: { name: "asc" },
     }),
+    // The picker in the contract dialog. Same scope: a responsable may only
+    // write a contract for someone in their own portfolio.
+    db.employee.findMany({
+      where: {
+        firmId: ctx.firmId,
+        status: { in: ["ACTIVE", "ON_LEAVE"] },
+        ...(ctx.assignedClientIds
+          ? { assignedClientId: { in: ctx.assignedClientIds } }
+          : {}),
+      },
+      select: { id: true, firstName: true, lastName: true, matricule: true },
+      orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+      take: 1000,
+    }),
   ])
 
   return (
@@ -98,6 +112,11 @@ async function ContractsPanel({
       summary={summary}
       savedViews={savedViews}
       clients={clients}
+      employees={employees.map((employee) => ({
+        id: employee.id,
+        name: `${employee.firstName} ${employee.lastName}`,
+        matricule: employee.matricule,
+      }))}
       scoped={isScoped(ctx)}
       canRenew={ctx.role === "OWNER" || ctx.role === "ADMIN" || ctx.role === "MANAGER"}
     />

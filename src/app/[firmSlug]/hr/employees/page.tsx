@@ -15,6 +15,7 @@ import { requireFirmPage } from "@/server/auth/firm-page"
 import { employeeSummary, listEmployees } from "@/server/queries/employees"
 import { listSavedViews } from "@/server/queries/saved-views"
 import { isScoped } from "@/server/queries/scope"
+import { roleAtLeast } from "@/types/auth"
 
 export const metadata: Metadata = { title: "Employés" }
 
@@ -65,16 +66,36 @@ async function EmployeesPanel({
   const ctx = await requireFirmPage(firmSlug, { module: "hr" })
   const query = toEmployeeQuery(loadEmployeeSearchParams(raw))
 
-  const [page, summary, savedViews, departments] = await Promise.all([
-    listEmployees(query, ctx),
-    employeeSummary(query, ctx),
-    listSavedViews(ctx, "employees"),
-    db.department.findMany({
-      where: { firmId: ctx.firmId },
-      select: { id: true, name: true },
-      orderBy: { name: "asc" },
-    }),
-  ])
+  const canWrite = roleAtLeast(ctx.role, "MANAGER")
+
+  const [page, summary, savedViews, departments, clients, transferTargets] =
+    await Promise.all([
+      listEmployees(query, ctx),
+      employeeSummary(query, ctx),
+      listSavedViews(ctx, "employees"),
+      db.department.findMany({
+        where: { firmId: ctx.firmId },
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
+      }),
+      db.client.findMany({
+        where: {
+          firmId: ctx.firmId,
+          status: { in: ["ACTIVE", "PROSPECT"] },
+          // A responsable can only assign within their own portfolio.
+          ...(ctx.assignedClientIds ? { id: { in: ctx.assignedClientIds } } : {}),
+        },
+        select: { id: true, name: true },
+        orderBy: { name: "asc" },
+      }),
+      canWrite
+        ? db.firm.findMany({
+            where: { holdingId: ctx.firm.holdingId, NOT: { id: ctx.firmId } },
+            select: { id: true, name: true },
+            orderBy: { name: "asc" },
+          })
+        : Promise.resolve([]),
+    ])
 
   return (
     <EmployeesView
@@ -83,6 +104,9 @@ async function EmployeesPanel({
       summary={summary}
       savedViews={savedViews}
       departments={departments}
+      clients={clients}
+      transferTargets={transferTargets}
+      canWrite={canWrite}
       scoped={isScoped(ctx)}
     />
   )

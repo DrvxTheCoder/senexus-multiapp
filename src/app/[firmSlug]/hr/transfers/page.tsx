@@ -2,6 +2,10 @@ import type { Metadata } from "next"
 import Link from "next/link"
 import { Suspense } from "react"
 
+import {
+  NewTransferButton,
+  TransferRowActions,
+} from "@/app/[firmSlug]/hr/transfers/transfers-actions"
 import { Panel } from "@/components/panel"
 import { Avatar, StatusPill, TwoFacts } from "@/components/primitives"
 import { TopBar } from "@/components/shell/top-bar"
@@ -9,6 +13,7 @@ import { db } from "@/lib/db"
 import { formatDate, formatDays, formatNumber, initials } from "@/lib/format"
 import { requireFirmPage } from "@/server/auth/firm-page"
 import type { FirmContext } from "@/server/auth/require-firm-access"
+import { roleAtLeast } from "@/types/auth"
 
 export const metadata: Metadata = { title: "Transferts" }
 
@@ -92,6 +97,7 @@ async function loadTransfers(ctx: FirmContext) {
       reason: true,
       newMatricule: true,
       rejectionReason: true,
+      notes: true,
       employee: {
         select: { id: true, firstName: true, lastName: true, matricule: true },
       },
@@ -106,7 +112,24 @@ async function loadTransfers(ctx: FirmContext) {
     ...transfer,
     outgoing: transfer.fromFirm.id === ctx.firmId,
     ageDays: Math.round((now - transfer.transferDate.getTime()) / 86_400_000),
+    // The effective date is a gate on completion, so whether it has arrived is
+    // decided here rather than by reading the clock during render.
+    effectiveReached: transfer.effectiveDate.getTime() <= now,
+    // `notes` carries the request's options as JSON — the schema is frozen and
+    // has nowhere else to put them. A row written by the legacy application
+    // holds free text, so this reads either.
+    note: readNote(transfer.notes),
   }))
+}
+
+function readNote(notes: string | null): string | null {
+  if (!notes) return null
+  try {
+    const parsed = JSON.parse(notes) as { note?: string | null }
+    return parsed.note ?? null
+  } catch {
+    return notes
+  }
 }
 
 async function TransfersPanel({
@@ -116,8 +139,51 @@ async function TransfersPanel({
   ctx: FirmContext
   firmSlug: string
 }) {
-  const transfers = await loadTransfers(ctx)
+  const canWrite = roleAtLeast(ctx.role, "MANAGER")
+
+  const [transfers, siblings, employees] = await Promise.all([
+    loadTransfers(ctx),
+    // Every other firm in the same holding — a transfer never leaves the group.
+    canWrite
+      ? db.firm.findMany({
+          where: { holdingId: ctx.firm.holdingId, NOT: { id: ctx.firmId } },
+          orderBy: { name: "asc" },
+          select: {
+            id: true,
+            name: true,
+            clients: {
+              where: { status: { in: ["ACTIVE", "PROSPECT"] } },
+              orderBy: { name: "asc" },
+              select: { id: true, name: true, firmId: true },
+            },
+          },
+        })
+      : Promise.resolve([]),
+    canWrite
+      ? db.employee.findMany({
+          where: {
+            firmId: ctx.firmId,
+            status: { in: ["ACTIVE", "ON_LEAVE"] },
+            ...(ctx.assignedClientIds
+              ? { assignedClientId: { in: ctx.assignedClientIds } }
+              : {}),
+          },
+          orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+          take: 1000,
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            matricule: true,
+          },
+        })
+      : Promise.resolve([]),
+  ])
+
   const pending = transfers.filter((transfer) => transfer.status === "PENDING")
+  const awaitingUs = transfers.filter(
+    (transfer) => transfer.status === "PENDING" && !transfer.outgoing
+  )
 
   return (
     <Panel
@@ -130,13 +196,32 @@ async function TransfersPanel({
           value: formatNumber(pending.length),
           tone: pending.length > 0 ? "signal" : "default",
         },
+        {
+          label: "À approuver",
+          value: formatNumber(awaitingUs.length),
+          tone: awaitingUs.length > 0 ? "alert" : "default",
+        },
       ]}
       padded={false}
+      tools={
+        canWrite ? (
+          <NewTransferButton
+            firmSlug={firmSlug}
+            employees={employees.map((employee) => ({
+              id: employee.id,
+              name: `${employee.firstName} ${employee.lastName}`,
+              matricule: employee.matricule,
+            }))}
+            firms={siblings.map((firm) => ({ id: firm.id, name: firm.name }))}
+            clients={siblings.flatMap((firm) => firm.clients)}
+          />
+        ) : null
+      }
       footer={{
         summary:
           transfers.length === 0
             ? "Aucun transfert enregistré."
-            : "Un transfert finalisé clôt les contrats de la filiale d'origine et attribue un nouveau matricule.",
+            : "Finaliser clôt les contrats de la filiale d'origine, attribue le nouveau matricule et ouvre le contrat d'arrivée.",
       }}
     >
       {transfers.length === 0 ? (
@@ -152,10 +237,18 @@ async function TransfersPanel({
             const { outgoing, ageDays } = transfer
 
             return (
-              <li key={transfer.id}>
+              <li
+                key={transfer.id}
+                className="flex flex-wrap items-center gap-3 border-b border-line px-[15px] py-2.5 last:border-b-0"
+              >
+                {/*
+                  The row is no longer one big anchor: it holds buttons now, and
+                  a button inside an anchor is neither valid nor operable. The
+                  link is the employee, which is what it always meant.
+                */}
                 <Link
                   href={`/${firmSlug}/hr/employees/${transfer.employee.id}?tab=parcours`}
-                  className="flex items-center gap-3 border-b border-line px-[15px] py-2.5 last:border-b-0 hover:bg-brand-wash"
+                  className="flex min-w-0 flex-1 items-center gap-3 rounded-[7px] hover:text-brand"
                 >
                   <Avatar
                     initials={initials(
@@ -163,7 +256,6 @@ async function TransfersPanel({
                       transfer.employee.lastName
                     )}
                   />
-
                   <TwoFacts
                     className="min-w-0 flex-1"
                     primary={
@@ -182,36 +274,57 @@ async function TransfersPanel({
                         ) : null}
                         {" · "}
                         {transfer.reason}
+                        {transfer.note ? ` · ${transfer.note}` : null}
                       </>
                     }
                   />
-
-                  <div className="hidden min-w-0 shrink-0 text-[12.5px] text-ink-2 sm:block">
-                    <div className="truncate">
-                      {outgoing ? "vers " : "depuis "}
-                      <b className="font-medium">
-                        {outgoing ? transfer.toFirm.name : transfer.fromFirm.name}
-                      </b>
-                    </div>
-                    <div className="text-[11.5px] text-ink-3">
-                      effet le {formatDate(transfer.effectiveDate)}
-                    </div>
-                  </div>
-
-                  <StatusPill dot tone={STATUS[transfer.status]?.tone ?? "muted"}>
-                    {STATUS[transfer.status]?.label ?? transfer.status}
-                  </StatusPill>
-
-                  <span
-                    className={`num w-16 shrink-0 text-right text-[11.5px] ${
-                      transfer.status === "PENDING" && ageDays > 14
-                        ? "font-medium text-signal"
-                        : "text-ink-3"
-                    }`}
-                  >
-                    {formatDays(ageDays)}
-                  </span>
                 </Link>
+
+                <div className="hidden min-w-0 shrink-0 text-[12.5px] text-ink-2 sm:block">
+                  <div className="truncate">
+                    {outgoing ? "vers " : "depuis "}
+                    <b className="font-medium">
+                      {outgoing ? transfer.toFirm.name : transfer.fromFirm.name}
+                    </b>
+                  </div>
+                  <div className="text-[11.5px] text-ink-3">
+                    effet le {formatDate(transfer.effectiveDate)}
+                  </div>
+                </div>
+
+                <StatusPill dot tone={STATUS[transfer.status]?.tone ?? "muted"}>
+                  {STATUS[transfer.status]?.label ?? transfer.status}
+                </StatusPill>
+
+                {transfer.status === "REJECTED" && transfer.rejectionReason ? (
+                  <span className="max-w-[240px] truncate text-[11.5px] text-alert">
+                    {transfer.rejectionReason}
+                  </span>
+                ) : null}
+
+                {canWrite ? (
+                  <TransferRowActions
+                    firmSlug={firmSlug}
+                    transfer={{
+                      id: transfer.id,
+                      status: transfer.status,
+                      outgoing,
+                      employeeName: `${transfer.employee.firstName} ${transfer.employee.lastName}`,
+                      effective: formatDate(transfer.effectiveDate),
+                      effectiveReached: transfer.effectiveReached,
+                    }}
+                  />
+                ) : null}
+
+                <span
+                  className={`num w-16 shrink-0 text-right text-[11.5px] ${
+                    transfer.status === "PENDING" && ageDays > 14
+                      ? "font-medium text-signal"
+                      : "text-ink-3"
+                  }`}
+                >
+                  {formatDays(ageDays)}
+                </span>
               </li>
             )
           })}

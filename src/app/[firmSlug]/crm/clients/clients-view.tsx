@@ -6,8 +6,19 @@ import { useRouter } from "next/navigation"
 import { useQueryStates } from "nuqs"
 import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { Cancel01Icon, Search01Icon } from "@hugeicons/core-free-icons"
+import {
+  Archive02Icon,
+  Cancel01Icon,
+  Edit02Icon,
+  PlusSignIcon,
+  Search01Icon,
+} from "@hugeicons/core-free-icons"
 
+import {
+  ArchiveClientDialog,
+  ClientDialog,
+  type ClientDefaults,
+} from "@/app/[firmSlug]/crm/clients/client-dialogs"
 import { DataTable } from "@/components/data-table"
 import { FacetFilter } from "@/components/filters/facet-filter"
 import { Pager } from "@/components/list-controls"
@@ -59,6 +70,7 @@ export function ClientsView({
   openClientId,
   placements,
   hrEnabled,
+  canWrite,
 }: {
   firmSlug: string
   page: Paged<ClientRow>
@@ -73,8 +85,15 @@ export function ClientsView({
     jobTitle: string | null
   }[]
   hrEnabled: boolean
+  canWrite: boolean
 }) {
   const router = useRouter()
+  const [dialog, setDialog] = React.useState<
+    | { kind: "create" }
+    | { kind: "edit"; client: ClientDefaults }
+    | { kind: "archive"; client: { id: string; name: string } }
+    | null
+  >(null)
   const [params, setParams] = useQueryStates(clientSearchParams, {
     shallow: false,
     history: "push",
@@ -207,8 +226,71 @@ export function ClientsView({
             <span className="text-ink-3">—</span>
           ),
       },
+      ...(canWrite
+        ? [
+            {
+              id: "actions",
+              enableSorting: false,
+              header: "",
+              meta: { align: "right" as const },
+              cell: ({ row }: { row: { original: ClientRow } }) => (
+                <div className="flex items-center justify-end gap-0.5">
+                  <button
+                    type="button"
+                    title="Modifier"
+                    aria-label={`Modifier ${row.original.name}`}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      setDialog({
+                        kind: "edit",
+                        client: {
+                          id: row.original.id,
+                          name: row.original.name,
+                          status: row.original.status,
+                          contactName: row.original.contactName ?? "",
+                          contactEmail: row.original.contactEmail ?? "",
+                          contactPhone: row.original.contactPhone ?? "",
+                          taxNumber: "",
+                          industry: row.original.industry ?? "",
+                          address: row.original.address ?? "",
+                          contractStartDate: row.original.since
+                            ? new Date(row.original.since)
+                                .toISOString()
+                                .slice(0, 10)
+                            : "",
+                          contractEndDate: "",
+                          notes: "",
+                        },
+                      })
+                    }}
+                    className="grid size-7 place-items-center rounded-[7px] text-ink-3 hover:bg-sunken hover:text-ink"
+                  >
+                    <HugeiconsIcon icon={Edit02Icon} size={14} strokeWidth={1.8} />
+                  </button>
+                  <button
+                    type="button"
+                    title="Archiver"
+                    aria-label={`Archiver ${row.original.name}`}
+                    disabled={row.original.status === "ARCHIVED"}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      setDialog({
+                        kind: "archive",
+                        client: { id: row.original.id, name: row.original.name },
+                      })
+                    }}
+                    className="grid size-7 place-items-center rounded-[7px] text-ink-3 hover:bg-alert-tint hover:text-alert disabled:opacity-30"
+                  >
+                    <HugeiconsIcon icon={Archive02Icon} size={14} strokeWidth={1.8} />
+                  </button>
+                </div>
+              ),
+            },
+          ]
+        : []),
     ],
-    []
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [canWrite]
   )
 
   const sorting: SortingState = query.sort.map((entry) => ({
@@ -230,6 +312,18 @@ export function ClientsView({
           { label: "Masse", value: formatCurrencyCompact(summary.monthlyPayroll) },
         ]}
         padded={false}
+        tools={
+          canWrite ? (
+            <button
+              type="button"
+              onClick={() => setDialog({ kind: "create" })}
+              className="inline-flex h-[30px] items-center gap-1.5 rounded-[7px] bg-ink px-2.5 text-[12.5px] font-medium text-paper hover:opacity-90"
+            >
+              <HugeiconsIcon icon={PlusSignIcon} size={13} />
+              Nouveau client
+            </button>
+          ) : null
+        }
         footer={{
           summary: (
             <span className="num">
@@ -412,6 +506,22 @@ export function ClientsView({
           </>
         ) : null}
       </ResourceDrawer>
+
+      {dialog?.kind === "create" || dialog?.kind === "edit" ? (
+        <ClientDialog
+          firmSlug={firmSlug}
+          client={dialog.kind === "edit" ? dialog.client : null}
+          onClose={() => setDialog(null)}
+        />
+      ) : null}
+
+      {dialog?.kind === "archive" ? (
+        <ArchiveClientDialog
+          firmSlug={firmSlug}
+          client={dialog.client}
+          onClose={() => setDialog(null)}
+        />
+      ) : null}
     </>
   )
 }

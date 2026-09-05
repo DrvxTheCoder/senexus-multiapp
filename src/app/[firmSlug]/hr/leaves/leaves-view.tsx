@@ -7,8 +7,19 @@ import type { ColumnDef } from "@tanstack/react-table"
 import { format, parse } from "date-fns"
 import { fr } from "date-fns/locale"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { ArrowRight01Icon, Search01Icon } from "@hugeicons/core-free-icons"
+import {
+  ArrowRight01Icon,
+  Calendar03Icon,
+  PlusSignIcon,
+  Search01Icon,
+} from "@hugeicons/core-free-icons"
 
+import {
+  ApproveLeaveButton,
+  RejectLeaveDialog,
+  RequestLeaveDialog,
+  RolloverDialog,
+} from "@/app/[firmSlug]/hr/leaves/leave-dialogs"
 import { DataTable } from "@/components/data-table"
 import { FacetFilter } from "@/components/filters/facet-filter"
 import { Pager } from "@/components/list-controls"
@@ -56,6 +67,9 @@ export function LeavesView({
   summary,
   calendar,
   month,
+  employees,
+  canWrite,
+  canApprove,
   scoped,
 }: {
   firmSlug: string
@@ -63,9 +77,20 @@ export function LeavesView({
   summary: LeaveSummary
   calendar: LeaveRow[]
   month: string
+  employees: { id: string; name: string; matricule: string }[]
+  /** STAFF and above may raise a request. */
+  canWrite: boolean
+  /** MANAGER and above may decide one. */
+  canApprove: boolean
   scoped: boolean
 }) {
   const router = useRouter()
+  const [dialog, setDialog] = React.useState<
+    | { kind: "request" }
+    | { kind: "rollover" }
+    | { kind: "reject"; request: { id: string; employeeName: string } }
+    | null
+  >(null)
   const [params, setParams] = useQueryStates(leaveSearchParams, {
     shallow: false,
     history: "push",
@@ -165,8 +190,42 @@ export function LeavesView({
           </StatusPill>
         ),
       },
+      ...(canApprove
+        ? [
+            {
+              id: "decide",
+              header: "",
+              meta: { align: "right" as const },
+              cell: ({ row }: { row: { original: LeaveRow } }) => {
+                if (row.original.status !== "PENDING") return null
+                const name = `${row.original.employee.firstName} ${row.original.employee.lastName}`
+                return (
+                  <div className="flex items-center justify-end gap-1.5">
+                    <ApproveLeaveButton
+                      firmSlug={firmSlug}
+                      id={row.original.id}
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDialog({
+                          kind: "reject",
+                          request: { id: row.original.id, employeeName: name },
+                        })
+                      }
+                      className="h-7 rounded-[7px] border border-line bg-surface px-2.5 text-[12px] hover:bg-sub"
+                    >
+                      Refuser
+                    </button>
+                  </div>
+                )
+              },
+            },
+          ]
+        : []),
     ],
-    []
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [canApprove, firmSlug]
   )
 
   const from = page.total === 0 ? 0 : (page.page - 1) * page.perPage + 1
@@ -191,15 +250,38 @@ export function LeavesView({
         { label: "Jours ce mois", value: formatNumber(summary.daysThisMonth) },
       ]}
       tools={
-        <SegmentedControl
-          ariaLabel="Affichage"
-          value={params.view}
-          onChange={(value) => void setParams({ view: value, page: null })}
-          options={[
-            { value: "liste", label: "Liste" },
-            { value: "calendrier", label: "Calendrier" },
-          ]}
-        />
+        <>
+          <SegmentedControl
+            ariaLabel="Affichage"
+            value={params.view}
+            onChange={(value) => void setParams({ view: value, page: null })}
+            options={[
+              { value: "liste", label: "Liste" },
+              { value: "calendrier", label: "Calendrier" },
+            ]}
+          />
+          {canApprove ? (
+            <button
+              type="button"
+              onClick={() => setDialog({ kind: "rollover" })}
+              title="Ouvrir les soldes de l'année suivante"
+              className="inline-flex h-[30px] items-center gap-1.5 rounded-[7px] border border-line bg-surface px-2.5 text-[12.5px] hover:bg-sub"
+            >
+              <HugeiconsIcon icon={Calendar03Icon} size={13} />
+              Reporter les soldes
+            </button>
+          ) : null}
+          {canWrite ? (
+            <button
+              type="button"
+              onClick={() => setDialog({ kind: "request" })}
+              className="inline-flex h-[30px] items-center gap-1.5 rounded-[7px] bg-ink px-2.5 text-[12.5px] font-medium text-paper hover:opacity-90"
+            >
+              <HugeiconsIcon icon={PlusSignIcon} size={13} />
+              Nouvelle demande
+            </button>
+          ) : null}
+        </>
       }
       padded={false}
       footer={{
@@ -317,6 +399,26 @@ export function LeavesView({
           }
         />
       )}
+
+      {dialog?.kind === "request" ? (
+        <RequestLeaveDialog
+          firmSlug={firmSlug}
+          employees={employees}
+          onClose={() => setDialog(null)}
+        />
+      ) : null}
+
+      {dialog?.kind === "reject" ? (
+        <RejectLeaveDialog
+          firmSlug={firmSlug}
+          request={dialog.request}
+          onClose={() => setDialog(null)}
+        />
+      ) : null}
+
+      {dialog?.kind === "rollover" ? (
+        <RolloverDialog firmSlug={firmSlug} onClose={() => setDialog(null)} />
+      ) : null}
     </Panel>
   )
 }

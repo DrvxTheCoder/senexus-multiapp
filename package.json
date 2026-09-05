@@ -15,6 +15,7 @@
     "test": "vitest run",
     "check:queries": "vite-node -c vitest.config.ts scripts/check-query-layer.mts",
     "check:admin": "vite-node -c vitest.config.ts scripts/check-admin.mts",
+    "check:hr": "vite-node -c vitest.config.ts scripts/check-hr.mts",
     "test:watch": "vitest"
   },
   "dependencies": {
@@ -35,6 +36,7 @@
     "next-auth": "5.0.0-beta.32",
     "next-themes": "^0.4.6",
     "nuqs": "^2.10.1",
+    "papaparse": "^5.7.0",
     "prisma": "^6.19.3",
     "react": "19.2.4",
     "react-dom": "19.2.4",
@@ -49,6 +51,7 @@
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.7",
     "@types/node": "^20",
+    "@types/papaparse": "^5.5.2",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "babel-plugin-react-compiler": "^1.0.0",
