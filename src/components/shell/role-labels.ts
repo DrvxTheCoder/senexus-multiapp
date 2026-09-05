@@ -32,3 +32,11 @@ export const ROLE_DESCRIPTIONS: Record<FirmRole, string> = {
   STAFF: "Consultation et saisie courante.",
   VIEWER: "Consultation seule.",
 }
+
+/**
+ * Membership roles reach the client as plain strings (they come from the JWT,
+ * not from Prisma), so lookups go through this rather than an unchecked index.
+ */
+export function roleLabel(role: string): string {
+  return ROLE_LABELS[role as FirmRole] ?? role
+}

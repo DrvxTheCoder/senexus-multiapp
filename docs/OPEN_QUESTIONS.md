@@ -288,3 +288,39 @@ matricules are never rewritten.
 You confirmed `SP` and `CI` are enough for now. Contract types with configurable
 legal durations remain a later change; the ceiling constants are collected in
 one file so that becomes an edit rather than a rewrite.
+
+## Q17 — Sidebar structure · `DECIDED` — ReUI anatomy, one account popover
+
+You pointed at the ReUI template sidebar and asked for its *structure*, keeping
+the module-grouped links as they are. What you singled out was the popover that
+opens from the profile chip.
+
+What changed, and why:
+
+- **Firm switching moved into the account popover.** It used to be a second
+  dropdown hanging off a chevron in the brand block, which meant two menus that
+  both answered "where am I and who am I". The brand block is now identity plus
+  the two controls that act on the shell itself — the alert bell and the
+  collapse toggle — and the popover holds Entreprises, Profil, Préférences,
+  Thème and Déconnexion in one place.
+- **The collapse toggle moved from the footer to the brand row.** It was the
+  last thing in the column, below the account chip, which is the least likely
+  place to look for it.
+- **Theme is an inline three-icon segmented control**, not three stacked rows.
+  It is a setting with a current value rather than three commands, and a
+  segmented control says that at a glance. They are real menu `RadioItem`s, so
+  arrow keys reach them and choosing one does not close the menu.
+- **The shortcuts printed in the menu are wired.** `⇧⌘P` opens the profile and
+  `⇧⌘Q` signs out (`⇧Ctrl` off Apple platforms, detected once at module load so
+  it cannot cause a hydration mismatch). A shortcut printed in a menu and not
+  implemented is worse than no shortcut.
+- **An alert bell** in the brand block, counting the same Décisions queue
+  through the same access-filtered resolver — so a responsable's badge counts
+  only their own portfolio. The badge shows at most `9+`; the exact figure is in
+  its accessible name. It is tinted rather than solid, because `--sx-signal`
+  means the legal ceiling and nothing else, and solid alert loses contrast in
+  the dark theme.
+
+Unchanged, as you asked: the module-grouped links, the "effectif par client"
+group with its per-client dots, the pinned legal-ceiling card, the search field
+that opens the command palette, and the icon-rail collapsed variant.

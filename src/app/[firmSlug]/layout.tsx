@@ -3,6 +3,7 @@ import { Suspense } from "react"
 import { AppSidebar } from "@/components/shell/app-sidebar"
 import { CommandPalette } from "@/components/command-palette"
 import {
+  SidebarAlertBell,
   SidebarClientGroup,
   SidebarRiskCard,
 } from "@/components/shell/sidebar-context"
@@ -72,6 +73,11 @@ export default async function FirmLayout({
             initialCollapsed={uiState.sidebarCollapsed}
             // Server-rendered slots: the sidebar never fetches anything itself.
             // Suspense keeps a slow aggregate from delaying the whole shell.
+            alerts={
+              <Suspense fallback={null}>
+                <SidebarAlertBell ctx={ctx} />
+              </Suspense>
+            }
             clientNav={
               <Suspense fallback={null}>
                 <SidebarClientGroup ctx={ctx} />

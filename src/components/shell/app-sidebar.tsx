@@ -8,7 +8,6 @@ import {
   ArrowDown01Icon,
   ArrowRight01Icon,
   Search01Icon,
-  Settings02Icon,
   SidebarLeft01Icon,
 } from "@hugeicons/core-free-icons"
 
@@ -20,22 +19,32 @@ import { setSidebarCollapsed } from "@/server/preferences/actions"
 import { cn } from "@/lib/utils"
 
 /**
- * §5.1 — the labelled sidebar. 226px, collapsible to icons, collapse state
- * persisted per user through a server action.
+ * §5.1 — the labelled sidebar. 226px, collapsible to an icon rail, collapse
+ * state persisted per user through a server action.
  *
- * Navigation is grouped by module (see nav-config): each module is one
- * collapsible section, so switching a module off removes a whole labelled part
- * of the sidebar rather than silently dropping an item from a flat list.
+ * Anatomy, top to bottom:
  *
- * `clientNav` and `riskCard` are slots filled by server components higher up,
- * so the shell never fetches anything itself.
+ *   brand      the firm's mark and name, plus the two controls that act on the
+ *              shell itself — alerts and the collapse toggle
+ *   search     opens the command palette (⌘K)
+ *   navigation one collapsible section per module, so switching a module off
+ *              removes a whole labelled part rather than silently dropping an
+ *              item from a flat list
+ *   context    effectif par client, then the pinned legal-ceiling card
+ *   account    the consolidated profile popover — entreprises, profil, thème,
+ *              déconnexion
+ *
+ * `alerts`, `clientNav` and `riskCard` are slots filled by server components
+ * higher up, so the shell never fetches anything itself.
  */
 export function AppSidebar({
   initialCollapsed,
+  alerts,
   clientNav,
   riskCard,
 }: {
   initialCollapsed: boolean
+  alerts?: React.ReactNode
   clientNav?: React.ReactNode
   riskCard?: React.ReactNode
 }) {
@@ -54,6 +63,23 @@ export function AppSidebar({
     })
   }
 
+  const toggleButton = (
+    <button
+      type="button"
+      onClick={toggle}
+      aria-label={collapsed ? "Déplier le menu" : "Replier le menu"}
+      aria-expanded={!collapsed}
+      className="grid size-7 shrink-0 place-items-center rounded-[7px] text-ink-3 transition-colors hover:bg-sunken hover:text-ink"
+    >
+      <HugeiconsIcon
+        icon={SidebarLeft01Icon}
+        size={16}
+        strokeWidth={1.8}
+        className={cn(collapsed && "rotate-180")}
+      />
+    </button>
+  )
+
   return (
     <nav
       aria-label="Navigation principale"
@@ -63,7 +89,36 @@ export function AppSidebar({
         collapsed ? "w-[62px]" : "w-side"
       )}
     >
-      <FirmSwitcher collapsed={collapsed} />
+      {/* Brand. The firm switcher lives in the account popover, so this block
+          identifies the firm rather than acting as a control. */}
+      {collapsed ? (
+        <div className="flex flex-col items-center gap-1 px-3 py-2.5">
+          <Link href={`/${firm.slug}/dashboard`} title={firm.name}>
+            <FirmLogo name={firm.name} logo={firm.logo} themeColor={firm.themeHex} />
+          </Link>
+          {alerts}
+          {toggleButton}
+        </div>
+      ) : (
+        <div className="flex items-center gap-2.5 px-3 py-2.5">
+          <Link
+            href={`/${firm.slug}/dashboard`}
+            className="flex min-w-0 flex-1 items-center gap-2.5"
+          >
+            <FirmLogo name={firm.name} logo={firm.logo} themeColor={firm.themeHex} />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13.5px] font-semibold tracking-[-0.012em]">
+                {firm.name}
+              </span>
+              <span className="-mt-0.5 block truncate text-[11px] text-ink-3">
+                Senexus Group
+              </span>
+            </span>
+          </Link>
+          {alerts}
+          {toggleButton}
+        </div>
+      )}
 
       <button
         type="button"
@@ -74,6 +129,7 @@ export function AppSidebar({
         onClick={() => {
           document.dispatchEvent(new CustomEvent("senexus:open-command"))
         }}
+        title={collapsed ? "Rechercher (⌘K)" : undefined}
       >
         <HugeiconsIcon icon={Search01Icon} size={14} strokeWidth={1.8} />
         {!collapsed ? (
@@ -103,22 +159,6 @@ export function AppSidebar({
       {!collapsed ? riskCard : null}
 
       <UserMenu collapsed={collapsed} />
-
-      <button
-        type="button"
-        onClick={toggle}
-        aria-label={collapsed ? "Déplier le menu" : "Replier le menu"}
-        aria-expanded={!collapsed}
-        className="flex items-center justify-center gap-2 border-t border-line py-2 text-[11.5px] text-ink-3 hover:bg-sunken hover:text-ink"
-      >
-        <HugeiconsIcon
-          icon={SidebarLeft01Icon}
-          size={15}
-          strokeWidth={1.8}
-          className={cn(collapsed && "rotate-180")}
-        />
-        {!collapsed ? "Replier" : null}
-      </button>
     </nav>
   )
 }
@@ -195,7 +235,7 @@ function NavGroupSection({
   if (!group.collapsible) {
     return (
       <>
-        <p className="px-5 pt-3 pb-1.5 text-[11px] font-medium text-ink-3">
+        <p className="px-5 pt-3 pb-1.5 text-[11px] font-medium tracking-[0.02em] text-ink-3 uppercase">
           {group.label}
         </p>
         {items}
@@ -230,107 +270,6 @@ function NavGroupSection({
         />
       </button>
       {open ? items : null}
-    </div>
-  )
-}
-
-/* -------------------------------------------------------------------------- */
-
-/**
- * The firm switcher, with the synthetic **Administration** entry the legacy app
- * shows to anyone who is OWNER or ADMIN of any firm. It is not a `Firm` row —
- * it is a role-derived shortcut into the holding-level console.
- */
-function FirmSwitcher({ collapsed }: { collapsed: boolean }) {
-  const firm = useFirm()
-  const [open, setOpen] = React.useState(false)
-
-  const canAdminister = firm.memberships.some(
-    (membership) => membership.role === "OWNER" || membership.role === "ADMIN"
-  )
-  const hasChoice = firm.memberships.length > 1 || canAdminister
-
-  return (
-    <div className="relative flex items-center gap-2.5 px-3 py-2.5">
-      <FirmLogo name={firm.name} logo={firm.logo} themeColor={firm.themeHex} />
-
-      {!collapsed ? (
-        <>
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-[13.5px] font-semibold tracking-[-0.012em]">
-              {firm.name}
-            </span>
-            <span className="-mt-0.5 block truncate text-[11px] text-ink-3">
-              Senexus Group
-            </span>
-          </span>
-
-          {hasChoice ? (
-            <button
-              type="button"
-              aria-label="Changer d'entreprise"
-              aria-expanded={open}
-              onClick={() => setOpen((value) => !value)}
-              className="rounded p-1 text-ink-3 hover:bg-sunken hover:text-ink"
-            >
-              <HugeiconsIcon icon={ArrowDown01Icon} size={14} />
-            </button>
-          ) : null}
-        </>
-      ) : null}
-
-      {open ? (
-        <>
-          <div
-            aria-hidden
-            className="fixed inset-0 z-40"
-            onClick={() => setOpen(false)}
-          />
-          <ul className="absolute top-full left-3 z-50 w-56 overflow-hidden rounded-lg border border-line bg-surface py-1 shadow-lg">
-            {firm.memberships.map((membership) => (
-              <li key={membership.firmId}>
-                <Link
-                  href={`/${membership.firmSlug}/dashboard`}
-                  onClick={() => setOpen(false)}
-                  className={cn(
-                    "flex items-center gap-2.5 px-3 py-1.5 text-[13px] hover:bg-brand-wash",
-                    membership.firmSlug === firm.slug && "font-medium text-brand"
-                  )}
-                >
-                  <FirmLogo
-                    name={membership.firmName}
-                    logo={membership.logo}
-                    themeColor={membership.themeColor}
-                    size={20}
-                    radius={5}
-                  />
-                  <span className="truncate">{membership.firmName}</span>
-                </Link>
-              </li>
-            ))}
-
-            {canAdminister ? (
-              <>
-                <li aria-hidden className="my-1 border-t border-line" />
-                <li>
-                  <Link
-                    href="/admin"
-                    onClick={() => setOpen(false)}
-                    className="flex items-center gap-2 px-3 py-1.5 text-[13px] hover:bg-brand-wash"
-                  >
-                    <HugeiconsIcon
-                      icon={Settings02Icon}
-                      size={14}
-                      className="text-ink-3"
-                    />
-                    Administration
-                  </Link>
-                </li>
-              </>
-            ) : null}
-          </ul>
-        </>
-      ) : null}
     </div>
   )
 }
