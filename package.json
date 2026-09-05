@@ -13,6 +13,8 @@
     "typecheck": "tsc --noEmit",
     "db:seed:dev": "node prisma/seed.dev.mjs",
     "test": "vitest run",
+    "check:queries": "vite-node -c vitest.config.ts scripts/check-query-layer.mts",
+    "check:admin": "vite-node -c vitest.config.ts scripts/check-admin.mts",
     "test:watch": "vitest"
   },
   "dependencies": {

@@ -243,3 +243,48 @@ A service worker is deliberately **not** included. The documented use for one
 here is push notifications, which nothing in the application sends yet, and an
 offline cache over per-firm personnel data would be a data-leak surface rather
 than a feature. Add one when there is a push story to serve.
+
+## Q15 — Who reaches `/admin`? · `DECIDED` — OWNER **or** ADMIN, checked on every action
+
+You chose to keep the legacy access rule rather than tighten it: being OWNER or
+ADMIN of any firm grants the cross-tenant console. What was missing was the
+enforcement, not the rule.
+
+Two things this build got wrong first, and now does not:
+
+- `requireHoldingAccess` admitted **OWNER only**, while the firm switcher offered
+  the Administration entry to OWNER *and* ADMIN. An administrator was handed a
+  link that always answered 403. The gate now matches the affordance.
+- The legacy `/api/firms` and `/api/users` routes checked only that a session
+  existed. Any signed-in user could create a firm, delete a colleague, or reset
+  a password — including their own account to OWNER. Every console mutation now
+  goes through `holdingAction`, which authorises before the handler runs and
+  audits inside the same transaction.
+
+This is verified rather than asserted: `pnpm check:admin` signs in as a STAFF
+account against a running production server and fires all nine administration
+actions at it, then reads the database back to prove that nothing was written —
+no firm created, no password changed, no module registered — and that the
+refused attempts left no audit rows. The same harness proves the admin happy
+path end to end: firm create/update/delete with the typed-name confirmation,
+user creation with a hashed password and a pre-verified email, RESPONSABLE
+client assignments replacing rather than merging, and duplicate slug and
+duplicate email arriving as field errors rather than Prisma stack traces.
+
+## Q16 — Matricule prefixes · `DECIDED` — `CI` and `SP`, stored per firm
+
+`generateNextMatricule` in the legacy app took a `prefix` parameter that no
+caller ever passed, so every firm numbered its employees `CI####` — including
+Synergie Pro. That is the root cause of the matricule collisions the transfer
+flow keeps hitting, and the reason `newMatricule` exists on `EmployeeTransfer`
+at all.
+
+The prefix now lives per firm in `FirmModule.settings.matriculePrefix` on the HR
+module — the schema's own JSON extension point, since the schema is frozen and
+there is no column for it — and is editable in the admin firm dialog. Firms with
+nothing configured fall back to initials derived from their slug. Existing
+matricules are never rewritten.
+
+You confirmed `SP` and `CI` are enough for now. Contract types with configurable
+legal durations remain a later change; the ceiling constants are collected in
+one file so that becomes an edit rather than a rewrite.

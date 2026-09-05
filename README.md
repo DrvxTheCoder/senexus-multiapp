@@ -56,15 +56,28 @@ guarantees testable.
 | `pnpm dev` | Development server |
 | `pnpm dev:clean` | Same, after clearing the Turbopack disk cache — use when a deleted file is still referenced |
 | `pnpm build` / `pnpm start` | Production build and server |
-| `pnpm test` | Unit tests (the 730-day ceiling rules) |
+| `pnpm test` | Unit tests (ceiling rules, form schemas) |
 | `pnpm typecheck` / `pnpm lint` | TypeScript and ESLint |
 | `pnpm db:seed:dev` | Local development fixtures |
+| `pnpm check:queries` | Role-scoping harness and query timings |
+| `pnpm check:admin` | The administration console, over real HTTP |
 
-Two harnesses worth knowing:
+`check:admin` needs a **production** server running, because it reads
+server-action ids out of `.next/static` and fires them at the app the way the
+browser does:
 
 ```bash
-pnpm exec vite-node -c vitest.config.ts scripts/check-query-layer.mts   # role scoping + timings
-node scripts/gen-data-model.mjs                                          # regenerate docs/DATA_MODEL.md
+pnpm build && pnpm start
+pnpm check:admin
+```
+
+It signs in as a STAFF account and attempts every administration action, which
+is the only way to show that authorisation holds on the *actions* and not merely
+on the pages. It writes two throwaway accounts and deletes them again, and
+refuses to run against anything but a local database.
+
+```bash
+node scripts/gen-data-model.mjs   # regenerate docs/DATA_MODEL.md
 ```
 
 ## How it is put together
@@ -107,5 +120,9 @@ Four properties the code is arranged to guarantee:
   commit `ea746e4` and can be lifted onto whatever replaces it.
 - Settings is read-only. It shows what governs behaviour; editing arrives with
   the write layer.
+- **Documents is a module row.** The navigation entry and the employee Documents
+  tab appear only where a `documents` module exists and is enabled for the firm.
+  Production has no such row, which is why the section looked missing rather than
+  broken. `/admin/modules` creates and installs it in one click.
 - Payroll, missions, absences and IPM have models in the schema but were never
   implemented and are out of scope.

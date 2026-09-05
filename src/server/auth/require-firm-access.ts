@@ -109,9 +109,14 @@ export const requireHoldingAccess = cache(async (): Promise<string[]> => {
   if (!session?.user?.id) {
     throw new UnauthorizedError()
   }
-  const owned = session.user.memberships.filter((m) => m.role === "OWNER")
+  // OWNER **or** ADMIN, matching the legacy rule and the switcher: the
+  // Administration entry is offered to both, so the gate has to admit both or
+  // an administrator is handed a link that always answers 403.
+  const owned = session.user.memberships.filter(
+    (m) => m.role === "OWNER" || m.role === "ADMIN"
+  )
   if (owned.length === 0) {
-    throw new ForbiddenError("Administration réservée aux propriétaires.")
+    throw new ForbiddenError("Administration réservée aux administrateurs.")
   }
   return [...new Set(owned.map((m) => m.holdingId))]
 })
