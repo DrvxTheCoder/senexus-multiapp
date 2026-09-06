@@ -133,7 +133,7 @@ export function Panel({
   return (
     <section
       className={cn(
-        "overflow-hidden rounded-panel border border-line bg-surface",
+        "overflow-hidden rounded-panel border border-line bg-surface h-fit",
         className
       )}
     >

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Image from "next/image"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { signOut } from "next-auth/react"
@@ -32,6 +33,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { initials } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { size } from "zod"
 
 const NAV = [
   { label: "Vue d'ensemble", href: "/admin", icon: DashboardSquare01Icon },
@@ -63,12 +65,15 @@ export function AdminSidebar({
       className="flex w-side shrink-0 flex-col border-r border-line bg-sub"
     >
       <div className="flex items-center gap-2.5 px-3 py-2.5">
-        <span
-          aria-hidden
-          className="grid size-[26px] shrink-0 place-items-center rounded-[7px] bg-ink text-[10.5px] font-semibold text-paper"
-        >
-          SX
-        </span>
+        <Image
+          src="/icons/icon-512.png"
+          alt="Senexus Group"
+          width={30}
+          height={30}
+          priority
+          className="size-8 rounded-xs"
+        />
+
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[13.5px] font-semibold tracking-[-0.012em]">
             Administration

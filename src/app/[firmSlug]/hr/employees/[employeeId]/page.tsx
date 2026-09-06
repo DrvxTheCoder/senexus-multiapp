@@ -203,7 +203,7 @@ export default async function EmployeePage({
       />
 
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-[1420px] p-4.5">
+        <div className=" p-4.5">
           <RecordPager
             backHref={`/${firmSlug}/hr/employees${listSuffix}`}
             backLabel="Employés"

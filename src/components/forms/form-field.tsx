@@ -74,7 +74,37 @@ export function fieldProps(name: string, error?: string) {
 export const inputClass =
   "h-9 w-full rounded-[7px] border border-line bg-surface px-2.5 text-[13px] outline-none transition-colors focus:border-brand aria-invalid:border-alert"
 
+/**
+ * The select trigger and the date-picker button, held to the same geometry as
+ * `inputClass` so a form grid stays on one rhythm.
+ *
+ * The ReUI/shadcn primitives ship their own look — `h-8`, `rounded-lg`,
+ * `border-input`, and a `focus-visible:ring-3` halo. That is a second visual
+ * language next to the hand-built inputs, and §4.x is explicit that every
+ * component reads the sx tokens, so the size, radius, hairline and the single
+ * brand focus outline are overridden here rather than per call site. The
+ * primitives' *behaviour* — the popup, keyboard model, typeahead — is what we
+ * actually installed them for and is left alone.
+ */
+/**
+ * For the few native `<select>`s left outside `SelectControl`. Kept identical
+ * to `inputClass` so they still line up.
+ */
 export const selectClass = inputClass
+
+export const selectTriggerClass = cn(
+  inputClass,
+  "flex items-center justify-between gap-1.5 text-left font-normal",
+  // `h-9` from inputClass loses to the primitive's own `data-[size=default]:h-8`,
+  // which is a data-attribute selector and so more specific. Restated here on
+  // the same footing so the trigger matches the inputs beside it.
+  "data-[size=default]:h-9 data-[size=sm]:h-9",
+  // The primitives' focus ring, unset in favour of the global focus law.
+  "focus-visible:border-brand focus-visible:ring-0",
+  "data-[popup-open]:border-brand",
+  "data-placeholder:text-ink-3",
+  "disabled:cursor-not-allowed disabled:opacity-50"
+)
 
 /** The primary submit button used across dialogs and forms. */
 export function SubmitButton({

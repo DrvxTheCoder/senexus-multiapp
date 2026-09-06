@@ -11,7 +11,7 @@ import {
   type VisibilityState,
 } from "@tanstack/react-table"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { ArrowDown01Icon } from "@hugeicons/core-free-icons"
+import { ArrowDown01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons"
 
 import { cn } from "@/lib/utils"
 
@@ -25,6 +25,10 @@ import { cn } from "@/lib/utils"
  * to be re-sorted in the browser and disagree with the 932 behind it.
  *
  * Sorting state lives in the URL, so a sorted table is a shareable link.
+ *
+ * Rows can expand (`renderSubRows`), which is how a list that repeats one
+ * parent across many rows collapses into one row per parent. Expansion state
+ * is the caller's, like sorting and selection.
  *
  * Conventions from the prototype: sticky header, 45px rows, hairline
  * separators, hover tint, selected tint.
@@ -45,6 +49,16 @@ export type DataTableProps<TData> = {
   /** Accessible name for the table. */
   label: string
   empty?: React.ReactNode
+  /**
+   * Expandable rows. `renderSubRows` draws whatever hangs under an open row —
+   * it returns the `<tr>`s itself, so a child row can use the parent's columns
+   * or ignore them. Rows are open when `expandedIds` holds their id; a row is
+   * only expandable when `getSubRowCount` reports more than zero.
+   */
+  expandedIds?: Set<string>
+  onToggleExpand?: (id: string) => void
+  getSubRowCount?: (row: TData) => number
+  renderSubRows?: (row: TData) => React.ReactNode
 }
 
 export function DataTable<TData>({
@@ -59,6 +73,10 @@ export function DataTable<TData>({
   onRowClick,
   label,
   empty,
+  expandedIds,
+  onToggleExpand,
+  getSubRowCount,
+  renderSubRows,
 }: DataTableProps<TData>) {
   const table = useReactTable({
     data,
@@ -86,6 +104,7 @@ export function DataTable<TData>({
   })
 
   const rows = table.getRowModel().rows
+  const expandable = Boolean(renderSubRows)
 
   if (rows.length === 0 && empty) {
     return <>{empty}</>
@@ -97,6 +116,15 @@ export function DataTable<TData>({
         <thead>
           {table.getHeaderGroups().map((headerGroup) => (
             <tr key={headerGroup.id}>
+              {expandable ? (
+                <th
+                  scope="col"
+                  // The chevron gutter: labelled for screen readers, blank on screen.
+                  className="sticky top-0 z-2 h-[33px] w-[34px] border-y border-line bg-sub pl-[15px]"
+                >
+                  <span className="sr-only">Déplier</span>
+                </th>
+              ) : null}
               {headerGroup.headers.map((header) => {
                 const sortable = header.column.getCanSort()
                 const direction = header.column.getIsSorted()
@@ -119,7 +147,7 @@ export function DataTable<TData>({
                     className={cn(
                       "sticky top-0 z-2 h-[33px] border-y border-line bg-sub px-2.5 text-[11.5px] font-medium whitespace-nowrap text-ink-3",
                       align === "right" ? "text-right" : "text-left",
-                      "first:pl-[15px] last:pr-[15px]"
+                      expandable ? "last:pr-[15px]" : "first:pl-[15px] last:pr-[15px]"
                     )}
                   >
                     {header.isPlaceholder ? null : sortable ? (
@@ -154,33 +182,76 @@ export function DataTable<TData>({
           {rows.map((row) => {
             const id = getRowId(row.original)
             const selected = selectedIds?.has(id) ?? false
+            const subRowCount = getSubRowCount?.(row.original) ?? 0
+            const canExpand = expandable && subRowCount > 0
+            const isExpanded = canExpand && (expandedIds?.has(id) ?? false)
 
             return (
-              <tr
-                key={row.id}
-                data-selected={selected ? "1" : "0"}
-                onClick={onRowClick ? () => onRowClick(row.original) : undefined}
-                className={cn(
-                  "transition-colors",
-                  onRowClick && "cursor-pointer",
-                  selected ? "bg-brand-tint" : "hover:bg-brand-wash"
-                )}
-              >
-                {row.getVisibleCells().map((cell) => {
-                  const align = cell.column.columnDef.meta?.align ?? "left"
-                  return (
+              <React.Fragment key={row.id}>
+                <tr
+                  data-selected={selected ? "1" : "0"}
+                  onClick={onRowClick ? () => onRowClick(row.original) : undefined}
+                  className={cn(
+                    "transition-colors",
+                    onRowClick && "cursor-pointer",
+                    selected ? "bg-brand-tint" : "hover:bg-brand-wash"
+                  )}
+                >
+                  {expandable ? (
                     <td
-                      key={cell.id}
                       className={cn(
-                        "h-row border-b border-line px-2.5 text-[13px] first:pl-[15px] last:pr-[15px]",
-                        align === "right" && "num text-right"
+                        "h-row w-[34px] pl-[15px]",
+                        // An open group reads as one block: no rule under its head.
+                        isExpanded ? "border-b-0" : "border-b border-line"
                       )}
                     >
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      {canExpand ? (
+                        <button
+                          type="button"
+                          aria-expanded={isExpanded}
+                          aria-label={
+                            isExpanded
+                              ? `Replier (${subRowCount})`
+                              : `Déplier (${subRowCount})`
+                          }
+                          // The row itself navigates; expanding must not do both.
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            onToggleExpand?.(id)
+                          }}
+                          className="grid size-[22px] place-items-center rounded-[6px] text-ink-3 transition-colors hover:bg-sunken hover:text-ink"
+                        >
+                          <HugeiconsIcon
+                            icon={ArrowRight01Icon}
+                            size={14}
+                            strokeWidth={1.8}
+                            className={cn("transition-transform", isExpanded && "rotate-90")}
+                          />
+                        </button>
+                      ) : null}
                     </td>
-                  )
-                })}
-              </tr>
+                  ) : null}
+
+                  {row.getVisibleCells().map((cell) => {
+                    const align = cell.column.columnDef.meta?.align ?? "left"
+                    return (
+                      <td
+                        key={cell.id}
+                        className={cn(
+                          "h-row px-2.5 text-[13px] last:pr-[15px]",
+                          isExpanded ? "border-b-0" : "border-b border-line",
+                          !expandable && "first:pl-[15px]",
+                          align === "right" && "num text-right"
+                        )}
+                      >
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    )
+                  })}
+                </tr>
+
+                {isExpanded ? renderSubRows?.(row.original) : null}
+              </React.Fragment>
             )
           })}
         </tbody>

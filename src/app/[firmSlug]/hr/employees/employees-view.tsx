@@ -474,19 +474,19 @@ export function EmployeesView({
       <Panel
         title="Effectif"
         description="Trié par exposition au plafond légal, puis par échéance de contrat."
-        stats={[
-          { label: "Actifs", value: formatNumber(summary.active) },
-          {
-            label: "Dossiers incomplets",
-            value: formatNumber(summary.incomplete),
-            tone: summary.incomplete > 0 ? "signal" : "default",
-          },
-          {
-            label: "Au-delà de 730 j",
-            value: formatNumber(summary.overCeiling),
-            tone: summary.overCeiling > 0 ? "alert" : "default",
-          },
-        ]}
+        // stats={[
+        //   { label: "Actifs", value: formatNumber(summary.active) },
+        //   {
+        //     label: "Dossiers incomplets",
+        //     value: formatNumber(summary.incomplete),
+        //     tone: summary.incomplete > 0 ? "signal" : "default",
+        //   },
+        //   {
+        //     label: "Au-delà de 730 j",
+        //     value: formatNumber(summary.overCeiling),
+        //     tone: summary.overCeiling > 0 ? "alert" : "default",
+        //   },
+        // ]}
         padded={false}
         tools={
           canWrite ? (

@@ -65,7 +65,7 @@ export default async function AdminModulesPage() {
         description="Ce qu'une entreprise peut ouvrir. Un module désactivé masque sa navigation et renvoie 404."
       />
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-[1420px] p-4.5">
+        <div className=" p-4.5">
           <ModulesManager
             modules={modules.map((module) => ({
               id: module.id,

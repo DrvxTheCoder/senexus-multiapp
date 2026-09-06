@@ -97,11 +97,11 @@ export default async function AdminPage() {
     <>
       <AdminPageHeader
         title="Vue d'ensemble"
-        description="Ce que le groupe contient, et ce que chaque entreprise peut ouvrir."
+
       />
 
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-[1420px] p-4.5">
+        <div className=" p-4.5">
           <div className="flex flex-col gap-3.5">
             <div className="grid gap-3.5 sm:grid-cols-2 xl:grid-cols-4">
               <Metric label="Entreprises" value={firms.length} href="/admin/firms" />

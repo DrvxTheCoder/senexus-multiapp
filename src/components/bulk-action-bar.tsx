@@ -80,7 +80,7 @@ export function BulkActionBar({
           type="button"
           onClick={action.onRun}
           className={cn(
-            "inline-flex h-[27px] items-center gap-1.5 rounded-[7px] px-2.5 text-[12.5px] whitespace-nowrap transition-colors",
+            "inline-flex h-[27px] items-center gap-1.5 rounded-[7px] px-2.5 text-[12.5px] dark:text-white whitespace-nowrap transition-colors",
             action.warning
               ? "bg-[#7A4610] hover:bg-[#8F5312]"
               : "bg-[#293633] hover:bg-[#37453F]"
@@ -95,7 +95,7 @@ export function BulkActionBar({
         type="button"
         onClick={onClear}
         aria-label="Annuler la sélection"
-        className="rounded-md px-1.5 py-1 hover:bg-[#293633]"
+        className="rounded-md px-1.5 py-1 hover:bg-[#293633] dark:hover:bg-[#2936334b] transition-colors"
       >
         <HugeiconsIcon icon={Cancel01Icon} size={14} />
       </button>

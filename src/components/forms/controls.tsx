@@ -1,14 +1,27 @@
 "use client"
 
 import * as React from "react"
+import { Controller } from "react-hook-form"
 import type { FieldValues, Path, UseFormReturn } from "react-hook-form"
+
+import { HugeiconsIcon } from "@hugeicons/react"
+import { MultiplicationSignIcon } from "@hugeicons/core-free-icons"
 
 import {
   Field,
   fieldProps,
   inputClass,
-  selectClass,
+  selectTriggerClass,
 } from "@/components/forms/form-field"
+import { DatePicker } from "@/components/forms/date-picker"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 
 /**
@@ -81,10 +94,56 @@ export function TextControl<T extends FieldValues>({
   )
 }
 
-export function DateControl<T extends FieldValues>(props: Base<T>) {
-  return <TextControl {...props} type="date" />
+/**
+ * A date field. The value stays an ISO `yyyy-MM-dd` string in the form, which
+ * is what the zod schemas and the server actions read — only the *picker* is
+ * new, so nothing downstream changed.
+ */
+export function DateControl<T extends FieldValues>({
+  form,
+  name,
+  label,
+  required,
+  hint,
+  className,
+  disabled,
+}: Base<T>) {
+  const error = errorOf(form, name)
+  return (
+    <Field
+      label={label}
+      htmlFor={name}
+      required={required}
+      hint={hint}
+      error={error}
+      className={className}
+    >
+      <Controller
+        control={form.control}
+        name={name}
+        render={({ field }) => (
+          <DatePicker
+            id={name}
+            value={typeof field.value === "string" ? field.value : ""}
+            onChange={field.onChange}
+            onBlur={field.onBlur}
+            disabled={disabled}
+            invalid={Boolean(error)}
+            describedBy={error ? `${name}-error` : undefined}
+          />
+        )}
+      />
+    </Field>
+  )
 }
 
+/**
+ * A select. `placeholder` doubles as the contract: a field that has one accepts
+ * the empty string, so it also gets a clear button; a field without one must be
+ * answered, and cannot be cleared back to nothing.
+ *
+ * Controlled, so it goes through `Controller` rather than `register`.
+ */
 export function SelectControl<T extends FieldValues>({
   form,
   name,
@@ -100,6 +159,8 @@ export function SelectControl<T extends FieldValues>({
   placeholder?: string
 }) {
   const error = errorOf(form, name)
+  const clearable = placeholder !== undefined
+
   return (
     <Field
       label={label}
@@ -109,19 +170,62 @@ export function SelectControl<T extends FieldValues>({
       error={error}
       className={className}
     >
-      <select
-        {...fieldProps(name, error)}
-        {...form.register(name)}
-        disabled={disabled}
-        className={selectClass}
-      >
-        {placeholder ? <option value="">{placeholder}</option> : null}
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
+      <Controller
+        control={form.control}
+        name={name}
+        render={({ field }) => {
+          // Base UI treats `null` as "nothing selected"; the form stores "".
+          const value = field.value === "" || field.value == null ? null : field.value
+
+          return (
+            <Select
+              value={value}
+              onValueChange={(next) => field.onChange(next ?? "")}
+              items={options}
+              disabled={disabled}
+            >
+              <SelectTrigger
+                {...fieldProps(name, error)}
+                onBlur={field.onBlur}
+                className={cn(selectTriggerClass, clearable && "[&>svg:last-child]:hidden!")}
+              >
+                <SelectValue placeholder={placeholder} />
+                {clearable && value !== null ? (
+                  <span
+                    role="button"
+                    tabIndex={-1}
+                    aria-label={`Effacer ${label.toLowerCase()}`}
+                    /* The trigger opens the popup on *pointer down*, before a
+                       click ever lands, so stopping the click alone clears the
+                       value and opens the menu anyway. Both are stopped. */
+                    onPointerDown={(event) => {
+                      event.preventDefault()
+                      event.stopPropagation()
+                    }}
+                    onClick={(event) => {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      field.onChange("")
+                    }}
+                    className="grid size-4 shrink-0 place-items-center rounded-sm text-ink-3 transition-colors hover:text-ink"
+                  >
+                    <HugeiconsIcon icon={MultiplicationSignIcon} size={13} strokeWidth={2} />
+                  </span>
+                ) : null}
+              </SelectTrigger>
+              <SelectContent alignItemWithTrigger={false}>
+                <SelectGroup>
+                  {options.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          )
+        }}
+      />
     </Field>
   )
 }

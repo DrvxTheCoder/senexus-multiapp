@@ -278,6 +278,41 @@
     }
 }
 
+/* §4.6 — the chart reveal.
+
+   The charts render at their real values in the markup, so a chart is correct
+   on the server, before hydration, and with scripts disabled. The animation is
+   added on top: `useReveal` writes data-reveal="pending" to the container on
+   mount, these rules collapse the marks, and removing the attribute lets them
+   grow into values that were already there.
+
+   Doing the collapse in CSS rather than in React state is what makes the
+   animation actually run — two React commits in adjacent frames coalesce into
+   a single layout, and the transition never gets a painted from-value. */
+[data-reveal="pending"] [data-reveal-bar] {
+    width: 0 !important;
+}
+
+[data-reveal="pending"] [data-reveal-column] {
+    height: 0 !important;
+}
+
+[data-reveal="pending"] [data-reveal-clip] {
+    width: 0 !important;
+}
+
+[data-reveal="pending"] [data-reveal-segment] {
+    flex-grow: 0 !important;
+}
+
+[data-reveal="pending"] [data-reveal-line] {
+    stroke-dashoffset: 240 !important;
+}
+
+[data-reveal="pending"] [data-reveal-dot] {
+    opacity: 0 !important;
+}
+
 /* §4.8 — motion is restrained and functional. Nothing decorative, nothing on
    scroll, and everything yields to the user preference. */
 @media (prefers-reduced-motion: reduce) {
@@ -290,3 +325,26 @@
         scroll-behavior: auto !important;
     }
 }
+
+/* Width of the scrollbar */
+.minimal-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+/* Track background */
+.minimal-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Draggable thumb */
+.minimal-scroll::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+}
+
+/* Hover state for thumb */
+.minimal-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.4);
+}
+

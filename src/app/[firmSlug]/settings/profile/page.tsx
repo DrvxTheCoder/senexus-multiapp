@@ -53,7 +53,7 @@ export default async function ProfilePage({
       />
 
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-[1420px] p-4.5">
+        <div className=" p-4.5">
           <h1 className="mb-3.5 text-[21px] leading-tight font-semibold tracking-[-0.022em]">
             Profil
           </h1>

@@ -4,9 +4,11 @@ import * as React from "react"
 import { useRouter } from "next/navigation"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
+  ArrowUpDownIcon,
   Building03Icon,
   CornerDownLeftIcon,
   File01Icon,
+  Loading03Icon,
   Search01Icon,
 } from "@hugeicons/core-free-icons"
 import type { IconSvgElement } from "@hugeicons/react"
@@ -175,7 +177,7 @@ export function CommandPalette() {
 
   return (
     <div
-      className="fixed inset-0 z-60 flex justify-center bg-[rgba(19,30,28,0.28)] pt-[11vh] motion-safe:animate-in motion-safe:fade-in motion-safe:duration-150"
+      className="fixed inset-0 z-60 flex justify-center bg-black/10 backdrop-blur-xs pt-[11vh] motion-safe:animate-in motion-safe:fade-in motion-safe:duration-150"
       onMouseDown={close}
     >
       <div
@@ -184,8 +186,8 @@ export function CommandPalette() {
         aria-label="Recherche"
         onMouseDown={(event) => event.stopPropagation()}
         className={cn(
-          "flex h-fit max-h-[70vh] w-[560px] max-w-[92%] flex-col overflow-hidden rounded-xl bg-surface",
-          "shadow-[0_22px_62px_rgba(19,30,28,0.3)]",
+          "flex h-fit max-h-[70vh] w-140 max-w-[92%] flex-col overflow-hidden rounded-xl bg-surface shadow-lg border",
+          "",
           "motion-safe:animate-in motion-safe:slide-in-from-top-2 motion-safe:duration-150"
         )}
       >
@@ -218,7 +220,7 @@ export function CommandPalette() {
             }}
           />
           {searching ? (
-            <span className="text-[11px] text-ink-3">recherche…</span>
+            <HugeiconsIcon icon={Loading03Icon} className="h-4 animate-spin ease-in-out" />
           ) : null}
         </div>
 
@@ -293,9 +295,15 @@ export function CommandPalette() {
         </div>
 
         <div className="flex items-center gap-4 border-t border-line bg-sub px-4 py-2 text-[11.5px] text-ink-2">
-          <span>↑↓ naviguer</span>
-          <span>↵ ouvrir</span>
-          <span>esc fermer</span>
+          <span className="flex items-center gap-1 bg-muted rounded-md border px-1.5 py-0.5 text-xs">
+            <HugeiconsIcon icon={ArrowUpDownIcon} className="size-2" /> Naviguer
+          </span>
+          <span className="flex items-center gap-1 bg-muted rounded-md border px-1.5 py-0.5 text-xs">
+            <HugeiconsIcon icon={CornerDownLeftIcon} className="size-2" /> Ouvrir
+          </span>
+          <span className="flex items-center gap-1 bg-muted rounded-md border px-1.5 py-0.5 text-xs">
+            <small className="text-[0.5rem]">Echap</small> Fermer
+          </span>
         </div>
       </div>
     </div>

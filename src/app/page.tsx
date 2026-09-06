@@ -2,6 +2,7 @@ import Link from "next/link"
 import { redirect, unauthorized } from "next/navigation"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { ArrowRight01Icon, Settings02Icon } from "@hugeicons/core-free-icons"
+import Image from "next/image"
 
 import { FirmLogo } from "@/components/firm-logo"
 import { Panel } from "@/components/panel"
@@ -78,12 +79,14 @@ export default async function RootPage() {
                 href="/admin"
                 className="flex h-full items-center gap-3 rounded-panel border border-line bg-surface px-4 py-3.5 transition-colors hover:border-line-2 hover:bg-sub"
               >
-                <span
-                  aria-hidden
-                  className="grid size-9 shrink-0 place-items-center rounded-lg bg-ink text-paper"
-                >
-                  <HugeiconsIcon icon={Settings02Icon} size={18} />
-                </span>
+                <Image
+                  src="/icons/icon-512.png"
+                  alt="Senexus Group"
+                  width={36}
+                  height={36}
+                  priority
+                  className="size-9 rounded-xs"
+                />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[14px] font-medium">
                     Administration

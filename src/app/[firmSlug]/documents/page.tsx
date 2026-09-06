@@ -40,7 +40,7 @@ export default async function DocumentsPage({
       />
 
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-[1420px] p-4.5">
+        <div className=" p-4.5">
           <div className="mb-3.5 flex items-center gap-3">
             <h1 className="text-[21px] leading-tight font-semibold tracking-[-0.022em]">
               Documents
@@ -97,7 +97,8 @@ function DocumentsSkeleton() {
       footer={{ summary: "Chargement…" }}
     >
       <div className="h-[49px] border-b border-line" />
-      <TableSkeleton rows={12} columns={[26, 18, 14, 14, 12]} />
+      {/* Leading 3% stands in for the chevron gutter the grouped table adds. */}
+      <TableSkeleton rows={12} columns={[3, 24, 16, 13, 14, 12]} />
     </Panel>
   )
 }

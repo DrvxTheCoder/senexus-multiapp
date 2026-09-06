@@ -8,7 +8,7 @@ import {
   ArrowDown01Icon,
   ArrowRight01Icon,
   Search01Icon,
-  SidebarLeft01Icon,
+  LayoutLeftIcon,
 } from "@hugeicons/core-free-icons"
 
 import { FirmLogo } from "@/components/firm-logo"
@@ -72,7 +72,7 @@ export function AppSidebar({
       className="grid size-7 shrink-0 place-items-center rounded-[7px] text-ink-3 transition-colors hover:bg-sunken hover:text-ink"
     >
       <HugeiconsIcon
-        icon={SidebarLeft01Icon}
+        icon={LayoutLeftIcon}
         size={16}
         strokeWidth={1.8}
         className={cn(collapsed && "rotate-180")}
@@ -135,8 +135,8 @@ export function AppSidebar({
         {!collapsed ? (
           <>
             Rechercher…
-            <kbd className="ml-auto rounded border border-line bg-sub px-1 font-mono text-[10px]">
-              ⌘K
+            <kbd className="flex items-center ml-auto rounded border border-line bg-sub px-1 font-mono text-[10px]">
+              Ctrl+K
             </kbd>
           </>
         ) : null}
@@ -196,7 +196,7 @@ function NavGroupSection({
   }
 
   const items = (
-    <ul className="px-2">
+    <ul className={cn("px-3", collapsed && "my-2")}>
       {group.items.map((item) => {
         const active = isActive(item.href)
         return (

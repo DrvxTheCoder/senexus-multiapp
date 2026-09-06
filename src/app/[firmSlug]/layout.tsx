@@ -78,18 +78,18 @@ export default async function FirmLayout({
                 <SidebarAlertBell ctx={ctx} />
               </Suspense>
             }
-            clientNav={
-              <Suspense fallback={null}>
-                <SidebarClientGroup ctx={ctx} />
-              </Suspense>
-            }
+            // clientNav={
+            //   <Suspense fallback={null}>
+            //     <SidebarClientGroup ctx={ctx} />
+            //   </Suspense>
+            // }
             riskCard={
               <Suspense fallback={null}>
                 <SidebarRiskCard ctx={ctx} />
               </Suspense>
             }
           />
-          <main id="main" className="relative flex min-w-0 flex-1 flex-col">
+          <main id="main" className="relative flex min-w-0 flex-1 flex-col justify-center">
             {children}
           </main>
           <CommandPalette />

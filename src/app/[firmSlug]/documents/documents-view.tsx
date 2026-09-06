@@ -23,7 +23,12 @@ import { Pager } from "@/components/list-controls"
 import { Panel } from "@/components/panel"
 import { Avatar, EmptyState, StatusPill, TwoFacts } from "@/components/primitives"
 import { formatDate, formatNumber, initials } from "@/lib/format"
-import type { DocumentRow, DocumentSummary } from "@/server/queries/documents"
+import { cn } from "@/lib/utils"
+import type {
+  DocumentGroup,
+  DocumentRow,
+  DocumentSummary,
+} from "@/server/queries/documents"
 import type { Paged } from "@/server/queries/types"
 
 const searchParamsDef = {
@@ -47,7 +52,7 @@ export function DocumentsView({
   scoped,
 }: {
   firmSlug: string
-  page: Paged<DocumentRow>
+  page: Paged<DocumentGroup>
   summary: DocumentSummary
   scoped: boolean
 }) {
@@ -70,9 +75,25 @@ export function DocumentsView({
     return () => clearTimeout(timer)
   }, [search.draft, urlSearch, setParams])
 
-  const now = new Date()
+  const [expanded, setExpanded] = React.useState<Set<string>>(new Set())
 
-  const columns = React.useMemo<ColumnDef<DocumentRow, unknown>[]>(
+  const toggleExpand = React.useCallback((id: string) => {
+    setExpanded((current) => {
+      const next = new Set(current)
+      if (!next.delete(id)) next.add(id)
+      return next
+    })
+  }, [])
+
+  const now = React.useMemo(() => new Date(), [])
+
+  /**
+   * Two column sets over the same grid. The parent row summarises a person's
+   * pieces — how many, the soonest expiry, how many still await verification —
+   * and the child rows carry each piece. The employee, which was repeated on
+   * every row before, is now written once.
+   */
+  const columns = React.useMemo<ColumnDef<DocumentGroup, unknown>[]>(
     () => [
       {
         id: "employee",
@@ -96,41 +117,49 @@ export function DocumentsView({
       {
         id: "type",
         header: "Pièce",
-        cell: ({ row }) => (
-          <TwoFacts
-            primary={DOCUMENT_TYPE_LABELS[row.original.documentType] ?? row.original.documentType}
-            secondary={row.original.fileName}
-          />
-        ),
+        cell: ({ row }) => {
+          const count = row.original.documents.length
+          return (
+            <span className="text-ink-2">
+              <span className="num font-medium text-ink">{formatNumber(count)}</span>{" "}
+              {count > 1 ? "pièces" : "pièce"}
+            </span>
+          )
+        },
       },
       {
         id: "size",
         header: "Taille",
         meta: { align: "right" },
         cell: ({ row }) => (
-          <span className="num text-ink-2">{formatSize(row.original.fileSize)}</span>
+          <span className="num text-ink-3">{formatSize(row.original.totalSize || null)}</span>
         ),
       },
       {
         id: "expiry",
         header: "Expiration",
         cell: ({ row }) => {
-          const expiry = row.original.expiryDate
-          if (!expiry) return <span className="text-ink-3">—</span>
-          const expired = expiry < now
-          const soon = !expired && expiry.getTime() - now.getTime() < 60 * 86_400_000
+          const { expired, nextExpiry } = row.original
+          if (expired > 0) {
+            return (
+              <TwoFacts
+                primary={<span className="text-alert">{formatDate(nextExpiry!)}</span>}
+                secondary={
+                  expired > 1 ? `${formatNumber(expired)} expirées` : "expirée"
+                }
+              />
+            )
+          }
+          if (!nextExpiry) return <span className="text-ink-3">—</span>
+          const soon = nextExpiry.getTime() - now.getTime() < 60 * 86_400_000
           return (
             <TwoFacts
               primary={
-                <span
-                  className={
-                    expired ? "text-alert" : soon ? "text-signal" : undefined
-                  }
-                >
-                  {formatDate(expiry)}
+                <span className={soon ? "text-signal" : undefined}>
+                  {formatDate(nextExpiry)}
                 </span>
               }
-              secondary={expired ? "expirée" : soon ? "expire bientôt" : undefined}
+              secondary={soon ? "expire bientôt" : undefined}
             />
           )
         },
@@ -138,36 +167,45 @@ export function DocumentsView({
       {
         id: "verified",
         header: "Vérification",
-        cell: ({ row }) =>
-          row.original.isVerified ? (
-            <StatusPill tone="ok">Vérifiée</StatusPill>
-          ) : (
-            <StatusPill tone="signal">En attente</StatusPill>
-          ),
+        cell: ({ row }) => {
+          const { unverified, documents } = row.original
+          if (unverified === 0) return <StatusPill tone="ok">Vérifiées</StatusPill>
+          return (
+            <StatusPill tone="signal">
+              {unverified === documents.length
+                ? "En attente"
+                : `${formatNumber(unverified)} en attente`}
+            </StatusPill>
+          )
+        },
       },
       {
         id: "preview",
         header: "",
         meta: { align: "right" },
-        cell: ({ row }) => (
-          <button
-            type="button"
-            aria-haspopup="dialog"
-            aria-label={`Aperçu de ${row.original.fileName}`}
-            title="Aperçu"
-            // The row itself opens the employee record; this must not do both.
-            onClick={(event) => {
-              event.stopPropagation()
-              setPreview(row.original)
-            }}
-            className="grid size-7 place-items-center rounded-[7px] text-ink-3 transition-colors hover:bg-sunken hover:text-ink"
-          >
-            <HugeiconsIcon icon={EyeIcon} size={15} strokeWidth={1.8} />
-          </button>
-        ),
+        cell: () => null,
       },
     ],
     [now]
+  )
+
+  /** One child row per piece, drawn on the parent's grid. */
+  const renderSubRows = React.useCallback(
+    (group: DocumentGroup) => (
+      <>
+        {group.documents.map((document, index) => (
+          <DocumentSubRow
+            key={document.id}
+            document={document}
+            firmSlug={firmSlug}
+            now={now}
+            last={index === group.documents.length - 1}
+            onPreview={setPreview}
+          />
+        ))}
+      </>
+    ),
+    [firmSlug, now]
   )
 
   const from = page.total === 0 ? 0 : (page.page - 1) * page.perPage + 1
@@ -196,7 +234,7 @@ export function DocumentsView({
           <span className="num">
             {page.total === 0
               ? "Aucune pièce"
-              : `${formatNumber(from)} – ${formatNumber(to)} sur ${formatNumber(page.total)} pièces`}
+              : `${formatNumber(from)} – ${formatNumber(to)} sur ${formatNumber(page.total)} employés · ${formatNumber(summary.matching)} pièces`}
             {summary.expiring > 0
               ? ` · ${formatNumber(summary.expiring)} expirent sous 60 jours`
               : null}
@@ -257,12 +295,16 @@ export function DocumentsView({
       <DataTable
         data={page.rows}
         columns={columns}
-        getRowId={(row) => row.id}
+        getRowId={(row) => row.employee.id}
         sorting={[]}
         onSortingChange={() => {}}
         onRowClick={(row) =>
           router.push(`/${firmSlug}/hr/employees/${row.employee.id}?tab=documents`)
         }
+        expandedIds={expanded}
+        onToggleExpand={toggleExpand}
+        getSubRowCount={(row) => row.documents.length}
+        renderSubRows={renderSubRows}
         label="Documents"
         empty={
           <EmptyState
@@ -278,5 +320,102 @@ export function DocumentsView({
         onClose={() => setPreview(null)}
       />
     </Panel>
+  )
+}
+
+/**
+ * A piece, under its employee. It borrows the parent's grid — the employee
+ * column becomes the indented file line, so the eye reads down one column
+ * rather than across a repeated name.
+ */
+function DocumentSubRow({
+  document,
+  firmSlug,
+  now,
+  last,
+  onPreview,
+}: {
+  document: DocumentRow
+  firmSlug: string
+  now: Date
+  last: boolean
+  onPreview: (document: PreviewDocument) => void
+}) {
+  const router = useRouter()
+  const expiry = document.expiryDate
+  const expired = expiry ? expiry < now : false
+  const soon =
+    expiry && !expired ? expiry.getTime() - now.getTime() < 60 * 86_400_000 : false
+
+  const cell = "px-2.5 text-[13px] align-middle h-[41px]"
+  const rule = last ? "border-b border-line" : "border-b-0"
+
+  return (
+    <tr
+      onClick={() =>
+        router.push(`/${firmSlug}/hr/employees/${document.employee.id}?tab=documents`)
+      }
+      className="cursor-pointer bg-sunken/35 transition-colors hover:bg-brand-wash"
+    >
+      {/* The chevron gutter, left empty so children sit under their parent. */}
+      <td className={cn("w-[34px] pl-[15px]", rule)} />
+
+      <td className={cn(cell, rule)}>
+        <div className="flex items-center gap-2.5 pl-[9px]">
+          {/* A short elbow, drawn in the avatar's lane. */}
+          <span aria-hidden className="h-px w-3.5 shrink-0 bg-line" />
+          <TwoFacts
+            primary={DOCUMENT_TYPE_LABELS[document.documentType] ?? document.documentType}
+            secondary={document.fileName}
+          />
+        </div>
+      </td>
+
+      <td className={cn(cell, rule)} />
+
+      <td className={cn(cell, rule, "num text-right")}>
+        <span className="text-ink-2">{formatSize(document.fileSize)}</span>
+      </td>
+
+      <td className={cn(cell, rule)}>
+        {!expiry ? (
+          <span className="text-ink-3">—</span>
+        ) : (
+          <TwoFacts
+            primary={
+              <span className={expired ? "text-alert" : soon ? "text-signal" : undefined}>
+                {formatDate(expiry)}
+              </span>
+            }
+            secondary={expired ? "expirée" : soon ? "expire bientôt" : undefined}
+          />
+        )}
+      </td>
+
+      <td className={cn(cell, rule)}>
+        {document.isVerified ? (
+          <StatusPill tone="ok">Vérifiée</StatusPill>
+        ) : (
+          <StatusPill tone="signal">En attente</StatusPill>
+        )}
+      </td>
+
+      <td className={cn(cell, rule, "pr-[15px] text-right")}>
+        <button
+          type="button"
+          aria-haspopup="dialog"
+          aria-label={`Aperçu de ${document.fileName}`}
+          title="Aperçu"
+          // The row itself opens the employee record; this must not do both.
+          onClick={(event) => {
+            event.stopPropagation()
+            onPreview(document)
+          }}
+          className="grid size-7 place-items-center rounded-[7px] text-ink-3 transition-colors hover:bg-sunken hover:text-ink"
+        >
+          <HugeiconsIcon icon={EyeIcon} size={15} strokeWidth={1.8} />
+        </button>
+      </td>
+    </tr>
   )
 }

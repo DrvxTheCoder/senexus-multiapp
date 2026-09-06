@@ -1,6 +1,6 @@
 import Link from "next/link"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { Notification03Icon } from "@hugeicons/core-free-icons"
+import { Notification01Icon } from "@hugeicons/core-free-icons"
 
 import { db } from "@/lib/db"
 import { clientDotVar } from "@/lib/client-color"
@@ -46,7 +46,7 @@ export async function SidebarAlertBell({ ctx }: { ctx: FirmContext }) {
       title="Décisions"
       className="relative grid size-7 shrink-0 place-items-center rounded-[7px] text-ink-3 transition-colors hover:bg-sunken hover:text-ink"
     >
-      <HugeiconsIcon icon={Notification03Icon} size={16} strokeWidth={1.8} />
+      <HugeiconsIcon icon={Notification01Icon} size={16} strokeWidth={1.8} />
       {count > 0 ? (
         // Tinted rather than solid: `--sx-signal` means the legal ceiling and
         // nothing else, and solid alert loses its contrast in the dark theme.

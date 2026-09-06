@@ -55,7 +55,7 @@ export const contractSearchParams = {
   dmax: parseAsInteger,
   sort: parseAsArrayOf(parseAsString, ","),
   page: parseAsInteger.withDefault(1),
-  per: parseAsInteger.withDefault(50),
+  per: parseAsInteger.withDefault(25),
 }
 
 export const loadContractSearchParams = createLoader(contractSearchParams)
@@ -113,7 +113,7 @@ export function fromContractQuery(query: ContractQuery) {
     dmax: query.interimDaysMax ?? null,
     sort: formatSort(query.sort),
     page: query.page === 1 ? null : query.page,
-    per: query.perPage === 50 ? null : query.perPage,
+    per: query.perPage === 25 ? null : query.perPage,
   }
 }
 

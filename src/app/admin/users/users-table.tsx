@@ -24,8 +24,8 @@ import {
   SubmitButton,
   fieldProps,
   inputClass,
-  selectClass,
 } from "@/components/forms/form-field"
+import { SelectControl } from "@/components/forms/controls"
 import { useActionForm } from "@/components/forms/use-action-form"
 import { Panel } from "@/components/panel"
 import { Avatar, EmptyState, StatusPill } from "@/components/primitives"
@@ -82,7 +82,7 @@ export function UsersTable({
       <Panel
         title="Comptes"
         description="Un rôle par utilisateur, appliqué à toutes ses entreprises."
-        stats={[{ label: "Utilisateurs", value: formatNumber(users.length) }]}
+        // stats={[{ label: "Utilisateurs", value: formatNumber(users.length) }]}
         tools={
           <button
             type="button"
@@ -462,25 +462,17 @@ function UserWizard({
             </>
           ) : (
             <>
-              <Field
+              <SelectControl
+                form={form}
+                name="role"
                 label="Rôle"
-                htmlFor="role"
                 required
                 hint={ROLE_DESCRIPTIONS[role]}
-                error={form.formState.errors.role?.message}
-              >
-                <select
-                  {...fieldProps("role", form.formState.errors.role?.message)}
-                  {...form.register("role")}
-                  className={selectClass}
-                >
-                  {ROLE_ORDER.map((value) => (
-                    <option key={value} value={value}>
-                      {ROLE_LABELS[value]}
-                    </option>
-                  ))}
-                </select>
-              </Field>
+                options={ROLE_ORDER.map((value) => ({
+                  value,
+                  label: ROLE_LABELS[value],
+                }))}
+              />
 
               <Field
                 label="Entreprises"
@@ -529,29 +521,29 @@ function UserWizard({
                 </p>
               ) : null}
 
-              <Field
+              <SelectControl
+                form={form}
+                name="employeeId"
                 label="Employé lié"
-                htmlFor="employeeId"
                 hint="Rattache ce compte à une fiche employé existante."
-              >
-                <select
-                  {...fieldProps("employeeId")}
-                  {...form.register("employeeId")}
-                  className={selectClass}
-                >
-                  <option value="">Aucun</option>
-                  {user?.linkedEmployee ? (
-                    <option value={user.linkedEmployee.id}>
-                      {user.linkedEmployee.label}
-                    </option>
-                  ) : null}
-                  {employees.map((employee) => (
-                    <option key={employee.id} value={employee.id}>
-                      {employee.label}
-                    </option>
-                  ))}
-                </select>
-              </Field>
+                placeholder="Aucun"
+                options={[
+                  // The linked employee may not be in the unlinked list, so it
+                  // is prepended to keep the current value selectable.
+                  ...(user?.linkedEmployee
+                    ? [
+                        {
+                          value: user.linkedEmployee.id,
+                          label: user.linkedEmployee.label,
+                        },
+                      ]
+                    : []),
+                  ...employees.map((employee) => ({
+                    value: employee.id,
+                    label: employee.label,
+                  })),
+                ]}
+              />
 
               {!isEdit ? (
                 <div className="grid gap-3 sm:grid-cols-2">

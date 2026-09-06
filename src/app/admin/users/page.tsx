@@ -118,7 +118,7 @@ export default async function AdminUsersPage() {
         description="Comptes, rôles et clients assignés."
       />
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-[1420px] p-4.5">
+        <div className=" p-4.5">
           <UsersTable
             users={rows}
             assignments={assignments}

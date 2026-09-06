@@ -116,31 +116,59 @@ export type DocumentRow = {
   }
 }
 
+/**
+ * The list groups by employee, so the *page* unit is a person and not a piece.
+ * Paging by document would cut a group in half — eight documents for one
+ * employee, five at the foot of page 1 and three at the head of page 2, drawn
+ * as two separate people — so the window is taken over employees and every
+ * matching document for the employees in it is fetched whole.
+ */
+export type DocumentGroup = {
+  employee: DocumentRow["employee"]
+  documents: DocumentRow[]
+  /** Counts over the group, for the collapsed row. */
+  expired: number
+  unverified: number
+  /** Soonest expiry among the group's documents, for the collapsed row. */
+  nextExpiry: Date | null
+  totalSize: number
+}
+
 const toNumber = (value: bigint | number | null | undefined): number =>
   value === null || value === undefined ? 0 : Number(value)
 
 export async function listDocuments(
   q: DocumentQuery,
   ctx: FirmContext
-): Promise<Paged<DocumentRow>> {
+): Promise<Paged<DocumentGroup>> {
   const predicates = buildPredicates(q, ctx)
   const offset = (q.page - 1) * q.perPage
 
-  const idRows = await db.$queryRaw<{ id: string; total_count: bigint }[]>(Prisma.sql`
-    SELECT d."id", COUNT(*) OVER() AS total_count
-    FROM employee_documents d
-    JOIN employees e ON e."id" = d."employeeId"
+  /* One row per employee, ordered so the people who need attention surface
+     first: anyone holding an expired piece, then the soonest expiry, then
+     whoever has the most unverified pieces. `total_count` counts employees,
+     which is what the pager now walks. */
+  const employeeRows = await db.$queryRaw<{ id: string; total_count: bigint }[]>(Prisma.sql`
+    SELECT
+      e."id",
+      COUNT(*) OVER() AS total_count
+    FROM employees e
+    JOIN employee_documents d ON d."employeeId" = e."id"
     WHERE ${whereFrom(predicates)}
+    GROUP BY e."id", e."lastName", e."firstName"
     ORDER BY
-      (d."expiryDate" IS NOT NULL AND d."expiryDate" < now()) DESC,
-      d."expiryDate" ASC NULLS LAST,
-      d."isVerified" ASC,
-      d."createdAt" DESC
+      COUNT(*) FILTER (
+        WHERE d."expiryDate" IS NOT NULL AND d."expiryDate" < now()
+      ) > 0 DESC,
+      MIN(d."expiryDate") ASC NULLS LAST,
+      COUNT(*) FILTER (WHERE d."isVerified" = false) DESC,
+      e."lastName" ASC,
+      e."firstName" ASC
     LIMIT ${q.perPage} OFFSET ${offset}
   `)
 
-  const total = idRows.length ? toNumber(idRows[0].total_count) : 0
-  if (idRows.length === 0) {
+  const total = employeeRows.length ? toNumber(employeeRows[0].total_count) : 0
+  if (employeeRows.length === 0) {
     return {
       rows: [],
       total: 0,
@@ -151,30 +179,82 @@ export async function listDocuments(
     }
   }
 
-  const ids = idRows.map((row) => row.id)
-  const records = await db.employeeDocument.findMany({
-    where: { id: { in: ids } },
-    select: {
-      id: true,
-      documentType: true,
-      fileName: true,
-      fileSize: true,
-      mimeType: true,
-      expiryDate: true,
-      isVerified: true,
-      createdAt: true,
-      employee: {
-        select: { id: true, firstName: true, lastName: true, matricule: true },
-      },
-    },
-  })
+  const employeeIds = employeeRows.map((row) => row.id)
+
+  /* The documents themselves, still filtered by the same predicates so a type
+     or state filter narrows what hangs under each person — but unpaged, so a
+     group is never truncated. */
+  const documentIds = await db.$queryRaw<{ id: string }[]>(Prisma.sql`
+    SELECT d."id"
+    FROM employee_documents d
+    JOIN employees e ON e."id" = d."employeeId"
+    WHERE ${whereFrom(predicates)}
+      AND d."employeeId" IN (${Prisma.join(employeeIds)})
+    ORDER BY
+      (d."expiryDate" IS NOT NULL AND d."expiryDate" < now()) DESC,
+      d."expiryDate" ASC NULLS LAST,
+      d."isVerified" ASC,
+      d."createdAt" DESC
+  `)
+
+  const ids = documentIds.map((row) => row.id)
+  const records = ids.length
+    ? await db.employeeDocument.findMany({
+        where: { id: { in: ids } },
+        select: {
+          id: true,
+          documentType: true,
+          fileName: true,
+          fileSize: true,
+          mimeType: true,
+          expiryDate: true,
+          isVerified: true,
+          createdAt: true,
+          employee: {
+            select: { id: true, firstName: true, lastName: true, matricule: true },
+          },
+        },
+      })
+    : []
 
   const byId = new Map(records.map((record) => [record.id, record]))
+  const now = new Date()
+
+  const groups = new Map<string, DocumentGroup>()
+  for (const id of ids) {
+    const record = byId.get(id)
+    if (!record) continue
+
+    let group = groups.get(record.employee.id)
+    if (!group) {
+      group = {
+        employee: record.employee,
+        documents: [],
+        expired: 0,
+        unverified: 0,
+        nextExpiry: null,
+        totalSize: 0,
+      }
+      groups.set(record.employee.id, group)
+    }
+
+    group.documents.push(record)
+    if (record.expiryDate && record.expiryDate < now) group.expired += 1
+    if (!record.isVerified) group.unverified += 1
+    if (
+      record.expiryDate &&
+      (group.nextExpiry === null || record.expiryDate < group.nextExpiry)
+    ) {
+      group.nextExpiry = record.expiryDate
+    }
+    group.totalSize += record.fileSize ?? 0
+  }
 
   return {
-    rows: ids.flatMap((id) => {
-      const record = byId.get(id)
-      return record ? [record] : []
+    // Ordered by the employee window, not by map insertion.
+    rows: employeeIds.flatMap((id) => {
+      const group = groups.get(id)
+      return group ? [group] : []
     }),
     total,
     page: q.page,
@@ -245,6 +325,8 @@ export async function documentFacets(
 
 export type DocumentSummary = {
   matching: number
+  /** Distinct employees holding a matching piece — the unit the pager walks. */
+  employees: number
   expired: number
   expiring: number
   unverified: number
@@ -255,10 +337,17 @@ export async function documentSummary(
   ctx: FirmContext
 ): Promise<DocumentSummary> {
   const [row] = await db.$queryRaw<
-    { matching: bigint; expired: bigint; expiring: bigint; unverified: bigint }[]
+    {
+      matching: bigint
+      employees: bigint
+      expired: bigint
+      expiring: bigint
+      unverified: bigint
+    }[]
   >(Prisma.sql`
     SELECT
       COUNT(*) AS matching,
+      COUNT(DISTINCT d."employeeId") AS employees,
       COUNT(*) FILTER (WHERE d."expiryDate" IS NOT NULL AND d."expiryDate" < now()) AS expired,
       COUNT(*) FILTER (
         WHERE d."expiryDate" IS NOT NULL
@@ -273,6 +362,7 @@ export async function documentSummary(
 
   return {
     matching: toNumber(row?.matching),
+    employees: toNumber(row?.employees),
     expired: toNumber(row?.expired),
     expiring: toNumber(row?.expiring),
     unverified: toNumber(row?.unverified),

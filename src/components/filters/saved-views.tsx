@@ -56,7 +56,7 @@ export function SavedViews({
   }
 
   return (
-    <div className="flex items-center gap-0.5 overflow-x-auto border-b border-line px-[15px]">
+    <div className="flex items-center gap-0.5 overflow-x-auto border-b border-line px-3.75 no-scrollbar">
       {tabs.map((tab) => (
         <span key={tab.id} className="group relative inline-flex shrink-0 items-center">
           <button

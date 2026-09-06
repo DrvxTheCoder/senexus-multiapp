@@ -8,6 +8,7 @@ import {
   AreaChart,
   BandChart,
   HorizontalBars,
+  LinkedBars,
   StackedBars,
 } from "@/components/charts"
 import { Panel, type PanelStat } from "@/components/panel"
@@ -58,7 +59,7 @@ export default async function DashboardPage({
       />
 
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-[1420px] p-4.5">
+        <div className="p-4.5">
           <div className="mb-3.5 flex items-center gap-3">
             <h1 className="text-[21px] leading-tight font-semibold tracking-[-0.022em]">
               Tableau de bord
@@ -235,8 +236,10 @@ async function HeadcountPanel({ ctx }: { ctx: FirmContext }) {
     >
       <div className="pt-1">
         <AreaChart
+          valueLabel="Effectif"
           data={trend.map((point) => point.headcount)}
-          labels={trend.map((point) => format(point.month, "MMM", { locale: fr }))}
+          labels={trend.map((point) => format(point.month, "MMMM yyyy", { locale: fr }))}
+          tickLabels={trend.map((point) => format(point.month, "MMM", { locale: fr }))}
         />
       </div>
     </Panel>
@@ -290,6 +293,7 @@ async function ExpiryPanel({ ctx }: { ctx: FirmContext }) {
     >
       <div className="pt-2">
         <StackedBars
+          segmentLabels={["Autres", "Intérim"]}
           data={schedule.map((entry) => ({
             label: format(entry.month, "MMM", { locale: fr }),
             segments: [
@@ -474,7 +478,6 @@ async function MixPanel({ ctx }: { ctx: FirmContext }) {
   const mix = await getContractMix(ctx)
   const total = mix.reduce((sum, entry) => sum + entry.count, 0)
   const interim = mix.find((entry) => entry.type === "INTERIM")?.count ?? 0
-  const widest = mix[0]?.count ?? 1
 
   return (
     <Panel
@@ -487,31 +490,18 @@ async function MixPanel({ ctx }: { ctx: FirmContext }) {
             : `${Math.round((interim / total) * 100)} % de l'effectif est en intérim.`,
       }}
     >
-      <div className="pt-1">
-        {mix.map((entry) => (
-          <div
-            key={entry.type}
-            className="grid items-center gap-2.5 py-1 text-[12.5px]"
-            style={{ gridTemplateColumns: "92px 1fr 46px" }}
-          >
-            <TagCode>{entry.type}</TagCode>
-            <Link
-              href={contractsHref(ctx.firm.slug, {
-                status: ["ACTIVE"],
-                type: [entry.type as "CDI"],
-              })}
-              aria-label={`${entry.count} contrats ${entry.type}`}
-              className="block"
-            >
-              <span
-                className="block h-[15px] rounded-[3px] bg-brand transition-[width] duration-500"
-                style={{ width: `${(entry.count / Math.max(1, widest)) * 100}%` }}
-              />
-            </Link>
-            <span className="num text-right text-ink-2">{formatNumber(entry.count)}</span>
-          </div>
-        ))}
-      </div>
+      <LinkedBars
+        rows={mix.map((entry) => ({
+          id: entry.type,
+          lead: <TagCode>{entry.type}</TagCode>,
+          label: entry.type,
+          value: entry.count,
+          href: contractsHref(ctx.firm.slug, {
+            status: ["ACTIVE"],
+            type: [entry.type as "CDI"],
+          }),
+        }))}
+      />
     </Panel>
   )
 }

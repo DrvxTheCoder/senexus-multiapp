@@ -22,6 +22,6 @@ export type SortSpec = z.infer<typeof sortSpecSchema>
 /** Page size is capped: no caller may ask the server to materialise the world. */
 export const paginationSchema = {
   page: z.coerce.number().int().min(1).default(1),
-  perPage: z.coerce.number().int().min(10).max(200).default(50),
+  perPage: z.coerce.number().int().min(10).max(200).default(25),
 }
 

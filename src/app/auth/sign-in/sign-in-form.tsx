@@ -1,10 +1,15 @@
 "use client"
 
 import * as React from "react"
+import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { signIn } from "next-auth/react"
 
-import { Panel } from "@/components/panel"
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
+import { inputClass } from "@/components/forms/form-field"
+import { cn } from "@/lib/utils"
+import { HugeiconsIcon } from "@hugeicons/react"
+import { Loading03Icon } from "@hugeicons/core-free-icons"
 
 export function SignInForm({ callbackUrl }: { callbackUrl?: string }) {
   const router = useRouter()
@@ -36,16 +41,33 @@ export function SignInForm({ callbackUrl }: { callbackUrl?: string }) {
   }
 
   return (
-    <Panel
-      title="Connexion"
-      description="Accès réservé aux collaborateurs du groupe."
-      titleAs="h1"
-    >
-      <form onSubmit={onSubmit} className="mt-1 space-y-3">
-        <div className="space-y-1.5">
-          <label htmlFor="email" className="block text-[12.5px] text-ink-2">
+    <form onSubmit={onSubmit}>
+      <FieldGroup className="gap-5">
+        <div className="flex flex-col items-center gap-3 text-center">
+          {/* The mark carries the name, so the heading beneath it is the
+              page's real h1 rather than a second logo in words. */}
+          <Image
+            src="/icons/icon-512.png"
+            alt="Senexus Group"
+            width={48}
+            height={48}
+            priority
+            className="size-12 rounded-[11px]"
+          />
+          <div className="space-y-1">
+            <h1 className="text-[19px] leading-tight font-semibold tracking-[-0.02em]">
+              Connexion
+            </h1>
+            <p className="text-[12.5px] text-ink-3">
+              Accédez à votre espace Senexus Group.
+            </p>
+          </div>
+        </div>
+
+        <Field>
+          <FieldLabel htmlFor="email" className="text-[12.5px] text-ink-2">
             Adresse email
-          </label>
+          </FieldLabel>
           <input
             id="email"
             name="email"
@@ -53,26 +75,35 @@ export function SignInForm({ callbackUrl }: { callbackUrl?: string }) {
             required
             autoComplete="email"
             autoFocus
-            className="h-9 w-full rounded-[7px] border border-line bg-surface px-2.5 text-[13px] outline-none focus:border-brand"
+            placeholder="prenom.nom@senexus.sn"
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? "signin-error" : undefined}
+            className={inputClass}
           />
-        </div>
+        </Field>
 
-        <div className="space-y-1.5">
-          <label htmlFor="password" className="block text-[12.5px] text-ink-2">
+        <Field>
+          <FieldLabel htmlFor="password" className="text-[12.5px] text-ink-2">
             Mot de passe
-          </label>
+          </FieldLabel>
           <input
             id="password"
             name="password"
             type="password"
             required
             autoComplete="current-password"
-            className="h-9 w-full rounded-[7px] border border-line bg-surface px-2.5 text-[13px] outline-none focus:border-brand"
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? "signin-error" : undefined}
+            className={inputClass}
           />
-        </div>
+        </Field>
 
         {error ? (
-          <p role="alert" className="text-[12.5px] text-alert">
+          <p
+            id="signin-error"
+            role="alert"
+            className="rounded-md bg-alert-tint px-2.5 py-1.5 text-[12.5px] text-alert"
+          >
             {error}
           </p>
         ) : null}
@@ -80,11 +111,17 @@ export function SignInForm({ callbackUrl }: { callbackUrl?: string }) {
         <button
           type="submit"
           disabled={pending}
-          className="h-9 w-full rounded-[7px] bg-ink text-[13px] font-medium text-paper transition-opacity hover:opacity-90 disabled:opacity-50"
+          className={cn(
+            "flex flex-row items-center justify-center gap-2 h-9 w-full rounded-[7px] bg-ink text-[13px] font-medium text-paper",
+            "transition-opacity hover:opacity-90 disabled:opacity-50"
+          )}
         >
           {pending ? "Connexion…" : "Se connecter"}
+          {pending ? (
+            <HugeiconsIcon icon={Loading03Icon} className="ml-2 animate-spin h-4" />
+          ) : null}
         </button>
-      </form>
-    </Panel>
+      </FieldGroup>
+    </form>
   )
 }

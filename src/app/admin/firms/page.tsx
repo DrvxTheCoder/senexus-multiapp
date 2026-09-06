@@ -81,7 +81,7 @@ export default async function AdminFirmsPage() {
         description="Les filiales du groupe, leur identité et leurs modules."
       />
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-[1420px] p-4.5">
+        <div className=" p-4.5">
           <FirmsTable firms={firms} />
         </div>
       </div>

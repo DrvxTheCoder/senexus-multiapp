@@ -115,7 +115,7 @@ export function ModulesManager({
       <Panel
         title="Modules disponibles"
         description="Un module système ne peut pas être désinstallé d'une entreprise."
-        stats={[{ label: "Modules", value: formatNumber(modules.length) }]}
+        // stats={[{ label: "Modules", value: formatNumber(modules.length) }]}
         tools={
           <button
             type="button"

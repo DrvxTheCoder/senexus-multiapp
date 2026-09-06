@@ -62,7 +62,7 @@ export function FirmsTable({ firms }: { firms: AdminFirm[] }) {
       <Panel
         title="Filiales"
         description="Chaque filiale a son propre effectif, ses contrats et ses accès."
-        stats={[{ label: "Entreprises", value: formatNumber(firms.length) }]}
+        // stats={[{ label: "Entreprises", value: formatNumber(firms.length) }]}
         tools={
           <button
             type="button"
