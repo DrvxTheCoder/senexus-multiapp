@@ -353,7 +353,16 @@ export type ImportRowOutcome = {
 }
 
 export type ImportReport = {
+  /** Data rows in the file, whether or not they were retained. */
+  fileRows: number
+  /** Rows actually processed — the selection, or every row without an error. */
   total: number
+  /**
+   * Rows the file contained and this import did not take: blocked by an error,
+   * or simply not selected. Named by line so the report accounts for the whole
+   * file rather than only the part that was easy.
+   */
+  excludedLines: number[]
   imported: number
   skipped: number
   failed: number
@@ -377,19 +386,50 @@ export const importEmployees = firmAction({
     `/${input.firmSlug}/hr/contracts`,
   ],
   handler: async ({ input, ctx, tx, audit }): Promise<ImportReport> => {
-    const text = await input.file.text()
-    const parsed = parseEmployeeCsv(text, input.dayFirst)
+    // Re-parsed here rather than trusting rows assembled in the browser: the
+    // preview ran this same function over these same bytes, so what the person
+    // approved and what gets written cannot drift apart.
+    const parsed = parseEmployeeCsv(input.csv, input.dayFirst, {
+      defaultContractType: input.defaultContractType || undefined,
+    })
 
     if (parsed.rows.length === 0) {
       throw new ActionError("Le fichier ne contient aucune ligne exploitable.", {
-        file: ["Le fichier ne contient aucune ligne exploitable."],
+        csv: ["Le fichier ne contient aucune ligne exploitable."],
       })
     }
     if (!parsed.mappedHeaders.firstName || !parsed.mappedHeaders.lastName) {
       throw new ActionError(
         "Colonnes Prénom et Nom introuvables dans l'en-tête.",
-        { file: ["Colonnes Prénom et Nom introuvables dans l'en-tête."] }
+        { csv: ["Colonnes Prénom et Nom introuvables dans l'en-tête."] }
       )
+    }
+
+    // An empty selection means every row that has no error — decided here, not
+    // taken from the client.
+    const chosen =
+      input.lines.length > 0 ? new Set(input.lines) : null
+    const selected = parsed.rows.filter((row) =>
+      chosen ? chosen.has(row.line) : row.status !== "error"
+    )
+
+    if (selected.length === 0) {
+      throw new ActionError(
+        "Aucune ligne à importer : toutes celles qui restent comportent une erreur."
+      )
+    }
+
+    const defaultClientId = input.defaultClientId?.trim() || null
+    if (defaultClientId) {
+      const client = await tx.client.findFirst({
+        where: { id: defaultClientId, firmId: ctx.firmId },
+        select: { id: true },
+      })
+      if (!client) {
+        throw new ActionError("Client introuvable dans cette entreprise.", {
+          defaultClientId: ["Client introuvable dans cette entreprise."],
+        })
+      }
     }
 
     const [existing, clients, departments] = await Promise.all([
@@ -430,18 +470,23 @@ export const importEmployees = firmAction({
 
     const outcomes: ImportRowOutcome[] = []
 
-    for (const row of parsed.rows) {
+    for (const row of selected) {
       const name = [row.values.firstName, row.values.lastName]
         .filter(Boolean)
         .join(" ")
         .trim()
 
-      if (row.errors.length > 0) {
+      // A row selected in the preview can still be refused here: the person may
+      // have ticked one with an error, and the preview is an aid, not the gate.
+      if (row.status === "error") {
         outcomes.push({
           line: row.line,
           name: name || "—",
           status: "failed",
-          message: row.errors.join(" "),
+          message: row.issues
+            .filter((issue) => issue.severity === "error")
+            .map((issue) => `${issue.field} — ${issue.message}`)
+            .join(" "),
         })
         continue
       }
@@ -461,7 +506,7 @@ export const importEmployees = firmAction({
       const salary = normaliseAmount(row.values.netSalary)
       const clientId =
         clientByName.get(row.values.clientName?.trim().toLowerCase() ?? "") ??
-        null
+        defaultClientId
       const departmentId =
         departmentByName.get(
           row.values.departmentName?.trim().toLowerCase() ?? ""
@@ -523,7 +568,7 @@ export const importEmployees = firmAction({
             firmId: ctx.firmId,
             employeeId: created.id,
             clientId,
-            type: input.contractType,
+            type: row.contractType as "CDI" | "CDD" | "INTERIM" | "STAGE" | "PRESTATION",
             status: "ACTIVE",
             startDate: row.dates.hireDate!,
             endDate: row.dates.contractEndDate ?? null,
@@ -561,8 +606,14 @@ export const importEmployees = firmAction({
       }
     }
 
+    const selectedLines = new Set(selected.map((row) => row.line))
+
     const report: ImportReport = {
-      total: parsed.rows.length,
+      fileRows: parsed.rows.length,
+      total: selected.length,
+      excludedLines: parsed.rows
+        .filter((row) => !selectedLines.has(row.line))
+        .map((row) => row.line),
       imported: outcomes.filter((row) => row.status === "imported").length,
       skipped: outcomes.filter((row) => row.status === "skipped").length,
       failed: outcomes.filter((row) => row.status === "failed").length,

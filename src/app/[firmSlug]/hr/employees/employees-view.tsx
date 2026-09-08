@@ -712,6 +712,7 @@ export function EmployeesView({
       {dialog?.kind === "import" ? (
         <ImportEmployeesDialog
           firmSlug={firmSlug}
+          clients={clients}
           onClose={() => setDialog(null)}
         />
       ) : null}

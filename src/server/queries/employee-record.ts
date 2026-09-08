@@ -77,9 +77,26 @@ export async function getEmployeeRecord(employeeId: string, ctx: FirmContext) {
         position: true,
         isVise: true,
         alertThreshold: true,
+        isAutoRenewal: true,
+        workingHours: true,
+        trialPeriodEnd: true,
         notes: true,
         terminationReason: true,
+        terminationDate: true,
         client: { select: { id: true, name: true } },
+        // The signed original, when one is linked. Selected here so the card
+        // can offer a preview without a second round trip.
+        contractDocument: {
+          select: {
+            id: true,
+            fileName: true,
+            documentType: true,
+            mimeType: true,
+            fileSize: true,
+            expiryDate: true,
+            isVerified: true,
+          },
+        },
       },
     }),
 
@@ -194,8 +211,16 @@ type ContractLite = {
  *
  * Contracts link backwards through `renewedFromId`. A chain is a run of them;
  * an employee usually has one, but a gap in service starts a new one. Returned
- * oldest-first inside each chain, newest chain first, with the cumulative day
- * count at each step so the timeline can show how the total was reached.
+ * oldest-first inside each chain, newest chain first.
+ *
+ * Each step carries its own length and **nothing cumulative**. It used to carry
+ * a running total, which was wrong twice over: it summed whole contract spans,
+ * so it counted days not yet worked, and it summed them naively, so a day that
+ * is both one contract's end and the next one's start was counted twice. On a
+ * record with four back-to-back contracts that read 999 j beside a header
+ * saying 889 j, both labelled "cumulés". The legal figure comes from
+ * `computeCeiling`, which unions elapsed ranges, and it is now the only one
+ * shown.
  */
 function buildChains<T extends ContractLite>(contracts: T[]) {
   const byId = new Map(contracts.map((contract) => [contract.id, contract]))
@@ -216,15 +241,14 @@ function buildChains<T extends ContractLite>(contracts: T[]) {
         : undefined
     }
 
-    let cumulative = 0
+    const now = new Date()
     const steps = chain.map((contract) => {
-      const end = contract.endDate ?? new Date()
+      const end = contract.endDate ?? now
       const days = Math.max(
         0,
         Math.round((end.getTime() - contract.startDate.getTime()) / 86_400_000) + 1
       )
-      if (contract.type === "INTERIM") cumulative += days
-      return { contract, days, cumulative }
+      return { contract, days }
     })
 
     return { id: head.id, steps }

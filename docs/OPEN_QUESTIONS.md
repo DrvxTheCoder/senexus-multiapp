@@ -398,3 +398,142 @@ be taken.
 second request refused at both `PENDING` and `APPROVED`, the employee arriving
 in the destination firm with an `SP` matricule and an **active contract**, and
 every source contract closed.
+
+## Q20 — The signed contract, and the first schema change · `DECIDED` — one nullable column
+
+The Contrats tab could not show a contract's signed original because nothing related the two:
+`EmployeeDocument` belongs to an employee, and `Contract` had no way to name one of their documents.
+You authorised a schema change for it.
+
+```prisma
+model Contract {
+  contractDocumentId String?
+  contractDocument   EmployeeDocument? @relation("ContractSignedDocument", fields: [contractDocumentId], references: [id], onDelete: SetNull)
+  @@index([contractDocumentId])
+}
+```
+
+**One document per contract**, your choice: the foreign key lives on `Contract`, so uniqueness is
+inherent and the card reads the relation directly. If an avenant ever needs its own slot, this
+becomes a join table without disturbing what is built on it.
+
+`SetNull`, never `Cascade`: deleting a scanned PDF must not delete the contract it documents. The
+harness proves that path — it deletes a linked document and asserts the contract survives with a
+null link.
+
+### Applying it · `DONE` — through the migration history, where it belongs
+
+**Applied to production on 8 September 2026**, and this is worth reading before anyone touches the
+schema again.
+
+`prisma migrate dev` was run from *this* repo against the live database. It reported every table as
+drift and offered `migrate reset`, which would have dropped the production database. It stopped
+short of doing so, and nothing was lost — but the near miss has one cause worth naming.
+
+**The migration history lives in `senexus-hr`, not here.** That repo holds ten migration folders,
+matching exactly the ten the live database records. This repo has none, deliberately. So
+`migrate dev` here compared an empty history against a full database, concluded the whole schema was
+unexplained, and reached for the only reconciliation it knows.
+
+The fix was to put the migration where the history is: the column was added to `senexus-hr`'s
+schema, written as `20260908120000_add_contract_signed_document`, and applied with **`prisma migrate
+deploy`** — the production command, which only applies pending migrations and can neither prompt nor
+reset. `migrate status` beforehand read "10 applied, 1 pending" with no drift, which is what a
+healthy history looks like. Afterwards, production reports *No difference detected* against both
+repos' schemas.
+
+The local `senexusdb` already had the column from the earlier `db push`, so the migration was
+recorded there with `prisma migrate resolve --applied` rather than run twice.
+
+**Rules that follow from this:**
+
+- **Never run `migrate dev`, `migrate reset` or `db push` from this repo against production.** This
+  repo has no migration history and cannot reason about one.
+- A schema change goes into `senexus-hr` as a migration, is applied with `migrate deploy`, and is
+  then copied into this repo's `schema.prisma`. Both must stay byte-identical.
+- Keep `DATABASE_URL` on localhost. The production URL sits commented in `.env` so that reaching it
+  is a deliberate act, not the ambient default.
+
+The SQL that ran, for the record:
+
+```sql
+ALTER TABLE "contracts" ADD COLUMN "contractDocumentId" TEXT;
+CREATE INDEX "contracts_contractDocumentId_idx" ON "contracts"("contractDocumentId");
+ALTER TABLE "contracts" ADD CONSTRAINT "contracts_contractDocumentId_fkey"
+  FOREIGN KEY ("contractDocumentId") REFERENCES "employee_documents"("id")
+  ON DELETE SET NULL ON UPDATE CASCADE;
+```
+
+The schema sha256 moves from `86188a02…` to `fc5be73a…`. README and `DATA_MODEL.md` say so, and the
+rule they state has been rewritten from "frozen, never touch it" to "additive only, when asked" —
+which is what is now true, and a rule nobody has to quietly break is worth more than one that reads
+strictly and is ignored.
+
+## Q21 — "209 j · 659 j cumulés" · `FIXED` — it was two different sums, both mislabelled
+
+You asked what those numbers meant on the Contrats tab. The honest answer was that one of them was
+wrong. On a record with four back-to-back interim contracts, the rows counted up to 999 j while the
+header said 889 j, both labelled "cumulés":
+
+| | Row running total | Header |
+| --- | --- | --- |
+| Current contract | its **whole span**, 340 j to the end date | only days **elapsed**, 233 j to today |
+| Adjacent contracts | naive sum | union — a day that is one contract's end and the next one's start counts **once** |
+
+Those four contracts share three boundary days, so 999 − 889 = 107 days not yet worked + 3 counted
+twice. The header comes from `computeCeiling`, is the figure the 730-day law turns on, and was
+right all along.
+
+The per-row cumulative is **gone**. Each row and each card shows its own length; the cumulation
+appears once, in the renewal-chain card, stated by the 730-day meter itself — the panel description
+used to repeat it, which was the same duplication in miniature.
+
+Pinned by `interim-ceiling.test.ts`: a naive sum of these four spans exceeds `usedDays` by exactly 3
+when they are all in the past, and by exactly 110 mid-way through the last one.
+
+## Q22 — The employee import · `REBUILT` — preview first, write second
+
+The first version took a file and two checkboxes and told you afterwards what it
+had done. That is the wrong order: by the time the report appears, the rows are
+in the database. The legacy application had this right — it showed the file back
+before writing anything — and this rebuilds that with the reporting it lacked.
+
+**Three steps.** Drop a file (or pick one, with a blank template to download) →
+read it back → import. The preview parses **in the browser**, so it is instant
+and costs no request; the import re-parses **on the server** with the same
+function over the same bytes. The client sends the file's text and the decisions
+made on screen, never a list of rows it assembled: the preview is an aid, the
+server is the gate. A row ticked by hand despite being blocked is still refused,
+and the report says which line and why.
+
+**Two severities, because they mean different things.** An *error* is a row that
+cannot become an employee — no name, no readable hire date, a hire date in the
+future, an unknown or absent contract type, a fixed term with no term. A
+*warning* is a row that will import with a gap in it — no CNI, no nationality,
+no emploi, an age that looks like a mistyped century. Collapsing the two forces
+a choice between refusing good data and accepting bad, and a real file has some
+of each. The first version had only errors.
+
+**Every issue names the column as the file spells it**, quotes the value it
+could not read, and says what to do. `DATE ENTREE — Date illisible : « pas une
+date » — Format JJ/MM/AAAA` sends someone to a cell; `Format de date invalide`
+sends them back to a 400-row spreadsheet.
+
+**Two global fixes, because that is what real files need.** A default contract
+type, for exports that carry no such column — applied visibly, as a warning on
+every row it touches, never silently. And a client to assign, which is also what
+decides whose portfolio the new employees land in.
+
+**Stricter than before, deliberately.** A fixed-term contract with no end date
+is refused: that is the defect that gets a contract requalified as a CDI, and
+importing it just moves the discovery later. The message offers the two ways
+out — add the column, or choose a type without a term.
+
+Flipping the date convention re-validates in front of you. The counters and the
+table follow immediately, so `03/04` being read as 3 April rather than 4 March
+is something you see rather than something you find out about in payroll.
+
+The report accounts for the **whole file**: rows in the file, rows retained,
+rows not retained and by line number. A report that silently omits what it never
+attempted cannot be reconciled against the spreadsheet it came from.
+

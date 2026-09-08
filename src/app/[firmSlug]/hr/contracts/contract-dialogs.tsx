@@ -70,12 +70,19 @@ export function ContractDialog({
   contract,
   employees,
   clients,
+  lockEmployee = false,
   onClose,
 }: {
   firmSlug: string
   contract: ContractDefaults | null
   employees: { id: string; name: string; matricule: string }[]
   clients: { id: string; name: string }[]
+  /**
+   * On an employee record the subject is not in question, so the picker
+   * renders as fixed text. The id still travels in the form, and the server
+   * re-resolves it against the caller's firm either way.
+   */
+  lockEmployee?: boolean
   onClose: () => void
 }) {
   const router = useRouter()
@@ -133,16 +140,24 @@ export function ContractDialog({
         </DialogHeader>
 
         <form onSubmit={submit} className="space-y-3">
-          <SelectControl
-            form={form}
-            name={"employeeId" as never}
-            label="Employé"
-            required
-            options={employees.map((employee) => ({
-              value: employee.id,
-              label: `${employee.name} · ${employee.matricule}`,
-            }))}
-          />
+          {lockEmployee ? (
+            <div className="rounded-[7px] border border-line bg-sub px-2.5 py-2 text-[13px]">
+              <span className="text-ink-3">Employé — </span>
+              {employees[0]?.name}{" "}
+              <span className="mono text-ink-3">{employees[0]?.matricule}</span>
+            </div>
+          ) : (
+            <SelectControl
+              form={form}
+              name={"employeeId" as never}
+              label="Employé"
+              required
+              options={employees.map((employee) => ({
+                value: employee.id,
+                label: `${employee.name} · ${employee.matricule}`,
+              }))}
+            />
+          )}
 
           <FieldGrid>
             <SelectControl

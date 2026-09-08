@@ -255,6 +255,19 @@ export const renewContractSchema = z.object({
     .max(1095, "Trois ans au plus."),
 })
 
+/**
+ * Attaching the signed original to a contract. `null` unlinks.
+ *
+ * The employee is not passed: the action derives it from the contract and
+ * refuses a document belonging to anyone else, so a crafted id cannot staple
+ * one person's payslip to another person's contract.
+ */
+export const linkContractDocumentSchema = z.object({
+  ...firmScoped,
+  contractId: z.string().min(1),
+  documentId: z.string().min(1).nullable(),
+})
+
 export const stampVisaSchema = z.object({
   ...firmScoped,
   ids: z.array(z.string()).min(1, "Sélectionnez au moins un contrat."),
@@ -470,15 +483,31 @@ export const rejectTransferSchema = z.object({
  * CSV import
  * ========================================================================== */
 
+/**
+ * The import takes the **file's text**, not the rows the browser parsed.
+ *
+ * The preview and the import therefore run the same parser over the same
+ * bytes, and the server never has to trust a shape the client assembled. What
+ * the client does send is the decisions the person made on the preview screen:
+ * which lines to take, how to read ambiguous dates, and the two defaults.
+ */
 export const importEmployeesSchema = z.object({
   ...firmScoped,
-  file: z
-    .instanceof(File, { message: "Sélectionnez un fichier CSV." })
-    .refine((file) => file.size > 0, "Le fichier est vide.")
-    .refine((file) => file.size <= 5 * 1024 * 1024, "5 Mo maximum."),
+  csv: z
+    .string()
+    .min(1, "Le fichier est vide.")
+    .max(5 * 1024 * 1024, "5 Mo maximum."),
   /** Ambiguous dates such as 03/04/2024 are read day-first by default. */
   dayFirst: z.boolean(),
   /** Rows matching an existing employee on enough fields are skipped. */
   skipDuplicates: z.boolean(),
-  contractType: z.enum(CONTRACT_TYPES),
+  /** Applied to rows whose file names no contract type. */
+  defaultContractType: z.enum(CONTRACT_TYPES).or(z.literal("")).optional(),
+  /** Applied to every imported row that names no client of its own. */
+  defaultClientId: z.string().or(z.literal("")).optional(),
+  /**
+   * Spreadsheet line numbers, as shown in the preview. Empty means "every row
+   * that has no error", decided server-side rather than taken on trust.
+   */
+  lines: z.array(z.number().int().min(2)).default([]),
 })

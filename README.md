@@ -9,16 +9,32 @@ Auth.js v5 · Tailwind v4 · shadcn on Base UI.
 
 ## The one rule
 
-**The database schema is frozen.** It is live, it holds real personnel records,
-and it is shared with the application this one replaces.
+**The database is live, holds real personnel records, and is shared with the
+application this one replaces.** Everything else follows from that.
 
-- `prisma/schema.prisma` is byte-for-byte the production schema
-  (sha256 `86188a02…`). Do not edit it.
-- Run `prisma generate` only. **Never** `migrate dev`, `migrate deploy`,
-  `db push` or `db pull`. There is no `prisma/migrations/` directory and there
-  must not be one.
-- Need a value the schema cannot supply? Derive it in the query layer, or add it
-  to `docs/OPEN_QUESTIONS.md`. Do not add a column.
+- **Additive changes only, and only when asked for.** A new nullable column is
+  invisible to the legacy application and safe to add; altering, renaming or
+  dropping anything it reads is not. The schema has been extended exactly once
+  since the rebuild began — `Contract.contractDocumentId` — see Q20 in
+  `docs/OPEN_QUESTIONS.md`, which carries the SQL for the live database.
+- **Default to deriving, not adding.** Need a value the schema cannot supply?
+  Derive it in the query layer, or put it in `FirmModule.settings` /
+  `Module.metadata` / `DashboardView.config`, which exist for that. Reach for a
+  column only after those fail.
+- **The migration history lives in `senexus-hr`, not here.** That repo holds the
+  migration folders the live database records; this one holds none, on purpose.
+  A schema change is written there as a migration, applied with `prisma migrate
+  deploy`, and then copied into this repo's `schema.prisma` byte-for-byte.
+- From this repo: `prisma generate`, and `db push` against **localhost** only.
+  **Never** `migrate dev`, `migrate reset`, `migrate deploy` or `db pull`, and
+  never against production — this repo has no migration history, so `migrate
+  dev` reads the entire live database as drift and offers to reset it. That has
+  been tried once; see Q20.
+- Keep `DATABASE_URL` on localhost. The production URL sits commented in `.env`
+  so that reaching it is a deliberate act.
+- Check the diff before pushing anything:
+  `prisma migrate diff --from-schema-datasource … --to-schema-datamodel … --script`
+  must print only the statements you intend.
 
 Verify at any time:
 
@@ -87,8 +103,10 @@ itself and can be run repeatedly.
 
 What neither harness nor a build can see is a menu or a dialog, because
 their content only mounts once someone clicks. `pnpm test` opens them in jsdom
-instead — that is what `src/components/shell/shell-menus.test.tsx` is for, after
-two client-only crashes shipped past a green build.
+instead — `src/components/shell/shell-menus.test.tsx` after two client-only
+crashes shipped past a green build, and
+`src/app/[firmSlug]/hr/employees/import-dialog.test.tsx` for the import preview,
+whose whole point is that choosing a file writes nothing.
 
 ```bash
 node scripts/gen-data-model.mjs   # regenerate docs/DATA_MODEL.md

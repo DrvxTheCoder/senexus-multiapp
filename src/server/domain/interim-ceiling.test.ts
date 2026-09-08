@@ -163,3 +163,61 @@ describe("renewalWouldBreach", () => {
     expect(renewalWouldBreach(notApplicable, 10_000)).toBe(false)
   })
 })
+
+/**
+ * The case that exposed the Contrats tab defect.
+ *
+ * Omar Mendy's record showed 999 j on its rows and 889 j in its header, both
+ * labelled "cumulés". The rows summed whole contract spans naively; the header
+ * unions elapsed ranges. These pin the two ways the naive sum was wrong, so
+ * nothing reintroduces it.
+ */
+describe("a naive sum of spans is not the legal cumulation", () => {
+  const day = (iso: string) => new Date(`${iso}T12:00:00.000Z`)
+  const span = (start: string, end: string) =>
+    Math.round((day(end).getTime() - day(start).getTime()) / 86_400_000) + 1
+
+  // Four back-to-back interim contracts: each end is the next one's start.
+  const periods = [
+    { startDate: day("2024-04-03"), endDate: day("2024-11-21"), type: "INTERIM" as const },
+    { startDate: day("2024-11-21"), endDate: day("2025-06-25"), type: "INTERIM" as const },
+    { startDate: day("2025-06-25"), endDate: day("2026-01-19"), type: "INTERIM" as const },
+    { startDate: day("2026-01-19"), endDate: day("2026-12-24"), type: "INTERIM" as const },
+  ]
+
+  const naiveSum = periods.reduce(
+    (total, period) =>
+      total +
+      span(
+        period.startDate.toISOString().slice(0, 10),
+        period.endDate.toISOString().slice(0, 10)
+      ),
+    0
+  )
+
+  it("double-counts the day shared by two adjacent contracts", () => {
+    // Every contract fully in the past: the only difference left is the three
+    // boundary days the naive sum counts twice.
+    const after = day("2027-01-01")
+    const ceiling = computeCeiling(periods, "INTERIM", after)
+
+    expect(naiveSum - ceiling.usedDays).toBe(3)
+  })
+
+  it("counts days not yet worked, which the legal figure does not", () => {
+    // Mid-way through the last contract.
+    const today = day("2026-09-08")
+    const ceiling = computeCeiling(periods, "INTERIM", today)
+
+    expect(ceiling.usedDays).toBeLessThan(ceiling.projectedDays)
+    // 107 days still to run on the final contract, plus the 3 boundary days.
+    expect(naiveSum - ceiling.usedDays).toBe(110)
+  })
+
+  it("still reports the ceiling as breached, which is what matters", () => {
+    const ceiling = computeCeiling(periods, "INTERIM", day("2026-09-08"))
+    expect(ceiling.usedDays).toBeGreaterThan(INTERIM_CEILING_DAYS)
+    expect(ceiling.tone).toBe("alert")
+    expect(ceiling.remainingDays).toBe(0)
+  })
+})

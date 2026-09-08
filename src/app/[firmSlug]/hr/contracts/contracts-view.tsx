@@ -565,12 +565,17 @@ export function ContractsView({
                               contract.salary === null
                                 ? ""
                                 : String(Math.round(contract.salary)),
-                            workingHours: "",
-                            trialPeriodEnd: "",
-                            alertThreshold: 30,
-                            isAutoRenewal: false,
+                            // Real values, not blanks: defaulting these was
+                            // clearing four columns on every edit made here.
+                            workingHours:
+                              contract.workingHours === null
+                                ? ""
+                                : String(contract.workingHours),
+                            trialPeriodEnd: toInput(contract.trialPeriodEnd),
+                            alertThreshold: contract.alertThreshold,
+                            isAutoRenewal: contract.isAutoRenewal,
                             isVise: contract.isVise,
-                            notes: "",
+                            notes: contract.notes ?? "",
                           },
                         })
                       }}

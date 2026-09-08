@@ -327,38 +327,45 @@ enum ContractStatus {
 }
 
 model Contract {
-  id                String         @id @default(cuid())
-  firmId            String
-  employeeId        String
-  clientId          String?
-  type              ContractType
-  status            ContractStatus @default(ACTIVE)
-  startDate         DateTime
-  endDate           DateTime?
-  renewalDate       DateTime?
-  renewedFromId     String?        // Reference to previous contract if renewed
-  clientFirmId      String?        // For interim: the client firm employee works at
-  alertThreshold    Int            @default(30)
-  isAutoRenewal     Boolean        @default(false)
-  position          String?
-  salary            Decimal?       @db.Decimal(10, 2)
-  workingHours      Int?
-  trialPeriodEnd    DateTime?
-  notes             String?
-  isVise            Boolean        @default(false)
-  isActive          Boolean        @default(true)
-  terminationDate   DateTime?
-  terminationReason String?
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @updatedAt
+  id                 String         @id @default(cuid())
+  firmId             String
+  employeeId         String
+  clientId           String?
+  type               ContractType
+  status             ContractStatus @default(ACTIVE)
+  startDate          DateTime
+  endDate            DateTime?
+  renewalDate        DateTime?
+  renewedFromId      String?        // Reference to previous contract if renewed
+  clientFirmId       String?        // For interim: the client firm employee works at
+  alertThreshold     Int            @default(30)
+  isAutoRenewal      Boolean        @default(false)
+  position           String?
+  salary             Decimal?       @db.Decimal(10, 2)
+  workingHours       Int?
+  trialPeriodEnd     DateTime?
+  notes              String?
+  isVise             Boolean        @default(false)
+  isActive           Boolean        @default(true)
+  terminationDate    DateTime?
+  terminationReason  String?
+  // The signed original, once one is uploaded. Nullable and additive: the
+  // legacy application does not know this column exists and is unaffected.
+  contractDocumentId String?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
 
-  firm         Firm       @relation(fields: [firmId], references: [id], onDelete: Cascade)
-  employee     Employee   @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  client       Client?    @relation(fields: [clientId], references: [id])
-  renewedFrom  Contract?  @relation("ContractRenewal", fields: [renewedFromId], references: [id])
-  renewals     Contract[] @relation("ContractRenewal")
-  clientFirm   Firm?      @relation("ClientFirmContracts", fields: [clientFirmId], references: [id])
+  firm             Firm              @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  employee         Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  client           Client?           @relation(fields: [clientId], references: [id])
+  renewedFrom      Contract?         @relation("ContractRenewal", fields: [renewedFromId], references: [id])
+  renewals         Contract[]        @relation("ContractRenewal")
+  clientFirm       Firm?             @relation("ClientFirmContracts", fields: [clientFirmId], references: [id])
+  // SetNull, never Cascade: deleting a scanned PDF must not delete the
+  // contract it documents.
+  contractDocument EmployeeDocument? @relation("ContractSignedDocument", fields: [contractDocumentId], references: [id], onDelete: SetNull)
 
+  @@index([contractDocumentId])
   @@map("contracts")
 }
 
@@ -931,9 +938,12 @@ model EmployeeDocument {
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 
-  employee  Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  uploader  User     @relation("DocumentUploader", fields: [uploadedBy], references: [id])
-  verifier  User?    @relation("DocumentVerifier", fields: [verifiedBy], references: [id])
+  employee        Employee   @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  uploader        User       @relation("DocumentUploader", fields: [uploadedBy], references: [id])
+  verifier        User?      @relation("DocumentVerifier", fields: [verifiedBy], references: [id])
+  // Back-relation only. A document is attached to at most one contract, but
+  // Prisma requires the other side to exist.
+  signedContracts Contract[] @relation("ContractSignedDocument")
 
   @@map("employee_documents")
 }
