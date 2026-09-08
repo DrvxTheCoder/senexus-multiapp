@@ -181,6 +181,16 @@ export type ContractRow = {
   isVise: boolean
   position: string | null
   salary: number | null
+  /**
+   * Carried so the edit dialog can round-trip a contract without clearing what
+   * it does not display. They were missing, and the dialog defaulted them to
+   * blank, so editing a contract from this list silently wiped all four.
+   */
+  workingHours: number | null
+  trialPeriodEnd: Date | null
+  alertThreshold: number
+  isAutoRenewal: boolean
+  notes: string | null
   /** Days until endDate. Negative when overdue, null for an open-ended contract. */
   daysRemaining: number | null
   employee: {
@@ -279,6 +289,11 @@ export async function listContracts(
       isVise: true,
       position: true,
       salary: true,
+      workingHours: true,
+      trialPeriodEnd: true,
+      alertThreshold: true,
+      isAutoRenewal: true,
+      notes: true,
       employee: {
         select: {
           id: true,
@@ -314,6 +329,11 @@ export async function listContracts(
         isVise: record.isVise,
         position: record.position,
         salary: record.salary === null ? null : Number(record.salary),
+        workingHours: record.workingHours,
+        trialPeriodEnd: record.trialPeriodEnd,
+        alertThreshold: record.alertThreshold,
+        isAutoRenewal: record.isAutoRenewal,
+        notes: record.notes,
         daysRemaining:
           record.endDate === null
             ? null

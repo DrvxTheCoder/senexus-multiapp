@@ -4,6 +4,7 @@ import type { Prisma } from "@prisma/client"
 
 import {
   createContractSchema,
+  linkContractDocumentSchema,
   renewContractSchema,
   stampVisaSchema,
   terminateContractSchema,
@@ -440,5 +441,87 @@ export const stampVisa = firmAction({
     })
 
     return { applied: result.count, requested: input.ids.length }
+  },
+})
+
+/* ==========================================================================
+ * The signed original
+ * ========================================================================== */
+
+/**
+ * Attaches an uploaded document to the contract it is the signed original of,
+ * or detaches it when `documentId` is null.
+ *
+ * Both the contract and the document are re-resolved from the caller's firm,
+ * and the document must belong to **the same employee** as the contract. Two
+ * ids arriving together from a form is exactly the shape that lets a crafted
+ * request pair records that have nothing to do with each other.
+ */
+export const linkContractDocument = firmAction({
+  input: linkContractDocumentSchema,
+  minimumRole: "MANAGER",
+  module: "hr",
+  revalidate: (input) => [
+    `/${input.firmSlug}/hr/contracts`,
+    `/${input.firmSlug}/hr/employees`,
+    `/${input.firmSlug}/documents`,
+  ],
+  handler: async ({ input, ctx, tx, audit }) => {
+    const contract = await tx.contract.findFirst({
+      where: {
+        id: input.contractId,
+        firmId: ctx.firmId,
+        ...(ctx.assignedClientIds
+          ? { employee: { assignedClientId: { in: ctx.assignedClientIds } } }
+          : {}),
+      },
+      select: { id: true, employeeId: true, contractDocumentId: true },
+    })
+    if (!contract) throw new ActionError("Contrat introuvable.")
+
+    if (input.documentId === null) {
+      await tx.contract.update({
+        where: { id: contract.id },
+        data: { contractDocumentId: null },
+      })
+
+      await audit({
+        action: "UNLINK_DOCUMENT",
+        entity: "CONTRACT",
+        entityId: contract.id,
+        metadata: { previousDocumentId: contract.contractDocumentId },
+      })
+
+      return { documentId: null }
+    }
+
+    const document = await tx.employeeDocument.findFirst({
+      where: {
+        id: input.documentId,
+        firmId: ctx.firmId,
+        employeeId: contract.employeeId,
+      },
+      select: { id: true, fileName: true },
+    })
+    if (!document) {
+      throw new ActionError(
+        "Cette pièce n'appartient pas à l'employé de ce contrat.",
+        { documentId: ["Pièce introuvable pour cet employé."] }
+      )
+    }
+
+    await tx.contract.update({
+      where: { id: contract.id },
+      data: { contractDocumentId: document.id },
+    })
+
+    await audit({
+      action: "LINK_DOCUMENT",
+      entity: "CONTRACT",
+      entityId: contract.id,
+      metadata: { documentId: document.id, fileName: document.fileName },
+    })
+
+    return { documentId: document.id }
   },
 })

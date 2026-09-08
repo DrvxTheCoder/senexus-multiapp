@@ -54,9 +54,19 @@ const HEADER_ALIASES: Record<string, string> = {
   embauche: "hireDate",
   poste: "jobTitle",
   fonction: "jobTitle",
+  emploi: "jobTitle",
   categorie: "category",
   "fin de contrat": "contractEndDate",
   "date fin contrat": "contractEndDate",
+  "date sortie": "contractEndDate",
+  "date de sortie": "contractEndDate",
+  sortie: "contractEndDate",
+  "date entree": "hireDate",
+  "date d'entree": "hireDate",
+  entree: "hireDate",
+  "type contrat": "contractType",
+  "type de contrat": "contractType",
+  contrat: "contractType",
   salaire: "netSalary",
   "salaire net": "netSalary",
   client: "clientName",
@@ -85,6 +95,7 @@ export const IMPORT_FIELDS = [
   "category",
   "contractEndDate",
   "netSalary",
+  "contractType",
   "clientName",
   "departmentName",
 ] as const
@@ -114,19 +125,100 @@ export function mapHeader(header: string): ImportField | null {
   )
 }
 
+/**
+ * One problem with one row.
+ *
+ * Two severities, because they mean different things to the person importing:
+ * an **error** is a row that cannot become an employee, a **warning** is a row
+ * that will import with a gap in it. Collapsing the two — which the first
+ * version of this did — forces a choice between refusing good data and
+ * accepting bad, and the file always contains some of each.
+ */
+export type RowIssue = {
+  /** The column as the file spells it, so the fix is findable. */
+  field: string
+  message: string
+  severity: "error" | "warning"
+  /** What to do about it. Shown when the row is expanded. */
+  fix?: string
+}
+
+export type RowStatus = "valid" | "warning" | "error"
+
 export type ParsedRow = {
   /** 1-based, counting the header as row 1 — what the spreadsheet shows. */
   line: number
   values: Partial<Record<ImportField, string>>
   dates: { hireDate?: Date; dateOfBirth?: Date; contractEndDate?: Date }
-  errors: string[]
+  /** Resolved against the aliases, e.g. INTERIMAIRE → INTERIM. */
+  contractType: string
+  issues: RowIssue[]
+  status: RowStatus
+}
+
+export type ParseSummary = {
+  total: number
+  valid: number
+  warnings: number
+  errors: number
 }
 
 export type ParseResult = {
   rows: ParsedRow[]
+  summary: ParseSummary
   /** Headers we could not map, reported so the file can be corrected. */
   unknownHeaders: string[]
   mappedHeaders: Partial<Record<ImportField, string>>
+}
+
+export function summarise(rows: ParsedRow[]): ParseSummary {
+  return {
+    total: rows.length,
+    valid: rows.filter((row) => row.status === "valid").length,
+    warnings: rows.filter((row) => row.status === "warning").length,
+    errors: rows.filter((row) => row.status === "error").length,
+  }
+}
+
+/** Contract types as the files spell them. */
+const CONTRACT_TYPES: Record<string, string> = {
+  cdi: "CDI",
+  cdd: "CDD",
+  interim: "INTERIM",
+  interimaire: "INTERIM",
+  "contrat interim": "INTERIM",
+  stage: "STAGE",
+  stagiaire: "STAGE",
+  prestation: "PRESTATION",
+  prestataire: "PRESTATION",
+  consultant: "PRESTATION",
+}
+
+export function normaliseContractType(raw: string | undefined): string {
+  if (!raw) return ""
+  return CONTRACT_TYPES[normaliseHeader(raw)] ?? ""
+}
+
+/** A fixed-term contract must say when it ends. */
+export const DATED_CONTRACT_TYPES = ["CDD", "INTERIM"]
+
+const MARITAL: Record<string, string> = {
+  celibataire: "CELIBATAIRE",
+  celibat: "CELIBATAIRE",
+  single: "CELIBATAIRE",
+  marie: "MARIE",
+  mariee: "MARIE",
+  married: "MARIE",
+  veuf: "VEUF",
+  veuve: "VEUF",
+  divorce: "DIVORCE",
+  divorcee: "DIVORCE",
+  divorced: "DIVORCE",
+}
+
+export function normaliseMaritalStatus(raw: string | undefined): string {
+  if (!raw) return ""
+  return MARITAL[normaliseHeader(raw)] ?? raw.trim()
 }
 
 const GENDERS: Record<string, "MALE" | "FEMALE" | "OTHER"> = {
@@ -155,7 +247,8 @@ export function normaliseAmount(raw: string | undefined): string {
 
 export function parseEmployeeCsv(
   text: string,
-  dayFirst: boolean
+  dayFirst: boolean,
+  options: ValidateOptions = {}
 ): ParseResult {
   const parsed = Papa.parse<Record<string, string>>(text, {
     header: true,
@@ -173,9 +266,7 @@ export function parseEmployeeCsv(
     else unknownHeaders.push(header)
   }
 
-  const rows: ParsedRow[] = []
-
-  parsed.data.forEach((raw, index) => {
+  const rows: ParsedRow[] = parsed.data.map((raw, index) => {
     const values: Partial<Record<ImportField, string>> = {}
     for (const [field, header] of Object.entries(mappedHeaders)) {
       const value = raw[header as string]
@@ -183,50 +274,214 @@ export function parseEmployeeCsv(
         values[field as ImportField] = value.trim()
       }
     }
-
-    const errors: string[] = []
-    const dates: ParsedRow["dates"] = {}
-
-    if (!values.firstName) errors.push("Prénom manquant.")
-    if (!values.lastName) errors.push("Nom manquant.")
-
-    if (!values.hireDate) {
-      errors.push("Date d'embauche manquante.")
-    } else {
-      const hireDate = parseFlexibleDate(values.hireDate, dayFirst)
-      if (!hireDate) errors.push(`Date d'embauche illisible : ${values.hireDate}`)
-      else dates.hireDate = hireDate
-    }
-
-    for (const field of ["dateOfBirth", "contractEndDate"] as const) {
-      const value = values[field]
-      if (!value) continue
-      const date = parseFlexibleDate(value, dayFirst)
-      if (!date) {
-        errors.push(
-          `${field === "dateOfBirth" ? "Date de naissance" : "Fin de contrat"} illisible : ${value}`
-        )
-      } else {
-        dates[field] = date
-      }
-    }
-
-    if (
-      dates.hireDate &&
-      dates.contractEndDate &&
-      dates.contractEndDate < dates.hireDate
-    ) {
-      errors.push("La fin de contrat précède l'embauche.")
-    }
-
-    if (values.netSalary && !normaliseAmount(values.netSalary)) {
-      errors.push(`Salaire illisible : ${values.netSalary}`)
-    }
-
-    rows.push({ line: index + 2, values, dates, errors })
+    return validateRow(values, index + 2, dayFirst, mappedHeaders, options)
   })
 
-  return { rows, unknownHeaders, mappedHeaders }
+  return { rows, summary: summarise(rows), unknownHeaders, mappedHeaders }
+}
+
+export type ValidateOptions = {
+  /**
+   * Applied to rows whose file gives no type. It is a real answer to a real
+   * problem — an export that names no contract type would otherwise be entirely
+   * unimportable — but it is a choice the person makes, not a default buried
+   * in the parser.
+   */
+  defaultContractType?: string
+  /** `now` is injectable so the tests do not depend on the day they run. */
+  now?: Date
+}
+
+/**
+ * One row, judged.
+ *
+ * The rules come from the legacy importer, which had them right; what it got
+ * wrong was reporting. Every issue here names the column **as the file spells
+ * it**, says what is wrong, and says what to do — a message like "Format de
+ * date invalide" with no column and no example is a message that sends someone
+ * back to a 400-row spreadsheet with no idea where to look.
+ */
+export function validateRow(
+  values: Partial<Record<ImportField, string>>,
+  line: number,
+  dayFirst: boolean,
+  mappedHeaders: Partial<Record<ImportField, string>> = {},
+  options: ValidateOptions = {}
+): ParsedRow {
+  const now = options.now ?? new Date()
+  const issues: RowIssue[] = []
+  const dates: ParsedRow["dates"] = {}
+
+  /** The column as the file spells it, falling back to a readable label. */
+  const column = (field: ImportField, fallback: string) =>
+    mappedHeaders[field] ?? fallback
+
+  const error = (field: string, message: string, fix?: string) =>
+    issues.push({ field, message, severity: "error", fix })
+  const warn = (field: string, message: string, fix?: string) =>
+    issues.push({ field, message, severity: "warning", fix })
+
+  /* -- identity ----------------------------------------------------------- */
+
+  if (!values.firstName) {
+    error(column("firstName", "PRENOM"), "Le prénom est obligatoire.")
+  }
+  if (!values.lastName) {
+    error(column("lastName", "NOM"), "Le nom est obligatoire.")
+  }
+
+  /* -- hire date ---------------------------------------------------------- */
+
+  const hireColumn = column("hireDate", "DATE ENTREE")
+  if (!values.hireDate) {
+    error(
+      hireColumn,
+      "La date d'entrée est obligatoire.",
+      "Format JJ/MM/AAAA, par exemple 15/01/2024."
+    )
+  } else {
+    const hireDate = parseFlexibleDate(values.hireDate, dayFirst)
+    if (!hireDate) {
+      error(
+        hireColumn,
+        `Date illisible : « ${values.hireDate} »`,
+        "Format JJ/MM/AAAA, par exemple 15/01/2024."
+      )
+    } else {
+      dates.hireDate = hireDate
+      if (hireDate.getTime() > now.getTime()) {
+        // A future hire date is almost always a typo in the year, and it would
+        // make the employee's seniority and their 730-day count nonsense.
+        error(
+          hireColumn,
+          "La date d'entrée est dans le futur.",
+          "Vérifiez l'année."
+        )
+      }
+    }
+  }
+
+  /* -- contract type ------------------------------------------------------ */
+
+  const typeColumn = column("contractType", "TYPE CONTRAT")
+  const rawType = values.contractType
+  let contractType = normaliseContractType(rawType)
+
+  if (!contractType) {
+    if (rawType) {
+      error(
+        typeColumn,
+        `Type inconnu : « ${rawType} »`,
+        "CDI, CDD, INTERIM, STAGE ou PRESTATION."
+      )
+    } else if (options.defaultContractType) {
+      contractType = options.defaultContractType
+      warn(
+        typeColumn,
+        "Type de contrat absent du fichier.",
+        `Le type choisi au-dessus (${options.defaultContractType}) sera appliqué.`
+      )
+    } else {
+      error(
+        typeColumn,
+        "Le type de contrat est obligatoire.",
+        "Ajoutez la colonne, ou choisissez un type par défaut au-dessus."
+      )
+    }
+  }
+
+  /* -- end date, required for a fixed term -------------------------------- */
+
+  const endColumn = column("contractEndDate", "DATE SORTIE")
+  if (values.contractEndDate) {
+    const end = parseFlexibleDate(values.contractEndDate, dayFirst)
+    if (!end) {
+      error(
+        endColumn,
+        `Date illisible : « ${values.contractEndDate} »`,
+        "Format JJ/MM/AAAA, ou laissez vide."
+      )
+    } else {
+      dates.contractEndDate = end
+      if (dates.hireDate && end <= dates.hireDate) {
+        error(endColumn, "La date de sortie précède ou égale l'entrée.")
+      }
+    }
+  } else if (contractType && DATED_CONTRACT_TYPES.includes(contractType)) {
+    // A fixed term with no term is the defect that gets a contract requalified
+    // as a CDI, so it is refused rather than imported and discovered later.
+    error(
+      endColumn,
+      `Un contrat ${contractType} doit avoir une date de fin.`,
+      "Ajoutez la colonne DATE SORTIE, ou choisissez un type sans terme (CDI) au-dessus."
+    )
+  }
+
+  /* -- date of birth ------------------------------------------------------ */
+
+  const birthColumn = column("dateOfBirth", "DATE DE NAISSANCE")
+  if (values.dateOfBirth) {
+    const birth = parseFlexibleDate(values.dateOfBirth, dayFirst)
+    if (!birth) {
+      error(birthColumn, `Date illisible : « ${values.dateOfBirth} »`)
+    } else {
+      dates.dateOfBirth = birth
+      const years =
+        (now.getTime() - birth.getTime()) / (365.25 * 24 * 60 * 60 * 1000)
+      if (years < 16 || years > 100) {
+        warn(
+          birthColumn,
+          `Âge inhabituel : ${Math.floor(years)} ans.`,
+          "Souvent un siècle inversé — 1998 lu comme 2098."
+        )
+      }
+    }
+  } else {
+    warn(birthColumn, "Date de naissance manquante.")
+  }
+
+  /* -- the rest ----------------------------------------------------------- */
+
+  if (values.netSalary && !normaliseAmount(values.netSalary)) {
+    warn(
+      column("netSalary", "SALAIRE"),
+      `Salaire illisible : « ${values.netSalary} »`,
+      "Un nombre, par exemple 150000. Le champ sera laissé vide."
+    )
+  }
+
+  const cniColumn = column("cni", "CNI")
+  if (!values.cni) {
+    warn(cniColumn, "Numéro CNI manquant.")
+  } else if (values.cni.replace(/\D/g, "").length < 5) {
+    warn(cniColumn, `Numéro CNI très court : « ${values.cni} »`)
+  }
+
+  if (!values.jobTitle) {
+    warn(column("jobTitle", "EMPLOI"), "Emploi manquant.")
+  }
+  if (!values.nationality) {
+    warn(column("nationality", "NATIONALITE"), "Nationalité manquante.")
+  }
+
+  if (values.maritalStatus) {
+    const marital = normaliseMaritalStatus(values.maritalStatus)
+    if (!["CELIBATAIRE", "MARIE", "VEUF", "DIVORCE"].includes(marital)) {
+      warn(
+        column("maritalStatus", "SITUATION MATRIMONIALE"),
+        `Valeur inhabituelle : « ${values.maritalStatus} »`,
+        "CELIBATAIRE, MARIE, VEUF ou DIVORCE."
+      )
+    }
+  }
+
+  const status: RowStatus = issues.some((issue) => issue.severity === "error")
+    ? "error"
+    : issues.length > 0
+      ? "warning"
+      : "valid"
+
+  return { line, values, dates, contractType, issues, status }
 }
 
 /* -------------------------------------------------------------------------- */

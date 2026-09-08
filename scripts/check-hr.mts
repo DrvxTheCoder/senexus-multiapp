@@ -164,6 +164,7 @@ async function main() {
     "renewContract",
     "terminateContract",
     "stampVisa",
+    "linkContractDocument",
     "requestLeave",
     "approveLeave",
     "rejectLeave",
@@ -267,48 +268,49 @@ async function main() {
   /* ---------------------------------------------------------------------- */
   console.log("\n=== CSV import: per row, never per batch ===")
 
+  // Headers as the real exports spell them.
   const importCsv = [
-    "Matricule,Prénom,Nom,Date d'embauche,Téléphone,Salaire",
+    "PRENOM,NOM,DATE ENTREE,TYPE CONTRAT,TELEPHONE,SALAIRE,CNI,EMPLOI,NATIONALITE",
     // A clean row. It carries a phone so that its repeat below agrees on four
     // fields — the threshold — rather than three.
-    `,Ousmane,Import${stamp},2023-11-02,770000002,180000`,
+    `Ousmane,Import${stamp},2023-11-02,CDI,770000002,180000,1234500001,Chauffeur,Sénégalaise`,
     // The employee created above: first name, last name, phone and hire date
     // all agree — four identifying fields, which is the threshold. Three would
     // not be enough, and that boundary is pinned by the unit tests.
-    `,Harness,Employe${stamp},${shift(-30)},770000001,250 000`,
+    `Harness,Employe${stamp},${shift(-30)},CDI,770000001,250 000,1234500002,Manutentionnaire,Sénégalaise`,
     // No first name.
-    `,,SansPrenom${stamp},01/01/2024,,`,
+    `,SansPrenom${stamp},01/01/2024,CDI,,,1234500003,Laveuse,Sénégalaise`,
     // A date nothing can read — reported, never replaced with today.
-    `,Awa,Illisible${stamp},pas une date,,`,
+    `Awa,Illisible${stamp},pas une date,CDI,,,1234500004,Réceptionniste,Sénégalaise`,
     // The same person twice inside one file: the second must be measured
     // against the row this import has just written, not only against the
     // database as it was when the file was opened.
-    `,Ousmane,Import${stamp},2023-11-02,770000002,180000`,
+    `Ousmane,Import${stamp},2023-11-02,CDI,770000002,180000,1234500001,Chauffeur,Sénégalaise`,
   ].join("\n")
 
+  // The file's text, not rows the caller assembled: the server re-parses it
+  // with the same function the preview ran, so the two cannot disagree.
   const importBody = await callAction(employeesPage, ids.get("importEmployees")!, [
     {
       firmSlug: SOURCE,
-      file: new File([importCsv], "employes.csv", { type: "text/csv" }),
+      csv: importCsv,
       dayFirst: true,
       skipDuplicates: true,
-      contractType: "INTERIM",
+      lines: [],
     },
   ])
   check("importEmployees", succeeded(importBody))
   check(
     "the whole file was read, not abandoned at the first bad row",
-    says(importBody, '"total":5')
+    says(importBody, '"fileRows":5')
+  )
+  check(
+    "and the two blocked rows are accounted for, not silently dropped",
+    says(importBody, '"excludedLines":[4,5]')
   )
   check("the good row imported", says(importBody, '"imported":1'))
-  check(
-    "the row with no first name is reported by line and reason",
-    says(importBody, '"line":4') && says(importBody, "Prénom manquant.")
-  )
-  check(
-    "the unreadable date is reported with the value it could not read",
-    says(importBody, "illisible : pas une date")
-  )
+  // Those two rows are excluded before the write, so their detail lives in the
+  // preview. Forcing them through below is what proves the reasons survive.
   check(
     "the existing employee is recognised as a probable duplicate",
     says(importBody, "Doublon probable")
@@ -316,6 +318,35 @@ async function main() {
   check(
     "a repeat inside the same file is caught too",
     says(importBody, '"skipped":2')
+  )
+
+  // The preview is an aid, not the gate. A person can tick a blocked row; the
+  // server has to refuse it on its own reading of the file.
+  const forced = await callAction(employeesPage, ids.get("importEmployees")!, [
+    {
+      firmSlug: SOURCE,
+      csv: importCsv,
+      dayFirst: true,
+      skipDuplicates: true,
+      // Line 4 has no first name, line 5 has an unreadable date.
+      lines: [4, 5],
+    },
+  ])
+  check(
+    "a blocked row selected by hand is still refused",
+    succeeded(forced) && says(forced, '"imported":0') && says(forced, '"failed":2')
+  )
+  check(
+    "with the column and the reason, not just a count",
+    says(forced, "PRENOM") &&
+      says(forced, "obligatoire") &&
+      says(forced, "pas une date")
+  )
+  check(
+    "and nothing was written for it",
+    (await db.employee.count({
+      where: { firmId: source.id, lastName: { startsWith: "SansPrenom" } },
+    })) === 0
   )
 
   const imported = await db.employee.findMany({
@@ -427,6 +458,175 @@ async function main() {
     "termination pulls the end date back with it",
     terminated?.status === "TERMINATED" &&
       iso(terminated.endDate!) === shift(30)
+  )
+
+  /* ---------------------------------------------------------------------- */
+  console.log("\n=== the signed original, linked to its contract ===")
+
+  // A second employee, so a document belonging to somebody else exists to
+  // attempt the confusion with.
+  const otherBody = await callAction(employeesPage, ids.get("createEmployee")!, [
+    {
+      firmSlug: SOURCE,
+      firstName: "Harness",
+      lastName: `Autre${stamp}`,
+      hireDate: shift(-20),
+      status: "ACTIVE",
+      contractType: "CDD",
+    },
+  ])
+  check("a second employee for the negative case", succeeded(otherBody))
+  const other = await db.employee.findFirst({
+    where: { firmId: source.id, lastName: `Autre${stamp}` },
+    select: { id: true },
+  })
+  if (other) created.push(other.id)
+
+  const uploader = await db.user.findFirstOrThrow({ select: { id: true } })
+  const makeDocument = (employeeId: string, fileName: string) =>
+    db.employeeDocument.create({
+      data: {
+        employeeId,
+        firmId: source.id,
+        documentType: "CONTRACT",
+        fileName,
+        storageKey: `harness/${fileName}`,
+        fileUrl: `${BASE}/manifest.webmanifest`,
+        mimeType: "application/pdf",
+        fileSize: 1024,
+        uploadedBy: uploader.id,
+      },
+      select: { id: true },
+    })
+
+  // Written directly rather than uploaded: the upload path is a call to the
+  // storage host and is not what this section is testing.
+  const mine = await makeDocument(employee!.id, `contrat-${stamp}.pdf`)
+  const theirs = await makeDocument(other!.id, `autre-${stamp}.pdf`)
+
+  const firstContract = employee!.contracts[0]
+
+  const linked = await callAction(
+    contractsPage,
+    ids.get("linkContractDocument")!,
+    [{ firmSlug: SOURCE, contractId: firstContract.id, documentId: mine.id }]
+  )
+  check("linkContractDocument", succeeded(linked))
+  check(
+    "the contract carries the document",
+    (
+      await db.contract.findUnique({
+        where: { id: firstContract.id },
+        select: { contractDocumentId: true },
+      })
+    )?.contractDocumentId === mine.id
+  )
+
+  // The check that matters: two ids arriving together from a form is exactly
+  // the shape that lets a crafted request pair unrelated records.
+  const crossed = await callAction(
+    contractsPage,
+    ids.get("linkContractDocument")!,
+    [{ firmSlug: SOURCE, contractId: firstContract.id, documentId: theirs.id }]
+  )
+  check(
+    "a document belonging to another employee is refused",
+    !succeeded(crossed) && says(crossed, "n'appartient pas")
+  )
+  check(
+    "and the existing link is untouched",
+    (
+      await db.contract.findUnique({
+        where: { id: firstContract.id },
+        select: { contractDocumentId: true },
+      })
+    )?.contractDocumentId === mine.id
+  )
+
+  // Deleting the piece must not take the contract with it — the relation is
+  // SetNull, never Cascade.
+  await db.employeeDocument.delete({ where: { id: mine.id } })
+  const afterDelete = await db.contract.findUnique({
+    where: { id: firstContract.id },
+    select: { id: true, contractDocumentId: true },
+  })
+  check("deleting the document leaves the contract standing", afterDelete !== null)
+  check(
+    "and clears the link rather than cascading",
+    afterDelete?.contractDocumentId === null
+  )
+
+  await db.employeeDocument.delete({ where: { id: theirs.id } }).catch(() => {})
+
+  /* ---------------------------------------------------------------------- */
+  console.log("\n=== editing a contract preserves what the form does not show ===")
+
+  // The list's edit dialog used to default these four to blank, so every edit
+  // made from the list silently wiped them.
+  // Explicitly the active one. Without the filter this picked whichever row the
+  // database returned first, sometimes the contract terminated above — which
+  // `updateContract` rightly refuses, making the check flaky rather than false.
+  const detailed = await db.contract.findFirstOrThrow({
+    where: { employeeId: employee!.id, status: "ACTIVE" },
+    orderBy: { startDate: "desc" },
+    select: { id: true, type: true, startDate: true, endDate: true },
+  })
+  await db.contract.update({
+    where: { id: detailed.id },
+    data: {
+      workingHours: 40,
+      trialPeriodEnd: new Date(`${shift(-10)}T12:00:00.000Z`),
+      alertThreshold: 15,
+      notes: "Note qui doit survivre",
+      isAutoRenewal: true,
+    },
+  })
+
+  const roundTrip = await callAction(contractsPage, ids.get("updateContract")!, [
+    {
+      firmSlug: SOURCE,
+      id: detailed.id,
+      employeeId: employee!.id,
+      type: detailed.type,
+      startDate: iso(detailed.startDate),
+      endDate: detailed.endDate ? iso(detailed.endDate) : "",
+      position: "Poste modifié",
+      salary: "260000",
+      // Exactly what the dialog now sends, read back off the row.
+      workingHours: "40",
+      trialPeriodEnd: shift(-10),
+      alertThreshold: 15,
+      isAutoRenewal: true,
+      isVise: false,
+      notes: "Note qui doit survivre",
+    },
+  ])
+  check("updateContract", succeeded(roundTrip))
+
+  const preserved = await db.contract.findUniqueOrThrow({
+    where: { id: detailed.id },
+    select: {
+      position: true,
+      workingHours: true,
+      trialPeriodEnd: true,
+      alertThreshold: true,
+      isAutoRenewal: true,
+      notes: true,
+    },
+  })
+  const applied = preserved.position === "Poste modifié"
+  check("the edit applied", applied)
+  check(
+    "and did not wipe the four fields the dialog used to blank",
+    // Gated on the edit having happened: an update that was refused preserves
+    // everything trivially, which would make this pass while proving nothing.
+    applied &&
+      preserved.workingHours === 40 &&
+      preserved.trialPeriodEnd !== null &&
+      preserved.alertThreshold === 15 &&
+      preserved.isAutoRenewal === true &&
+      preserved.notes === "Note qui doit survivre",
+    `${preserved.workingHours} h · seuil ${preserved.alertThreshold} · notes ${preserved.notes ? "gardées" : "perdues"}`
   )
 
   /* ---------------------------------------------------------------------- */

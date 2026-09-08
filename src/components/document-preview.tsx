@@ -175,11 +175,11 @@ export function DocumentPreviewDialog({
           )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5 px-4 pb-4">
-          <p className="min-w-0 flex-1 text-[11.5px] text-ink-3">
+        <div className="flex flex-wrap items-center justify-end gap-2.5 px-4 pb-4">
+          {/* <p className="min-w-0 flex-1 text-[11.5px] text-ink-3">
             Servi par l&apos;application, pas par le stockage : le lien exige
             votre session et votre accès à cette entreprise.
-          </p>
+          </p> */}
           {actions}
         </div>
       </DialogContent>

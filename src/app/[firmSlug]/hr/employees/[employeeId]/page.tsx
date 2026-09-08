@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import Link from "next/link"
 import { notFound } from "next/navigation"
 
+import { ContractsTab } from "@/app/[firmSlug]/hr/employees/[employeeId]/contracts-tab"
 import {
   DocumentActions,
   RecordHeaderActions,
@@ -161,6 +162,58 @@ export default async function EmployeePage({
 
   const toInput = (value: Date | null | undefined) =>
     value ? new Date(value).toISOString().slice(0, 10) : ""
+
+  /**
+   * The cards, and the pieces that may be linked to one.
+   *
+   * `linkedToContractId` lets the picker grey out a document another contract
+   * already claims — the server would accept it and silently move the link, and
+   * a picker that hides that is a picker that loses a link.
+   */
+  const linkedByDocumentId = new Map(
+    record.contracts
+      .filter((contract) => contract.contractDocument)
+      .map((contract) => [contract.contractDocument!.id, contract.id])
+  )
+
+  const contractCards = record.contracts.map((contract) => ({
+    id: contract.id,
+    type: contract.type,
+    status: contract.status,
+    startDate: contract.startDate,
+    endDate: contract.endDate,
+    days: Math.max(
+      0,
+      Math.round(
+        ((contract.endDate ?? new Date()).getTime() -
+          contract.startDate.getTime()) /
+          86_400_000
+      ) + 1
+    ),
+    position: contract.position,
+    salary: contract.salary === null ? null : Number(contract.salary),
+    workingHours: contract.workingHours,
+    trialPeriodEnd: contract.trialPeriodEnd,
+    alertThreshold: contract.alertThreshold,
+    isAutoRenewal: contract.isAutoRenewal,
+    isVise: contract.isVise,
+    notes: contract.notes,
+    terminationReason: contract.terminationReason,
+    terminationDate: contract.terminationDate,
+    client: contract.client,
+    document: contract.contractDocument,
+  }))
+
+  const linkableDocuments = documents.map((document) => ({
+    id: document.id,
+    fileName: document.fileName,
+    documentType: document.documentType,
+    mimeType: document.mimeType,
+    fileSize: document.fileSize,
+    expiryDate: document.expiryDate,
+    isVerified: document.isVerified,
+    linkedToContractId: linkedByDocumentId.get(document.id) ?? null,
+  }))
 
   const editDefaults = {
     id: employee.id,
@@ -414,87 +467,104 @@ export default async function EmployeePage({
             ) : null}
 
             {tab === "contrats" ? (
-              <Panel
-                title="Chaîne de renouvellement"
-                description={
-                  ceiling.applicable
-                    ? `${formatNumber(record.contracts.length)} contrats · ${formatNumber(ceiling.usedDays)} jours cumulés sur ${INTERIM_CEILING_DAYS}.`
-                    : `${formatNumber(record.contracts.length)} contrats dans cette filiale.`
-                }
-                stats={[
-                  {
-                    label: "Renouvellements",
-                    value: formatNumber(Math.max(0, record.contracts.length - 1)),
-                  },
-                  ...(ceiling.applicable
-                    ? [
-                        {
-                          label: "Cumul",
-                          value: formatDays(ceiling.usedDays),
-                          tone: ceiling.tone === "brand" ? ("default" as const) : ceiling.tone,
-                        },
-                      ]
-                    : []),
-                ]}
-                footer={{
-                  summary:
-                    record.contracts.length === 0
-                      ? "Aucun contrat enregistré."
-                      : "Le cumul ne compte que les contrats d'intérim, chevauchements déduits.",
-                }}
-              >
-                {chains.map((chain) => (
-                  <Timeline key={chain.id}>
-                    {[...chain.steps].reverse().map((step) => (
-                      <TimelineNode
-                        key={step.contract.id}
-                        live={step.contract.status === "ACTIVE"}
-                        title={
-                          <>
-                            <TagCode>{step.contract.type}</TagCode>{" "}
-                            <span className="text-ink-2">
-                              {step.contract.status === "ACTIVE"
-                                ? "en cours"
-                                : step.contract.status === "RENEWED"
-                                  ? "renouvelé"
-                                  : step.contract.status === "TERMINATED"
-                                    ? "résilié"
-                                    : "expiré"}
-                            </span>
-                          </>
-                        }
-                        meta={`${formatDate(step.contract.startDate)} → ${
-                          step.contract.endDate
-                            ? formatDate(step.contract.endDate)
-                            : "indéterminée"
-                        }`}
-                        trailing={
-                          step.contract.salary ? (
-                            <span className="mono num text-ink-2">
-                              {formatCurrency(step.contract.salary)}
-                            </span>
-                          ) : null
-                        }
-                        note={
-                          <>
-                            {formatDays(step.days)}
-                            {step.contract.type === "INTERIM"
-                              ? ` · ${formatNumber(step.cumulative)} j cumulés`
-                              : null}
-                            {step.contract.client ? ` · ${step.contract.client.name}` : null}
-                            {step.contract.isVise
-                              ? " · visé par l'inspection du travail"
-                              : " · visa en attente"}
-                            {step.contract.terminationReason
-                              ? ` · ${step.contract.terminationReason}`
-                              : null}
-                          </>
-                        }
+              /*
+                Two columns: the cards are the working surface and take the
+                width; the chain is a compact summary beside them, carrying the
+                one cumulative figure that is computed correctly.
+              */
+              <div className="grid items-start gap-3.5 lg:grid-cols-[minmax(0,1fr)_320px]">
+                <ContractsTab
+                  firmSlug={firmSlug}
+                  employee={{
+                    id: employee.id,
+                    name: `${employee.firstName} ${employee.lastName}`,
+                    matricule: employee.matricule,
+                  }}
+                  contracts={contractCards}
+                  clients={clients}
+                  documents={linkableDocuments}
+                  usedDays={ceiling.usedDays}
+                  canWrite={canWrite}
+                />
+
+                <Panel
+                  title="Chaîne de renouvellement"
+                  /*
+                    The count only: `InterimMeterPanel` below states the
+                    cumulative figure itself, and repeating it here was the
+                    same duplication this change set out to remove.
+                  */
+                  description={`${formatNumber(record.contracts.length)} contrat${record.contracts.length > 1 ? "s" : ""} dans cette filiale.`}
+                  stats={[
+                    {
+                      label: "Renouvellements",
+                      value: formatNumber(Math.max(0, record.contracts.length - 1)),
+                    },
+                  ]}
+                  footer={{
+                    summary:
+                      record.contracts.length === 0
+                        ? "Aucun contrat enregistré."
+                        : "Le cumul ne compte que les contrats d'intérim, jours écoulés, chevauchements déduits.",
+                  }}
+                >
+                  {ceiling.applicable ? (
+                    <div className="mb-3">
+                      <InterimMeterPanel
+                        usedDays={ceiling.usedDays}
+                        projectedDays={ceiling.projectedDays}
+                        applicable={ceiling.applicable}
                       />
-                    ))}
-                  </Timeline>
-                ))}
-              </Panel>
+                    </div>
+                  ) : null}
+
+                  {chains.map((chain) => (
+                    <Timeline key={chain.id}>
+                      {[...chain.steps].reverse().map((step) => (
+                        <TimelineNode
+                          key={step.contract.id}
+                          live={step.contract.status === "ACTIVE"}
+                          title={
+                            <>
+                              <TagCode>{step.contract.type}</TagCode>{" "}
+                              <span className="text-ink-2">
+                                {step.contract.status === "ACTIVE"
+                                  ? "en cours"
+                                  : step.contract.status === "RENEWED"
+                                    ? "renouvelé"
+                                    : step.contract.status === "TERMINATED"
+                                      ? "résilié"
+                                      : "expiré"}
+                              </span>
+                            </>
+                          }
+                          meta={`${formatDate(step.contract.startDate)} → ${
+                            step.contract.endDate
+                              ? formatDate(step.contract.endDate)
+                              : "indéterminée"
+                          }`}
+                          note={
+                            <>
+                              {/*
+                                The contract's own length, and nothing
+                                cumulative: the running total that used to sit
+                                here counted whole spans and double-counted the
+                                day shared by two adjacent contracts, so it
+                                disagreed with the legal figure above.
+                              */}
+                              {formatDays(step.days)}
+                              {step.contract.client
+                                ? ` · ${step.contract.client.name}`
+                                : null}
+                              {step.contract.isVise ? " · visé" : " · visa en attente"}
+                            </>
+                          }
+                        />
+                      ))}
+                    </Timeline>
+                  ))}
+                </Panel>
+              </div>
             ) : null}
 
             {tab === "conges" ? (

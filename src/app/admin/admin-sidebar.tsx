@@ -33,7 +33,6 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { initials } from "@/lib/format"
 import { cn } from "@/lib/utils"
-import { size } from "zod"
 
 const NAV = [
   { label: "Vue d'ensemble", href: "/admin", icon: DashboardSquare01Icon },

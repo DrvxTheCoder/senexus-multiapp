@@ -1,14 +1,20 @@
 # Data model
 
-Authoritative dictionary for the Senexus database. **The schema is frozen.** Where this document
-and `prisma/schema.prisma` disagree, the schema wins.
+Authoritative dictionary for the Senexus database. Where this document and `prisma/schema.prisma`
+disagree, the schema wins.
 
-- **Source:** `prisma/schema.prisma`, copied byte-for-byte from `senexus-hr/prisma/schema.prisma`
-  (sha256 `86188a02d557f65dca8bd9a8840ab010608900c0b75c5201a529a64427411df7`, 29 057 bytes, CRLF).
-- **Shape:** 37 models, 17 enums, 2 composite primary keys, 14 composite uniques, **0 declared indexes**.
+- **Source:** `prisma/schema.prisma`, originally byte-for-byte `senexus-hr/prisma/schema.prisma`
+  (sha256 `86188a02…`, 29 057 bytes), plus one approved additive change
+  (sha256 `fc5be73a508557560019a15fdd07c105ba4733160880e8bc2321ab687917a72f`, 29 821 bytes, CRLF).
+- **The one change so far:** `Contract.contractDocumentId` — nullable, `ON DELETE SET NULL`, indexed.
+  Invisible to the legacy application, which does not read it. Q20 in `OPEN_QUESTIONS.md` carries the
+  SQL for the live database; it has **not** been applied there.
+- **Shape:** 37 models, 17 enums, 2 composite primary keys, 14 composite uniques, **1 declared index**
+  (the one above; every other index in the database is implicit, from a primary key or a unique).
 - **Generated section:** everything under "Model reference" is emitted from the Prisma DMMF by
   `scripts/gen-data-model.mjs`, not transcribed by hand. Re-run it after any schema change.
-- `prisma generate` only. No migration has been or will be run from this project.
+- `prisma generate`, and `db push` for an approved additive change. No migration has been or will be
+  run from this project.
 
 ---
 
@@ -203,8 +209,10 @@ Flagged as §0 requires. None of these change the schema.
 ## 8. Indexes
 
 **The live database has 56 indexes and every one is a primary key or a unique constraint.** There is
-not a single secondary index, and `prisma/schema.prisma` declares no `@@index` at all. PostgreSQL
-does not index foreign keys automatically, so these hot columns are currently unindexed:
+not a single secondary index there. The schema now declares exactly one `@@index`, on
+`contracts.contractDocumentId`, added with that column and present in the local database only —
+see Q20. PostgreSQL does not index foreign keys automatically, so these hot columns are still
+unindexed:
 
 `contracts.firmId`, `contracts.employeeId`, `contracts.clientId`, `contracts.renewedFromId`,
 `contracts.endDate`, `employees.assignedClientId`, `employees.departmentId`, `employees.status`,
@@ -215,8 +223,8 @@ does not index foreign keys automatically, so these hot columns are currently un
 `employees.firmId` is the one exception: it leads `employees_firmId_matricule_key`, so firm-scoped
 employee scans can use that index.
 
-Per §1.1 nothing is applied. Candidates go to `docs/PROPOSED_INDEXES.sql` with the query each serves
-and a measured cost, once there is production-shaped data to measure against.
+Nothing else is applied. Candidates go to `docs/PROPOSED_INDEXES.sql` with the query each serves and
+a measured cost, once there is production-shaped data to measure against.
 
 ---
 
@@ -615,6 +623,7 @@ and a measured cost, once there is production-shaped data to measure against.
 | `isActive` | Boolean | no | default `true` |
 | `terminationDate` | DateTime | yes |  |
 | `terminationReason` | String | yes |  |
+| `contractDocumentId` | String | yes |  |
 | `createdAt` | DateTime | no | default `now()` |
 | `updatedAt` | DateTime | no | `@updatedAt` |
 
@@ -628,6 +637,7 @@ and a measured cost, once there is production-shaped data to measure against.
 | `renewedFrom` | `Contract` | one? | `renewedFromId` | — | `ContractRenewal` |
 | `renewals` | `Contract` | many | — | — | `ContractRenewal` |
 | `clientFirm` | `Firm` | one? | `clientFirmId` | — | `ClientFirmContracts` |
+| `contractDocument` | `EmployeeDocument` | one? | `contractDocumentId` | SetNull | `ContractSignedDocument` |
 
 **Constraints:** `@id` on `id`
 
@@ -1253,6 +1263,7 @@ and a measured cost, once there is production-shaped data to measure against.
 | `employee` | `Employee` | one | `employeeId` | Cascade | — |
 | `uploader` | `User` | one | `uploadedBy` | — | `DocumentUploader` |
 | `verifier` | `User` | one? | `verifiedBy` | — | `DocumentVerifier` |
+| `signedContracts` | `Contract` | many | — | — | `ContractSignedDocument` |
 
 **Constraints:** `@id` on `id`
 

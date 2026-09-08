@@ -4,7 +4,8 @@ import { AppSidebar } from "@/components/shell/app-sidebar"
 import { CommandPalette } from "@/components/command-palette"
 import {
   SidebarAlertBell,
-  SidebarClientGroup,
+  // SidebarClientGroup is imported back when the `clientNav` slot below is
+  // uncommented; left out for now so lint stays clean.
   SidebarRiskCard,
 } from "@/components/shell/sidebar-context"
 import { FirmProvider } from "@/components/firm-provider"
