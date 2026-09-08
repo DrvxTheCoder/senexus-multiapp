@@ -1,7 +1,7 @@
 import Link from "next/link"
 import { redirect, unauthorized } from "next/navigation"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { ArrowRight01Icon, Settings02Icon } from "@hugeicons/core-free-icons"
+import { ArrowRight01Icon } from "@hugeicons/core-free-icons"
 import Image from "next/image"
 
 import { FirmLogo } from "@/components/firm-logo"
