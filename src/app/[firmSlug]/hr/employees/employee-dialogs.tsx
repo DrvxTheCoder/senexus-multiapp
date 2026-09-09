@@ -410,6 +410,7 @@ export function DeleteEmployeeDialog({
   })
 
   const { submit, pending, message, tone } = useActionForm(form, deleteEmployee, {
+    success: "Employé supprimé.",
     onSuccess: () => {
       onClose()
       router.refresh()

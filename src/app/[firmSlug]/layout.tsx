@@ -9,6 +9,7 @@ import {
   SidebarRiskCard,
 } from "@/components/shell/sidebar-context"
 import { FirmProvider } from "@/components/firm-provider"
+import { RouteProgress } from "@/components/shell/route-progress"
 import { resolveUserFirms } from "@/server/firms/resolve-firm"
 import { requireFirmPage } from "@/server/auth/firm-page"
 import { buildFirmTheme } from "@/server/firms/theme"
@@ -91,6 +92,8 @@ export default async function FirmLayout({
             }
           />
           <main id="main" className="relative flex min-w-0 flex-1 flex-col justify-center">
+            {/* Sits on the top bar's lower edge. */}
+            <RouteProgress />
             {children}
           </main>
           <CommandPalette />

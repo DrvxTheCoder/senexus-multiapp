@@ -14,7 +14,10 @@ import {
   TextareaControl,
 } from "@/components/forms/controls"
 import { FormMessage, SubmitButton } from "@/components/forms/form-field"
+import type { ActionResult } from "@/lib/forms/action-result"
+import { useAction } from "@/components/forms/use-action"
 import { useActionForm } from "@/components/forms/use-action-form"
+import { Spinner } from "@/components/spinner"
 import {
   Dialog,
   DialogContent,
@@ -98,6 +101,7 @@ export function TransferDialog({
     form,
     requestTransfer as never,
     {
+      success: "Transfert demandé.",
       onSuccess: () => {
         onClose()
         router.refresh()
@@ -235,6 +239,8 @@ export function BulkTransferDialog({
     form,
     requestBulkTransfer as never,
     {
+      loading: "Création des transferts…",
+      success: "Transferts demandés.",
       onSuccess: (data) => {
         setResult(
           data as { created: number; skipped: number; unreachable: number }
@@ -380,6 +386,7 @@ export function RejectTransferDialog({
     form,
     rejectTransfer as never,
     {
+      success: "Transfert refusé.",
       onSuccess: () => {
         onClose()
         router.refresh()
@@ -429,6 +436,18 @@ export function RejectTransferDialog({
  * The one-click steps
  * ========================================================================== */
 
+const STEP_SUCCESS = {
+  approve: "Transfert approuvé.",
+  complete: "Transfert finalisé.",
+  cancel: "Transfert annulé.",
+} as const
+
+const STEP_PENDING = {
+  approve: "Approbation…",
+  complete: "Finalisation…",
+  cancel: "Annulation…",
+} as const
+
 export function TransferStepButton({
   firmSlug,
   transferId,
@@ -442,43 +461,38 @@ export function TransferStepButton({
   label: string
   tone?: "default" | "primary" | "quiet"
 }) {
-  const router = useRouter()
-  const [pending, startTransition] = React.useTransition()
-  const [error, setError] = React.useState<string | null>(null)
+  // The three steps return different payloads and this button uses none of
+  // them, so the shared type is widened rather than unioned.
+  const action: (input: {
+    firmSlug: string
+    id: string
+  }) => Promise<ActionResult<unknown>> =
+    step === "approve"
+      ? approveTransfer
+      : step === "complete"
+        ? completeTransfer
+        : cancelTransfer
 
-  function run() {
-    setError(null)
-    startTransition(async () => {
-      const action =
-        step === "approve"
-          ? approveTransfer
-          : step === "complete"
-            ? completeTransfer
-            : cancelTransfer
-      const result = await action({ firmSlug, id: transferId })
-      if (!result.ok) {
-        setError(result.message)
-        return
-      }
-      router.refresh()
-    })
-  }
+  const { run, pending, error } = useAction(action, {
+    success: STEP_SUCCESS[step],
+  })
 
   return (
     <span className="inline-flex flex-col items-end gap-1">
       <button
         type="button"
-        onClick={run}
+        onClick={() => run({ firmSlug, id: transferId })}
         disabled={pending}
         className={
           tone === "primary"
-            ? "h-7 rounded-[7px] bg-ink px-2.5 text-[12px] font-medium text-paper disabled:opacity-50"
+            ? "inline-flex h-7 items-center gap-1.5 rounded-[7px] bg-ink px-2.5 text-[12px] font-medium text-paper disabled:opacity-50"
             : tone === "quiet"
-              ? "h-7 rounded-[7px] px-2 text-[12px] text-ink-3 hover:text-ink disabled:opacity-50"
-              : "h-7 rounded-[7px] border border-line bg-surface px-2.5 text-[12px] hover:bg-sub disabled:opacity-50"
+              ? "inline-flex h-7 items-center gap-1.5 rounded-[7px] px-2 text-[12px] text-ink-3 hover:text-ink disabled:opacity-50"
+              : "inline-flex h-7 items-center gap-1.5 rounded-[7px] border border-line bg-surface px-2.5 text-[12px] hover:bg-sub disabled:opacity-50"
         }
       >
-        {pending ? "…" : label}
+        {pending ? STEP_PENDING[step] : label}
+        {pending ? <Spinner className="h-3.5" /> : null}
       </button>
       {error ? (
         <span role="alert" className="max-w-[260px] text-right text-[11px] text-alert">

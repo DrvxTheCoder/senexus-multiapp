@@ -29,7 +29,8 @@ import {
   SelectControl,
   TextControl,
 } from "@/components/forms/controls"
-import { FormMessage, SubmitButton } from "@/components/forms/form-field"
+import { DangerButton, FormMessage, SubmitButton } from "@/components/forms/form-field"
+import { useAction } from "@/components/forms/use-action"
 import { useActionForm } from "@/components/forms/use-action-form"
 import { DOCUMENT_TYPE_LABELS } from "@/components/document-preview"
 import {
@@ -178,6 +179,9 @@ export function UploadDocumentButton({
     form,
     uploadEmployeeDocument as never,
     {
+      // The one place in the record where the user genuinely waits on bytes.
+      loading: "Envoi de la pièce…",
+      success: "Pièce déposée.",
       onSuccess: () => {
         setOpen(false)
         form.reset()
@@ -274,10 +278,22 @@ export function DocumentActions({
   document: { id: string; isVerified: boolean; fileName: string }
   canVerify: boolean
 }) {
-  const router = useRouter()
-  const [pending, startTransition] = React.useTransition()
   const [confirming, setConfirming] = React.useState(false)
-  const [error, setError] = React.useState<string | null>(null)
+
+  const verify = useAction(verifyDocument, {
+    success: () =>
+      document.isVerified
+        ? "Vérification retirée."
+        : `${document.fileName} est marquée vérifiée.`,
+  })
+
+  const remove = useAction(deleteDocument, {
+    success: `${document.fileName} a été supprimée.`,
+    onSuccess: () => setConfirming(false),
+  })
+
+  const pending = verify.pending || remove.pending
+  const error = verify.error ?? remove.error
 
   if (!canVerify) return null
 
@@ -292,21 +308,13 @@ export function DocumentActions({
             ? `Retirer la vérification de ${document.fileName}`
             : `Marquer ${document.fileName} comme vérifiée`
         }
-        onClick={() => {
-          setError(null)
-          startTransition(async () => {
-            const result = await verifyDocument({
-              firmSlug,
-              id: document.id,
-              isVerified: !document.isVerified,
-            })
-            if (!result.ok) {
-              setError(result.message)
-              return
-            }
-            router.refresh()
+        onClick={() =>
+          verify.run({
+            firmSlug,
+            id: document.id,
+            isVerified: !document.isVerified,
           })
-        }}
+        }
         className={`grid size-7 place-items-center rounded-[7px] disabled:opacity-40 ${
           document.isVerified
             ? "text-ok hover:bg-ok-tint"
@@ -352,28 +360,12 @@ export function DocumentActions({
               >
                 Annuler
               </button>
-              <button
-                type="button"
-                disabled={pending}
-                onClick={() => {
-                  setError(null)
-                  startTransition(async () => {
-                    const result = await deleteDocument({
-                      firmSlug,
-                      id: document.id,
-                    })
-                    if (!result.ok) {
-                      setError(result.message)
-                      return
-                    }
-                    setConfirming(false)
-                    router.refresh()
-                  })
-                }}
-                className="h-9 rounded-[7px] bg-alert px-3 text-[13px] font-medium text-white disabled:opacity-50"
+              <DangerButton
+                pending={remove.pending}
+                onClick={() => remove.run({ firmSlug, id: document.id })}
               >
-                {pending ? "Suppression…" : "Supprimer"}
-              </button>
+                Supprimer
+              </DangerButton>
             </DialogFooter>
           </DialogContent>
         </Dialog>

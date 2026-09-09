@@ -30,6 +30,7 @@ import {
   type ParseResult,
 } from "@/server/domain/csv-import"
 import { importEmployees, type ImportReport } from "@/server/actions/employees"
+import { notify } from "@/lib/toast"
 import { cn } from "@/lib/utils"
 
 /**
@@ -155,6 +156,12 @@ export function ImportEmployeesDialog({
   function run(lines: number[]) {
     if (!file) return
     setError(null)
+    // The longest write in the application: one transaction over up to a few
+    // hundred rows. The toast is what tells the user it is still going while
+    // the dialog sits on the review step.
+    const toastId = notify.loading(
+      `Import de ${lines.length} ligne${lines.length > 1 ? "s" : ""}…`
+    )
     startTransition(async () => {
       const result = await importEmployees({
         firmSlug,
@@ -167,7 +174,29 @@ export function ImportEmployeesDialog({
       })
       if (!result.ok) {
         setError(result.message)
+        notify.error(result.message, { id: toastId })
         return
+      }
+      // The report panel carries the full breakdown; the toast carries the
+      // headline — and does not call a partial import a success, because the
+      // whole point of this dialog is that the file is accounted for honestly.
+      const { imported, skipped, failed } = result.data
+      const plural = imported > 1 ? "s" : ""
+      const headline = `${imported} employé${plural} importé${plural}.`
+      const rest = [
+        skipped ? `${skipped} ignorée${skipped > 1 ? "s" : ""}` : null,
+        failed ? `${failed} en échec` : null,
+      ]
+        .filter(Boolean)
+        .join(", ")
+
+      if (failed > 0) {
+        notify.warning(headline, { id: toastId, description: rest })
+      } else {
+        notify.success(headline, {
+          id: toastId,
+          description: rest || undefined,
+        })
       }
       setReport(result.data)
       setStep("done")

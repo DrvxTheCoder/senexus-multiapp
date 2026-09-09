@@ -428,6 +428,7 @@ function DeleteFirmDialog({
     form,
     async (values) => deleteFirm({ ...values, id: firm?.id ?? "" }),
     {
+      success: "Entreprise supprimée.",
       onSuccess: () => {
         onClose()
         router.refresh()

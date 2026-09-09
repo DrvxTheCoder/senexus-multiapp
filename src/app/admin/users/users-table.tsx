@@ -357,6 +357,7 @@ function UserWizard({
       return result.ok ? { ok: true, data: undefined } : result
     },
     {
+      success: isEdit ? "Utilisateur mis à jour." : "Utilisateur créé.",
       onSuccess: () => {
         onClose()
         router.refresh()

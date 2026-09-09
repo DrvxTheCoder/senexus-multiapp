@@ -11,7 +11,9 @@ import type { ContractQuery } from "@/lib/queries/contract-query"
 import type { Selection } from "@/server/queries/types"
 import { InterimMeter } from "@/components/interim-meter"
 import { StatusPill } from "@/components/primitives"
+import { Spinner } from "@/components/spinner"
 import { formatNumber } from "@/lib/format"
+import { notify } from "@/lib/toast"
 import {
   Dialog,
   DialogContent,
@@ -89,15 +91,37 @@ export function RenewalPreflightDialog({
 
   async function confirm() {
     setRunning(true)
+    // Unlike the `defineAction` mutations, this one throws rather than
+    // returning a result, and the `finally` below used to swallow the failure
+    // entirely — the dialog simply stopped, with nothing said.
+    const toastId = notify.loading("Renouvellement des contrats…")
     try {
       const outcome = await runBulkRenewal(firmSlug, selection, Number(duration))
-      setResult(
-        `${formatNumber(outcome.renewed)} contrat${outcome.renewed > 1 ? "s" : ""} renouvelé${outcome.renewed > 1 ? "s" : ""}` +
-          (outcome.refused.length
-            ? `, ${formatNumber(outcome.refused.length)} refusé${outcome.refused.length > 1 ? "s" : ""}.`
-            : ".")
-      )
+      const renewed = `${formatNumber(outcome.renewed)} contrat${outcome.renewed > 1 ? "s" : ""} renouvelé${outcome.renewed > 1 ? "s" : ""}`
+      const refused = outcome.refused.length
+        ? `${formatNumber(outcome.refused.length)} refusé${outcome.refused.length > 1 ? "s" : ""}`
+        : ""
+
+      setResult(renewed + (refused ? `, ${refused}.` : "."))
+
+      // A partial run is not a clean success: the refusals are the ceiling
+      // doing its job, and they deserve to be read.
+      if (outcome.refused.length) {
+        notify.warning(`${renewed}.`, {
+          id: toastId,
+          // The ceiling constant lives in a `server-only` module, and the
+          // dialog already states the figure above; the toast just points at it.
+          description: `${refused} — plafond légal atteint.`,
+        })
+      } else {
+        notify.success(`${renewed}.`, { id: toastId })
+      }
+
       onDone()
+    } catch {
+      notify.error("Le renouvellement n'a pas pu être effectué.", {
+        id: toastId,
+      })
     } finally {
       setRunning(false)
     }
@@ -218,11 +242,12 @@ export function RenewalPreflightDialog({
               type="button"
               disabled={allowed === 0 || running || busy}
               onClick={confirm}
-              className="h-8 rounded-[7px] bg-ink px-3 text-[12.5px] font-medium text-paper disabled:opacity-40"
+              className="inline-flex h-8 flex-row items-center justify-center gap-2 rounded-[7px] bg-ink px-3 text-[12.5px] font-medium text-paper disabled:opacity-40"
             >
               {running
                 ? "Renouvellement…"
                 : `Renouveler ${formatNumber(allowed)} contrat${allowed > 1 ? "s" : ""}`}
+              {running ? <Spinner className="h-3.5" /> : null}
             </button>
           ) : null}
         </DialogFooter>

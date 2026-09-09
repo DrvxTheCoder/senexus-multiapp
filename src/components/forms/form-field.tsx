@@ -2,6 +2,7 @@
 
 import * as React from "react"
 
+import { Spinner } from "@/components/spinner"
 import { cn } from "@/lib/utils"
 
 /**
@@ -106,7 +107,13 @@ export const selectTriggerClass = cn(
   "disabled:cursor-not-allowed disabled:opacity-50"
 )
 
-/** The primary submit button used across dialogs and forms. */
+/**
+ * The primary submit button used across dialogs and forms.
+ *
+ * The pending state is the sign-in button's: the label switches to a verb in
+ * the progressive and a spinner follows it. Keeping the spinner *after* the
+ * text means the label does not jump sideways when it appears.
+ */
 export function SubmitButton({
   pending,
   children,
@@ -125,11 +132,47 @@ export function SubmitButton({
       type="submit"
       disabled={pending || disabled}
       className={cn(
-        "inline-flex h-9 items-center justify-center rounded-[7px] bg-ink px-3 text-[13px] font-medium text-paper transition-opacity hover:opacity-90 disabled:opacity-50",
+        "inline-flex h-9 flex-row items-center justify-center gap-2 rounded-[7px] bg-ink px-3 text-[13px] font-medium text-paper transition-opacity hover:opacity-90 disabled:opacity-50",
         className
       )}
     >
       {pending ? (pendingLabel ?? "Enregistrement…") : children}
+      {pending ? <Spinner /> : null}
+    </button>
+  )
+}
+
+/**
+ * The destructive twin of `SubmitButton`, for the confirm step of an archive or
+ * a delete. Same pending grammar; the only difference is the fill.
+ */
+export function DangerButton({
+  pending,
+  children,
+  pendingLabel,
+  className,
+  disabled,
+  onClick,
+}: {
+  pending: boolean
+  children: React.ReactNode
+  pendingLabel?: string
+  className?: string
+  disabled?: boolean
+  onClick?: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={pending || disabled}
+      className={cn(
+        "inline-flex h-9 flex-row items-center justify-center gap-2 rounded-[7px] bg-alert px-3 text-[13px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50",
+        className
+      )}
+    >
+      {pending ? (pendingLabel ?? "Suppression…") : children}
+      {pending ? <Spinner /> : null}
     </button>
   )
 }

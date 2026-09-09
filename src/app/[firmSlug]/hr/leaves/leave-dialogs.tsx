@@ -14,6 +14,8 @@ import {
   TextareaControl,
 } from "@/components/forms/controls"
 import { FormMessage, SubmitButton } from "@/components/forms/form-field"
+import { Spinner } from "@/components/spinner"
+import { useAction } from "@/components/forms/use-action"
 import { useActionForm } from "@/components/forms/use-action-form"
 import {
   Dialog,
@@ -85,6 +87,7 @@ export function RequestLeaveDialog({
     form,
     requestLeave as never,
     {
+      success: "Demande de congé enregistrée.",
       onSuccess: () => {
         onClose()
         router.refresh()
@@ -190,6 +193,7 @@ export function RejectLeaveDialog({
     form,
     rejectLeave as never,
     {
+      success: "Demande refusée.",
       onSuccess: () => {
         onClose()
         router.refresh()
@@ -265,6 +269,8 @@ export function RolloverDialog({
     form,
     rolloverLeaveBalances as never,
     {
+      loading: "Report des soldes…",
+      success: "Soldes reportés.",
       onSuccess: (data) => {
         setResult(
           data as {
@@ -365,29 +371,20 @@ export function ApproveLeaveButton({
   firmSlug: string
   id: string
 }) {
-  const router = useRouter()
-  const [pending, startTransition] = React.useTransition()
-  const [error, setError] = React.useState<string | null>(null)
+  const { run, pending, error } = useAction(approveLeave, {
+    success: "Congé approuvé.",
+  })
 
   return (
     <span className="inline-flex flex-col items-end gap-1">
       <button
         type="button"
         disabled={pending}
-        onClick={() => {
-          setError(null)
-          startTransition(async () => {
-            const result = await approveLeave({ firmSlug, id })
-            if (!result.ok) {
-              setError(result.message)
-              return
-            }
-            router.refresh()
-          })
-        }}
-        className="h-7 rounded-[7px] bg-ink px-2.5 text-[12px] font-medium text-paper disabled:opacity-50"
+        onClick={() => run({ firmSlug, id })}
+        className="inline-flex h-7 items-center gap-1.5 rounded-[7px] bg-ink px-2.5 text-[12px] font-medium text-paper disabled:opacity-50"
       >
-        {pending ? "…" : "Approuver"}
+        {pending ? "Approbation…" : "Approuver"}
+        {pending ? <Spinner className="h-3.5" /> : null}
       </button>
       {error ? (
         <span role="alert" className="max-w-[260px] text-right text-[11px] text-alert">

@@ -6,6 +6,7 @@ import { NuqsAdapter } from "nuqs/adapters/next/app"
 
 import { InstallPrompt } from "@/components/install-prompt"
 import { ThemeProvider } from "@/components/theme-provider"
+import { Toaster } from "@/components/ui/toaster"
 import { cn } from "@/lib/utils"
 
 /**
@@ -86,6 +87,9 @@ export default function RootLayout({
           <ThemeProvider>
             {children}
             <InstallPrompt />
+            {/* Mounted once, at the root, so a toast raised by a dialog
+                survives that dialog closing and the route changing under it. */}
+            <Toaster />
           </ThemeProvider>
         </NuqsAdapter>
       </body>

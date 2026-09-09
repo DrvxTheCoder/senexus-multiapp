@@ -1,6 +1,7 @@
 import { forbidden, unauthorized } from "next/navigation"
 
 import { AdminSidebar } from "@/app/admin/admin-sidebar"
+import { RouteProgress } from "@/components/shell/route-progress"
 import { getSession, requireHoldingAccess } from "@/server/auth/require-firm-access"
 import { ForbiddenError, UnauthorizedError } from "@/server/errors"
 
@@ -36,6 +37,7 @@ export default async function AdminLayout({
         }}
       />
       <main id="main" className="relative flex min-w-0 flex-1 flex-col">
+        <RouteProgress />
         {children}
       </main>
     </div>

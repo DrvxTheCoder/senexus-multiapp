@@ -47,6 +47,7 @@ import { removeResourceView, saveResourceView } from "@/server/actions/views"
 import type { ContractRow, ContractSummary } from "@/server/queries/contracts"
 import type { Paged } from "@/server/queries/types"
 import type { SavedView } from "@/server/queries/saved-views"
+import { notify } from "@/lib/toast"
 import { cn } from "@/lib/utils"
 
 const TYPE_LABELS: Record<string, string> = {
@@ -231,9 +232,14 @@ export function ContractsView({
       active: false,
       onSelect: () => applyPatch(view.query as Record<string, unknown>),
       onDelete: () => {
-        startTransition(async () => {
-          await removeResourceView(firmSlug, view.id)
-          router.refresh()
+startTransition(async () => {
+          try {
+            await removeResourceView(firmSlug, view.id)
+            notify.success("Vue supprimée.")
+            router.refresh()
+          } catch {
+            notify.error("La vue n'a pas pu être supprimée.")
+          }
         })
       },
     })),
@@ -701,9 +707,14 @@ export function ContractsView({
           tabs={tabs}
           canSave={!anyBuiltInActive && chips.length > 0}
           onSave={(name) => {
-            startTransition(async () => {
-              await saveResourceView(firmSlug, "contracts", name, params)
-              router.refresh()
+startTransition(async () => {
+              try {
+                await saveResourceView(firmSlug, "contracts", name, params)
+                notify.success("Vue enregistrée.")
+                router.refresh()
+              } catch {
+                notify.error("La vue n'a pas pu être enregistrée.")
+              }
             })
           }}
         />
@@ -838,6 +849,10 @@ export function ContractsView({
               warning: allMatching,
               onRun: () => {
                 setVisaError(null)
+                const count = selected.size
+                const toastId = notify.loading(
+                  `Apposition du visa sur ${count} contrat${count > 1 ? "s" : ""}…`
+                )
                 startTransition(async () => {
                   const result = await stampVisa({
                     firmSlug,
@@ -846,8 +861,13 @@ export function ContractsView({
                   })
                   if (!result.ok) {
                     setVisaError(result.message)
+                    notify.error(result.message, { id: toastId })
                     return
                   }
+                  notify.success(
+                    `Visa apposé sur ${count} contrat${count > 1 ? "s" : ""}.`,
+                    { id: toastId }
+                  )
                   clearSelection()
                   router.refresh()
                 })
@@ -858,6 +878,10 @@ export function ContractsView({
               label: "Exporter",
               icon: Download01Icon,
               onRun: () => {
+                notify.success("Export en cours de préparation.", {
+                  description:
+                    "Le téléchargement démarre dès que le fichier est prêt.",
+                })
                 window.location.href = `/${firmSlug}/hr/contracts/export${window.location.search}`
               },
             },

@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from "react"
-import { useRouter } from "next/navigation"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   Edit02Icon,
@@ -23,6 +22,7 @@ import {
   DocumentPreviewDialog,
   type PreviewDocument,
 } from "@/components/document-preview"
+import { useAction } from "@/components/forms/use-action"
 import { Panel } from "@/components/panel"
 import { StatusPill, TagCode } from "@/components/primitives"
 import { formatCurrency, formatDate, formatDays, formatNumber } from "@/lib/format"
@@ -422,26 +422,23 @@ function SignedDocument({
   canWrite: boolean
   onPreview: (document: PreviewDocument) => void
 }) {
-  const router = useRouter()
-  const [pending, startTransition] = React.useTransition()
-  const [error, setError] = React.useState<string | null>(null)
   const [picking, setPicking] = React.useState(false)
 
+  // `defineAction` types every action as `(raw: unknown) => …`, so the input
+  // shape is stated here for the sake of the success message below.
+  const { run, pending, error } = useAction<
+    { firmSlug: string; contractId: string; documentId: string | null },
+    unknown
+  >(linkContractDocument, {
+    // Detaching and attaching go through the same action; the message follows
+    // what was actually asked for rather than the action's name.
+    success: (_data, input) =>
+      input.documentId ? "Pièce rattachée au contrat." : "Pièce détachée.",
+    onSuccess: () => setPicking(false),
+  })
+
   function link(documentId: string | null) {
-    setError(null)
-    startTransition(async () => {
-      const result = await linkContractDocument({
-        firmSlug,
-        contractId: contract.id,
-        documentId,
-      })
-      if (!result.ok) {
-        setError(result.message)
-        return
-      }
-      setPicking(false)
-      router.refresh()
-    })
+    run({ firmSlug, contractId: contract.id, documentId })
   }
 
   if (contract.document) {

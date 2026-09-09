@@ -119,6 +119,7 @@ export function ContractDialog({
         ? updateContract({ ...values, id: contract.id } as never)
         : createContract(values as never)) as never,
     {
+      success: isEdit ? "Contrat modifié." : "Contrat créé.",
       onSuccess: () => {
         onClose()
         router.refresh()
@@ -280,6 +281,7 @@ export function TerminateContractDialog({
     form,
     terminateContract as never,
     {
+      success: "Contrat rompu.",
       onSuccess: () => {
         onClose()
         router.refresh()
@@ -353,6 +355,7 @@ export function RenewContractDialog({
     form,
     renewContract as never,
     {
+      success: "Contrat renouvelé.",
       onSuccess: () => {
         onClose()
         router.refresh()

@@ -16,6 +16,7 @@ import {
   inputClass,
 } from "@/components/forms/form-field"
 import { useActionForm } from "@/components/forms/use-action-form"
+import { notify } from "@/lib/toast"
 import { Panel } from "@/components/panel"
 import { StatusPill, TagCode } from "@/components/primitives"
 import {
@@ -59,20 +60,31 @@ export function ModulesManager({
     setPendingKey(null)
     if (!result.ok) {
       setError(result.message)
+      notify.error(result.message)
       return
     }
+    notify.success(
+      isEnabled === null
+        ? "Réglage repris du défaut du module."
+        : isEnabled
+          ? "Module activé pour cette entreprise."
+          : "Module désactivé pour cette entreprise."
+    )
     router.refresh()
   }
 
   async function installDocuments() {
     setPendingKey("documents")
     setError(null)
+    const toastId = notify.loading("Installation du module Documents…")
     const result = await installDocumentsModule({})
     setPendingKey(null)
     if (!result.ok) {
       setError(result.message)
+      notify.error(result.message, { id: toastId })
       return
     }
+    notify.success("Module Documents installé.", { id: toastId })
     router.refresh()
   }
 
@@ -284,6 +296,7 @@ function ModuleDialog({ onClose }: { onClose: () => void }) {
       return result.ok ? { ok: true, data: undefined } : result
     },
     {
+      success: "Module créé.",
       onSuccess: () => {
         onClose()
         router.refresh()

@@ -240,15 +240,15 @@ export function LeavesView({
           ? "Chevauchements et charge de l'équipe sur le mois."
           : "Les demandes en attente remontent en premier, les plus anciennes d'abord."
       }
-      stats={[
-        { label: "Demandes", value: formatNumber(summary.matching) },
-        {
-          label: "En attente",
-          value: formatNumber(summary.pending),
-          tone: summary.pending > 0 ? "signal" : "default",
-        },
-        { label: "Jours ce mois", value: formatNumber(summary.daysThisMonth) },
-      ]}
+      // stats={[
+      //   { label: "Demandes", value: formatNumber(summary.matching) },
+      //   {
+      //     label: "En attente",
+      //     value: formatNumber(summary.pending),
+      //     tone: summary.pending > 0 ? "signal" : "default",
+      //   },
+      //   { label: "Jours ce mois", value: formatNumber(summary.daysThisMonth) },
+      // ]}
       tools={
         <>
           <SegmentedControl

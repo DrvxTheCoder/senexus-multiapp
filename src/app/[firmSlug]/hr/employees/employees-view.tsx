@@ -41,6 +41,7 @@ import {
   TwoFacts,
 } from "@/components/primitives"
 import { clientDotVar } from "@/lib/client-color"
+import { notify } from "@/lib/toast"
 import { formatDate, formatDays, formatNumber, initials } from "@/lib/format"
 import {
   employeeSearchParams,
@@ -193,9 +194,14 @@ export function EmployeesView({
       onSelect: () =>
         void setParams({ ...emptyParams, ...(view.query as ParamPatch) }),
       onDelete: () =>
-        startTransition(async () => {
-          await removeResourceView(firmSlug, view.id)
-          router.refresh()
+startTransition(async () => {
+          try {
+            await removeResourceView(firmSlug, view.id)
+            notify.success("Vue supprimée.")
+            router.refresh()
+          } catch {
+            notify.error("La vue n'a pas pu être supprimée.")
+          }
         }),
     })),
   ]
@@ -532,9 +538,14 @@ export function EmployeesView({
           tabs={tabs}
           canSave={!tabs.some((tab) => tab.active) && chips.length > 0}
           onSave={(name) =>
-            startTransition(async () => {
-              await saveResourceView(firmSlug, "employees", name, params)
-              router.refresh()
+startTransition(async () => {
+              try {
+                await saveResourceView(firmSlug, "employees", name, params)
+                notify.success("Vue enregistrée.")
+                router.refresh()
+              } catch {
+                notify.error("La vue n'a pas pu être enregistrée.")
+              }
             })
           }
         />
@@ -670,6 +681,10 @@ export function EmployeesView({
             label: "Exporter",
             icon: Download01Icon,
             onRun: () => {
+              notify.success("Export en cours de préparation.", {
+                description:
+                  "Le téléchargement démarre dès que le fichier est prêt.",
+              })
               window.location.href = `/${firmSlug}/hr/employees/export${window.location.search}`
             },
           },

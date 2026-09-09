@@ -12,7 +12,8 @@ import {
   TextControl,
   TextareaControl,
 } from "@/components/forms/controls"
-import { FormMessage, SubmitButton } from "@/components/forms/form-field"
+import { DangerButton, FormMessage, SubmitButton } from "@/components/forms/form-field"
+import { useAction } from "@/components/forms/use-action"
 import { useActionForm } from "@/components/forms/use-action-form"
 import {
   Dialog,
@@ -96,6 +97,7 @@ export function ClientDialog({
         ? updateClient({ ...values, id: client.id } as never)
         : createClient(values as never)) as never,
     {
+      success: isEdit ? "Client modifié." : "Client créé.",
       onSuccess: () => {
         onClose()
         router.refresh()
@@ -207,9 +209,10 @@ export function ArchiveClientDialog({
   client: { id: string; name: string }
   onClose: () => void
 }) {
-  const router = useRouter()
-  const [pending, startTransition] = React.useTransition()
-  const [error, setError] = React.useState<string | null>(null)
+  const { run, pending, error } = useAction(archiveClient, {
+    success: `${client.name} est archivé.`,
+    onSuccess: onClose,
+  })
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -234,25 +237,13 @@ export function ArchiveClientDialog({
           >
             Annuler
           </button>
-          <button
-            type="button"
-            disabled={pending}
-            onClick={() => {
-              setError(null)
-              startTransition(async () => {
-                const result = await archiveClient({ firmSlug, id: client.id })
-                if (!result.ok) {
-                  setError(result.message)
-                  return
-                }
-                onClose()
-                router.refresh()
-              })
-            }}
-            className="h-9 rounded-[7px] bg-alert px-3 text-[13px] font-medium text-white disabled:opacity-50"
+          <DangerButton
+            pending={pending}
+            pendingLabel="Archivage…"
+            onClick={() => run({ firmSlug, id: client.id })}
           >
-            {pending ? "Archivage…" : "Archiver"}
-          </button>
+            Archiver
+          </DangerButton>
         </DialogFooter>
       </DialogContent>
     </Dialog>
