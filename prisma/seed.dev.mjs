@@ -168,6 +168,9 @@ const FIRMS = {
   },
 }
 
+// The account that owns both firms. Override when seeding for someone else.
+const OWNER_EMAIL = process.env.SEED_OWNER_EMAIL ?? "flanpaul19@gmail.com"
+
 const DOCUMENT_TYPES = [
   "CONTRACT", "ID_CARD", "CV", "MEDICAL_CERTIFICATE", "CERTIFICATE",
   "DIPLOMA", "PAYSLIP", "LEGAL_DOCUMENT",
@@ -258,90 +261,129 @@ async function main() {
   await db.dashboardView.deleteMany({ where: { firmId: { in: firmIds } } })
 
   // ---- modules -----------------------------------------------------------
-  // Documents becomes a module of its own, depending on hr. Modules gate
-  // navigation and authorisation only, so EmployeeDocument keeps its foreign
-  // key to Employee and nothing about the data relationship changes.
+  // Modules are data, not code (DATA_MODEL.md §6): a route under /hr, /crm or
+  // /documents is only reachable when the firm has that Module row enabled.
+  //
+  // `hr` and `crm` used to be read with findUnique and skipped when absent,
+  // which assumed a database that already had them. A fresh one does not, so
+  // the seed produced firms with `documents` alone and every /hr and /crm
+  // route gated off. All three are created here.
+  //
+  // Documents depends on hr. That gates navigation and authorisation only —
+  // EmployeeDocument keeps its foreign key to Employee either way.
   console.log("Ensuring modules…")
-  const hrModule = await db.module.findUnique({ where: { slug: "hr" } })
-  const documentsModule = await db.module.upsert({
-    where: { slug: "documents" },
-    update: { name: "Documents", basePath: "/documents", isActive: true },
-    create: {
+  const MODULES = [
+    {
+      slug: "hr",
+      name: "Ressources Humaines",
+      description:
+        "Employés, contrats, congés et transferts entre filiales du groupe.",
+      icon: "UserMultipleIcon",
+      basePath: "/hr",
+      // A system module cannot be uninstalled from the admin screen.
+      isSystem: true,
+    },
+    {
+      slug: "crm",
+      name: "CRM",
+      description: "Portefeuille clients, affectations et suivi commercial.",
+      icon: "Building03Icon",
+      basePath: "/crm",
+      isSystem: true,
+    },
+    {
       slug: "documents",
       name: "Documents",
       description:
         "Pièces rattachées aux employés : contrats signés, CNI, certificats, attestations.",
-      version: "1.0.0",
       icon: "Folder01Icon",
       basePath: "/documents",
       isSystem: false,
-      isActive: true,
+      dependsOn: "hr",
     },
-  })
+  ]
 
-  if (hrModule) {
-    const existingDependency = await db.moduleDependency.findUnique({
-      where: {
-        moduleId_dependsOnId: {
-          moduleId: documentsModule.id,
-          dependsOnId: hrModule.id,
-        },
+  const moduleBySlug = {}
+  for (const spec of MODULES) {
+    moduleBySlug[spec.slug] = await db.module.upsert({
+      where: { slug: spec.slug },
+      // Name, path and icon are corrected on re-run; isSystem is not, so an
+      // admin's own change to it survives the seed.
+      update: {
+        name: spec.name,
+        description: spec.description,
+        icon: spec.icon,
+        basePath: spec.basePath,
+        isActive: true,
+      },
+      create: {
+        slug: spec.slug,
+        name: spec.name,
+        description: spec.description,
+        version: "1.0.0",
+        icon: spec.icon,
+        basePath: spec.basePath,
+        isSystem: spec.isSystem,
+        isActive: true,
       },
     })
-    if (!existingDependency) {
-      await db.moduleDependency.create({
-        data: { moduleId: documentsModule.id, dependsOnId: hrModule.id },
-      })
-    }
   }
 
-  for (const firm of seededFirms) {
-    await db.firmModule.upsert({
-      where: { firmId_moduleId: { firmId: firm.id, moduleId: documentsModule.id } },
-      update: { isEnabled: true },
-      create: { firmId: firm.id, moduleId: documentsModule.id, isEnabled: true },
+  for (const spec of MODULES) {
+    if (!spec.dependsOn) continue
+    const moduleId = moduleBySlug[spec.slug].id
+    const dependsOnId = moduleBySlug[spec.dependsOn].id
+    const existing = await db.moduleDependency.findUnique({
+      where: { moduleId_dependsOnId: { moduleId, dependsOnId } },
     })
+    if (!existing) {
+      await db.moduleDependency.create({ data: { moduleId, dependsOnId } })
+    }
+  }
 
-    // Every firm needs HR and CRM enabled, or its routes 404.
-    for (const slug of ["hr", "crm"]) {
-      const mod = await db.module.findUnique({ where: { slug } })
-      if (!mod) continue
+  // Every seeded firm gets all three enabled, or its routes 404.
+  for (const firm of seededFirms) {
+    for (const spec of MODULES) {
+      const moduleId = moduleBySlug[spec.slug].id
       await db.firmModule.upsert({
-        where: { firmId_moduleId: { firmId: firm.id, moduleId: mod.id } },
+        where: { firmId_moduleId: { firmId: firm.id, moduleId } },
         update: { isEnabled: true },
-        create: { firmId: firm.id, moduleId: mod.id, isEnabled: true },
+        create: { firmId: firm.id, moduleId, isEnabled: true },
       })
     }
   }
+  console.log(
+    `  ${MODULES.length} modules (${MODULES.map((m) => m.slug).join(", ")}) on ${seededFirms.length} firms`
+  )
 
   // ---- matricule prefixes ------------------------------------------------
   // The single most consequential legacy defect: `generateNextMatricule` took a
   // prefix nobody passed, so every firm numbered its people `CI####`. The
   // prefix lives per firm in the HR module's settings — the schema's own JSON
   // extension point — and the seed writes it so generated matricules match the
-  // ones in the fixtures.
-  if (hrModule) {
-    for (const [slug, config] of Object.entries(FIRMS)) {
-      const firm = bySlug[slug]
-      const existing = await db.firmModule.findUnique({
-        where: { firmId_moduleId: { firmId: firm.id, moduleId: hrModule.id } },
-        select: { settings: true },
-      })
-      await db.firmModule.upsert({
-        where: { firmId_moduleId: { firmId: firm.id, moduleId: hrModule.id } },
-        update: {
-          isEnabled: true,
-          settings: { ...(existing?.settings ?? {}), matriculePrefix: config.prefix },
-        },
-        create: {
-          firmId: firm.id,
-          moduleId: hrModule.id,
-          isEnabled: true,
-          settings: { matriculePrefix: config.prefix },
-        },
-      })
-      console.log(`  ${firm.name}: matricules ${config.prefix}####`)
-    }
+  // ones in the fixtures. This used to be skipped when the hr module was
+  // missing, which on a fresh database meant always.
+  const hrModuleId = moduleBySlug.hr.id
+  for (const [slug, config] of Object.entries(FIRMS)) {
+    const firm = bySlug[slug]
+    const existing = await db.firmModule.findUnique({
+      where: { firmId_moduleId: { firmId: firm.id, moduleId: hrModuleId } },
+      select: { settings: true },
+    })
+    await db.firmModule.upsert({
+      where: { firmId_moduleId: { firmId: firm.id, moduleId: hrModuleId } },
+      update: {
+        isEnabled: true,
+        settings: { ...(existing?.settings ?? {}), matriculePrefix: config.prefix },
+      },
+      create: {
+        firmId: firm.id,
+        moduleId: hrModuleId,
+        isEnabled: true,
+        settings: { matriculePrefix: config.prefix },
+      },
+    })
+    console.log(`  ${firm.name}: matricules ${config.prefix}####`)
   }
 
   // ---- users -------------------------------------------------------------
@@ -349,7 +391,26 @@ async function main() {
   // tested (§3.5: the same restriction must apply to list, facets and export).
   console.log("Ensuring test users…")
   const devPassword = await hash("senexus-dev", 10)
-  const owner = await db.user.findFirst({ where: { email: "flanpaul19@gmail.com" } })
+
+  // The owner account used to be looked up rather than created, on the
+  // assumption it already existed from a real sign-up. On a fresh database it
+  // did not, and because every use of it downstream reads `owner?.id ?? …`,
+  // the seed quietly finished with no OWNER at all. It is created here like
+  // the others — but `update` stays empty so a real account that already
+  // exists keeps its own password.
+  const owner = await db.user.upsert({
+    where: { email: OWNER_EMAIL },
+    update: {},
+    create: {
+      email: OWNER_EMAIL,
+      name: "Paul Flan",
+      passwordHash: devPassword,
+      emailVerified: new Date(),
+    },
+  })
+  // An untouched upsert leaves updatedAt equal to createdAt, so this says
+  // whether the row was just created — which decides what password to print.
+  const ownerWasCreated = owner.createdAt.getTime() === owner.updatedAt.getTime()
 
   const manager = await db.user.upsert({
     where: { email: "manager.dev@senexus.local" },
@@ -395,14 +456,13 @@ async function main() {
       update: {},
       create: { userId: manager.id, firmId: firm.id, role: "MANAGER" },
     })
-    if (owner) {
-      await db.userFirm.upsert({
-        where: { userId_firmId: { userId: owner.id, firmId: firm.id } },
-        update: {},
-        create: { userId: owner.id, firmId: firm.id, role: "OWNER" },
-      })
-    }
+    await db.userFirm.upsert({
+      where: { userId_firmId: { userId: owner.id, firmId: firm.id } },
+      update: { role: "OWNER" },
+      create: { userId: owner.id, firmId: firm.id, role: "OWNER" },
+    })
   }
+  console.log(`  owner ${OWNER_EMAIL} on ${seededFirms.length} firms`)
 
   // ---- per-firm data -----------------------------------------------------
   const totals = { clients: 0, departments: 0, employees: 0, contracts: 0, documents: 0, leaves: 0 }
@@ -638,7 +698,7 @@ async function main() {
           fileUrl: `https://zipline.example.invalid/u/${config.prefix}${i}${d}.pdf`,
           fileSize: int(48, 2400) * 1024,
           mimeType: "application/pdf",
-          uploadedBy: owner?.id ?? manager.id,
+          uploadedBy: owner.id,
           tags: [],
           expiryDate: expired
             ? addDays(TODAY, -int(1, 200))
@@ -648,7 +708,7 @@ async function main() {
                 ? addDays(TODAY, int(200, 900))
                 : null,
           isVerified: chance(0.78),
-          verifiedBy: chance(0.78) ? (owner?.id ?? manager.id) : null,
+          verifiedBy: chance(0.78) ? owner.id : null,
           verifiedAt: chance(0.78) ? addDays(TODAY, -int(10, 400)) : null,
         })
       }
@@ -702,7 +762,7 @@ async function main() {
         isPaid: true,
         status,
         requestedAt: addDays(start, -int(3, 30)),
-        reviewedBy: status === "PENDING" ? null : (owner?.id ?? manager.id),
+        reviewedBy: status === "PENDING" ? null : owner.id,
         reviewedAt: status === "PENDING" ? null : addDays(start, -int(1, 3)),
       })
     }
@@ -762,9 +822,9 @@ async function main() {
         ]),
         status,
         newMatricule: `SP${String(900 + transferIndex).padStart(4, "0")}`,
-        requestedBy: owner?.id ?? manager.id,
+        requestedBy: owner.id,
         approvedBy: ["APPROVED", "COMPLETED"].includes(status)
-          ? (owner?.id ?? manager.id)
+          ? owner.id
           : null,
         approvedAt: ["APPROVED", "COMPLETED"].includes(status)
           ? addDays(TODAY, -int(1, 20))
@@ -779,7 +839,12 @@ async function main() {
   console.table(totals)
   console.log("\nSign-in accounts (development only):")
   console.table([
-    { email: "flanpaul19@gmail.com", role: "OWNER (both firms)", password: "unchanged" },
+    {
+      email: OWNER_EMAIL,
+      role: "OWNER (both firms)",
+      // Created just now by this seed, or pre-existing with its own password.
+      password: ownerWasCreated ? "senexus-dev" : "unchanged",
+    },
     { email: "manager.dev@senexus.local", role: "MANAGER (connect-interim)", password: "senexus-dev" },
     {
       email: "responsable.dev@senexus.local",
