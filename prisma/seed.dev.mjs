@@ -286,6 +286,14 @@ async function main() {
   // IPM first: its rows point at persons and organizations that the HR wipe
   // below also releases, and a dependent must go before the member it hangs
   // off. Scoped to the IPM firm like everything else here.
+  await db.ipmConsumption.deleteMany({ where: { firmId: ipmFirm.id } })
+  await db.ipmVoucherLine.deleteMany({ where: { firmId: ipmFirm.id } })
+  await db.ipmVoucher.deleteMany({ where: { firmId: ipmFirm.id } })
+  await db.ipmAgreement.deleteMany({ where: { firmId: ipmFirm.id } })
+  await db.ipmProviderBranch.deleteMany({ where: { firmId: ipmFirm.id } })
+  await db.ipmProvider.deleteMany({ where: { firmId: ipmFirm.id } })
+  await db.ipmSequence.deleteMany({ where: { firmId: ipmFirm.id } })
+  await db.ipmMemberCard.deleteMany({ where: { firmId: ipmFirm.id } })
   await db.ipmMemberContribution.deleteMany({ where: { firmId: ipmFirm.id } })
   await db.dependent.deleteMany({ where: { firmId: ipmFirm.id } })
   await db.member.deleteMany({ where: { firmId: ipmFirm.id } })
@@ -1359,6 +1367,363 @@ async function main() {
   totals.ipmContributions = contributionTotal
   console.log(
     `  ${MEMBER_COUNT} participants, ${dependentTotal} ayants droit, ${contributionTotal} périodes de cotisation`
+  )
+
+
+  // ---- IPM: référentiel des prestations -----------------------------------
+  // A working subset of the 49 WebLamps codes, placed with the documented
+  // split (§4.4). The full list arrives with the reprise; these are enough to
+  // issue a bon in every category and to exercise the carence on optique.
+  const SERVICE_TYPES_IPM = [
+    [0, "Consultation généraliste", "CONSULTATION", "602100"],
+    [43, "Consultation spécialiste", "CONSULTATION", "602110"],
+    [6, "Pharmacie — médicaments", "PHARMACIE", "602200"],
+    [22, "Pharmacie — dispositifs", "PHARMACIE", "602210"],
+    [4, "Optique — monture et verres", "OPTIQUE", "602300"],
+    [13, "Optique — lentilles", "OPTIQUE", "602310"],
+    [8, "Accouchement", "HOSPITALISATION", "602400"],
+    [3, "Hospitalisation médicale", "HOSPITALISATION", "602410"],
+    [16, "Chirurgie", "HOSPITALISATION", "602420"],
+    [1, "Soins infirmiers", "SOINS", "602500"],
+    [7, "Analyses de laboratoire", "SOINS", "602510"],
+    [39, "NES-GE-CRP", "SOINS", "602520"],
+  ]
+
+  for (const [code, label, categoryCode, accountCode] of SERVICE_TYPES_IPM) {
+    await db.ipmServiceType.create({
+      data: {
+        firmId: ipmFirm.id,
+        categoryId: categoryIdByCode[categoryCode],
+        code: String(code),
+        label,
+        accountCode,
+        legacyCode: String(code),
+      },
+    })
+  }
+
+  const SPECIALTIES_IPM = [
+    [1, "Pharmacie", "401100"],
+    [2, "Médecine générale", "401200"],
+    [3, "Clinique", "401300"],
+    [4, "Optique", "401400"],
+    [5, "Laboratoire", "401500"],
+  ]
+  for (const [code, label, accountCode] of SPECIALTIES_IPM) {
+    await db.ipmProviderSpecialty.create({
+      data: {
+        firmId: ipmFirm.id,
+        code: String(code),
+        label,
+        accountCode,
+        legacyCode: String(code),
+      },
+    })
+  }
+  console.log(
+    `  ${SERVICE_TYPES_IPM.length} types de prestation, ${SPECIALTIES_IPM.length} spécialités`
+  )
+
+  const serviceTypes = await db.ipmServiceType.findMany({
+    where: { firmId: ipmFirm.id },
+    select: { id: true, code: true, categoryId: true, label: true },
+  })
+  const specialties = await db.ipmProviderSpecialty.findMany({
+    where: { firmId: ipmFirm.id },
+    select: { id: true, label: true },
+  })
+  const specialtyByLabel = Object.fromEntries(
+    specialties.map((s) => [s.label, s.id])
+  )
+
+  // ---- IPM: prestataires --------------------------------------------------
+  // One is deliberately left un-agréé and one suspended, so the issuance
+  // controls have something real to refuse rather than only a happy path.
+  const PROVIDERS_IPM = [
+    ["Pharmacie Guédiawaye", "Pharmacie", true, "ACTIVE", true],
+    ["Pharmacie du Point E", "Pharmacie", true, "ACTIVE", true],
+    ["Clinique du Cap", "Clinique", true, "ACTIVE", true],
+    ["Cabinet Dr Ndiaye", "Médecine générale", true, "ACTIVE", false],
+    ["Optique Sahm", "Optique", true, "ACTIVE", true],
+    ["Laboratoire Bio24", "Laboratoire", true, "ACTIVE", false],
+    ["Pharmacie Mbao", "Pharmacie", false, "ACTIVE", false],
+    ["Clinique Keur Massar", "Clinique", true, "SUSPENDED", false],
+  ]
+
+  const providers = []
+  let agreementCount = 0
+  for (const [index, spec] of PROVIDERS_IPM.entries()) {
+    const [name, specialtyLabel, accredited, status, withAgreement] = spec
+    const provider = await db.ipmProvider.create({
+      data: {
+        firmId: ipmFirm.id,
+        name,
+        specialtyId: specialtyByLabel[specialtyLabel] ?? null,
+        legacyCode: String(100 + index),
+        accountCode: `401${String(index + 1).padStart(3, "0")}`,
+        address: pick(CITIES),
+        phone: `+221 33 ${int(100, 999)} ${int(10, 99)} ${int(10, 99)}`,
+        accredited,
+        status,
+        paymentTermDays: 60,
+      },
+      select: { id: true, name: true, accredited: true, status: true },
+    })
+
+    if (withAgreement) {
+      await db.ipmAgreement.create({
+        data: {
+          firmId: ipmFirm.id,
+          providerId: provider.id,
+          reference: `CONV-${String(index + 1).padStart(3, "0")}`,
+          startDate: addDays(TODAY, -int(200, 900)),
+          endDate: addDays(TODAY, int(120, 700)),
+          negotiatedRate: chance(0.5) ? 0.05 : null,
+          status: "ACTIVE",
+        },
+      })
+      agreementCount += 1
+    }
+    providers.push(provider)
+  }
+  console.log(
+    `  ${providers.length} prestataires (${providers.filter((p) => p.accredited).length} agréés), ${agreementCount} conventions`
+  )
+
+  // ---- IPM: bons ----------------------------------------------------------
+  // Issued through the same arithmetic the engine uses, so the fixtures agree
+  // with what the application would compute: ceil(total × taux), the IPM
+  // absorbing the residual franc.
+  const issuable = providers.filter(
+    (p) => p.accredited && p.status === "ACTIVE"
+  )
+  const activeMembers = await db.member.findMany({
+    where: { firmId: ipmFirm.id, status: "ACTIVE" },
+    select: {
+      id: true,
+      matricule: true,
+      person: { select: { firstName: true, lastName: true } },
+      employer: {
+        select: {
+          planId: true,
+          rates: { select: { categoryId: true, beneficiaryType: true, rate: true } },
+        },
+      },
+      dependents: {
+        where: { status: "ACTIVE" },
+        select: {
+          id: true,
+          relation: true,
+          person: { select: { firstName: true, lastName: true } },
+        },
+      },
+    },
+  })
+
+  const planRates = await db.ipmPlanRate.findMany({
+    where: { firmId: ipmFirm.id },
+    select: { planId: true, categoryId: true, beneficiaryType: true, rate: true },
+  })
+
+  function rateFor(member, categoryId, beneficiaryType) {
+    const employerRate =
+      member.employer.rates.find(
+        (r) => r.categoryId === categoryId && r.beneficiaryType === beneficiaryType
+      ) ??
+      member.employer.rates.find(
+        (r) => r.categoryId === categoryId && r.beneficiaryType === "ALL"
+      )
+    if (employerRate) return { rate: Number(employerRate.rate), source: "EMPLOYER" }
+
+    if (!member.employer.planId) return null
+    const planRate =
+      planRates.find(
+        (r) =>
+          r.planId === member.employer.planId &&
+          r.categoryId === categoryId &&
+          r.beneficiaryType === beneficiaryType
+      ) ??
+      planRates.find(
+        (r) =>
+          r.planId === member.employer.planId &&
+          r.categoryId === categoryId &&
+          r.beneficiaryType === "ALL"
+      )
+    return planRate ? { rate: Number(planRate.rate), source: "PLAN" } : null
+  }
+
+  const VOUCHER_TYPE_BY_CATEGORY = {
+    PHARMACIE: "PHARMACY",
+    OPTIQUE: "OPTICAL",
+    HOSPITALISATION: "HOSPITALIZATION",
+    CONSULTATION: "GUARANTEE",
+    SOINS: "GUARANTEE",
+  }
+  const PREFIX = {
+    PHARMACY: "BPI",
+    OPTICAL: "BCI",
+    GUARANTEE: "LGI",
+    HOSPITALIZATION: "LHI",
+  }
+  // Above the maxima already in circulation (§4.6).
+  const sequences = { PHARMACY: 5430, OPTICAL: 0, GUARANTEE: 9310, HOSPITALIZATION: 0 }
+
+  const categoryCodeById = Object.fromEntries(
+    Object.entries(categoryIdByCode).map(([code, id]) => [id, code])
+  )
+
+  let voucherCount = 0
+  let consumptionCount = 0
+  const voucherRows = []
+  const lineRows = []
+  const consumptionRows = []
+
+  for (let i = 0; i < 220; i += 1) {
+    const member = pick(activeMembers)
+    const serviceType = pick(
+      // Optique is rare and carries a two-year carence, so it stays scarce
+      // here rather than dominating the fixtures.
+      serviceTypes.filter(
+        (s) => categoryCodeById[s.categoryId] !== "OPTIQUE" || chance(0.08)
+      )
+    )
+    if (!serviceType) continue
+
+    const categoryCode = categoryCodeById[serviceType.categoryId]
+    // Only the categories the flyer prices have a barème; the others resolve
+    // to nothing, exactly as they would in the application.
+    if (!["CONSULTATION", "SOINS", "PHARMACIE"].includes(categoryCode)) continue
+
+    const useDependent = member.dependents.length > 0 && chance(0.4)
+    const dependent = useDependent ? pick(member.dependents) : null
+    const beneficiaryType = dependent ? dependent.relation : "MEMBER"
+
+    const resolved = rateFor(member, serviceType.categoryId, beneficiaryType)
+    if (!resolved) continue
+
+    const provider = pick(issuable)
+    const issueDate = addDays(TODAY, -int(0, 330))
+    const type = VOUCHER_TYPE_BY_CATEGORY[categoryCode]
+    sequences[type] += 1
+    const number = `${PREFIX[type]}${String(sequences[type]).padStart(6, "0")}`
+
+    const lineCount = int(1, 3)
+    const lines = Array.from({ length: lineCount }, () => ({
+      label: pick([
+        "Paracétamol 1 g",
+        "Amoxicilline 500 mg",
+        "Consultation",
+        "Pansement",
+        "Bilan sanguin",
+        "Sirop antitussif",
+      ]),
+      quantity: int(1, 3),
+      unitPrice: int(2, 60) * 500,
+    }))
+    const totalAmount = lines.reduce(
+      (sum, line) => sum + line.quantity * line.unitPrice,
+      0
+    )
+    // The engine's formula, reproduced exactly: the IPM absorbs the residual.
+    const insurerShare = Math.ceil(totalAmount * resolved.rate)
+    const memberShare = totalAmount - insurerShare
+
+    const age = Math.floor((TODAY - issueDate) / DAY)
+    const status =
+      age > 120
+        ? "INVOICED"
+        : age > 45
+          ? "SETTLED"
+          : chance(0.08)
+            ? "CANCELLED"
+            : chance(0.3)
+              ? "PRESENTED"
+              : "ISSUED"
+
+    const voucherId = `seed_ipm_voucher_${i}`
+    voucherRows.push({
+      id: voucherId,
+      firmId: ipmFirm.id,
+      number,
+      type,
+      memberId: member.id,
+      dependentId: dependent?.id ?? null,
+      beneficiaryType,
+      beneficiaryName: dependent
+        ? `${dependent.person.lastName.toUpperCase()} ${dependent.person.firstName}`
+        : `${member.person.lastName.toUpperCase()} ${member.person.firstName}`,
+      providerId: provider.id,
+      serviceTypeId: serviceType.id,
+      categoryId: serviceType.categoryId,
+      issueDate,
+      expiryDate: addDays(issueDate, 30),
+      status,
+      totalAmount,
+      insurerShare,
+      memberShare,
+      appliedRate: resolved.rate,
+      rateSource: resolved.source,
+      qrToken: `seed.${voucherId}.0.seed`,
+      issuedById: owner.id,
+      settledAt: ["SETTLED", "INVOICED"].includes(status)
+        ? addDays(issueDate, int(5, 40))
+        : null,
+      settledById: ["SETTLED", "INVOICED"].includes(status) ? owner.id : null,
+      cancelledAt: status === "CANCELLED" ? addDays(issueDate, int(1, 10)) : null,
+      cancelReason: status === "CANCELLED" ? "Erreur de saisie" : null,
+    })
+
+    for (const [lineIndex, line] of lines.entries()) {
+      lineRows.push({
+        id: `${voucherId}_line_${lineIndex}`,
+        firmId: ipmFirm.id,
+        voucherId,
+        label: line.label,
+        quantity: line.quantity,
+        unitPrice: line.unitPrice,
+        amount: line.quantity * line.unitPrice,
+      })
+    }
+
+    // A cancelled bon releases the space it held under the plafond, so it has
+    // no consumption row — the same rule the cancel action applies.
+    if (status !== "CANCELLED") {
+      consumptionRows.push({
+        firmId: ipmFirm.id,
+        beneficiaryRef: dependent
+          ? `dependent:${dependent.id}`
+          : `member:${member.id}`,
+        memberId: member.id,
+        categoryId: serviceType.categoryId,
+        periodYear: issueDate.getFullYear(),
+        periodMonth: issueDate.getMonth() + 1,
+        voucherId,
+        amount: totalAmount,
+        insurerShare,
+      })
+      consumptionCount += 1
+    }
+    voucherCount += 1
+  }
+
+  await createInBatches(db.ipmVoucher, voucherRows)
+  await createInBatches(db.ipmVoucherLine, lineRows)
+  await createInBatches(db.ipmConsumption, consumptionRows)
+
+  // The sequences continue where the fixtures stopped, so the first bon issued
+  // through the application does not collide with a seeded one.
+  for (const [type, value] of Object.entries(sequences)) {
+    const kind = PREFIX[type]
+    await db.ipmSequence.upsert({
+      where: { firmId_kind_year: { firmId: ipmFirm.id, kind, year: 0 } },
+      update: { next: value + 1 },
+      create: { firmId: ipmFirm.id, kind, year: 0, next: value + 1 },
+    })
+  }
+
+  totals.ipmVouchers = voucherCount
+  console.log(
+    `  ${voucherCount} bons, ${lineRows.length} lignes, ${consumptionCount} lignes de consommation`
   )
 
 

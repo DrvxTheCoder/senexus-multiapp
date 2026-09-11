@@ -308,6 +308,86 @@ async function main() {
     await expectStatus(null, `/${IPM_SLUG}/api/ipm/cards/${sample.id}/recto`, 307)
   }
 
+  console.log("\nBons et prestataires")
+  for (const path of ["bons", "bons/nouveau", "prestataires"]) {
+    await expectStatus(ipm, `/${IPM_SLUG}/ipm/${path}`, 200)
+  }
+
+  // The settlement formula, asserted against every seeded bon rather than a
+  // sample: ceil(total × rate), the IPM absorbing the residual franc.
+  const [splitMismatch] = await db.$queryRawUnsafe<{ n: number }[]>(
+    `SELECT count(*)::int AS n FROM ipm_vouchers
+     WHERE ceil("totalAmount" * "appliedRate") <> "insurerShare"`
+  )
+  check("every bon splits as ceil(total × taux)", splitMismatch.n === 0,
+    `${splitMismatch.n} disagree`)
+
+  const [sumMismatch] = await db.$queryRawUnsafe<{ n: number }[]>(
+    `SELECT count(*)::int AS n FROM ipm_vouchers
+     WHERE "insurerShare" + "memberShare" <> "totalAmount"`
+  )
+  check("part IPM + ticket = total on every bon", sumMismatch.n === 0,
+    `${sumMismatch.n} disagree`)
+
+  const [overpaid] = await db.$queryRawUnsafe<{ n: number }[]>(
+    `SELECT count(*)::int AS n FROM ipm_vouchers WHERE "insurerShare" > "totalAmount"`
+  )
+  check("the institution never pays more than the bill", overpaid.n === 0)
+
+  // A cancelled bon releases the space it held under the plafond.
+  const cancelledWithConsumption = await db.ipmConsumption.count({
+    where: { firm: { slug: IPM_SLUG }, voucher: { status: "CANCELLED" } },
+  })
+  check(
+    "a cancelled bon holds no consumption",
+    cancelledWithConsumption === 0,
+    `${cancelledWithConsumption} left behind`
+  )
+
+  // Numbering must not reuse a reference already on paper.
+  const lowNumbers = await db.ipmVoucher.count({
+    where: {
+      firm: { slug: IPM_SLUG },
+      OR: [
+        { type: "PHARMACY", number: { lt: "BPI005431" } },
+        { type: "GUARANTEE", number: { lt: "LGI009311" } },
+      ],
+    },
+  })
+  check(
+    "no bon reuses a number already in circulation",
+    lowNumbers === 0,
+    `${lowNumbers} below the legacy maxima`
+  )
+
+  const duplicates = await db.$queryRawUnsafe<{ n: number }[]>(
+    `SELECT count(*)::int AS n FROM (
+       SELECT "number" FROM ipm_vouchers GROUP BY 1 HAVING count(*) > 1
+     ) t`
+  )
+  check("no two bons share a number", duplicates[0].n === 0)
+
+  // Providers that cannot be issued against must not be offered as if they
+  // could: the issue form lists only active and agréé.
+  const issuable = await db.ipmProvider.count({
+    where: { firm: { slug: IPM_SLUG }, accredited: true, status: "ACTIVE" },
+  })
+  const issuedAgainstUnusable = await db.ipmVoucher.count({
+    where: {
+      firm: { slug: IPM_SLUG },
+      OR: [
+        { provider: { accredited: false } },
+        { provider: { status: { not: "ACTIVE" } } },
+      ],
+    },
+  })
+  check("there is at least one issuable provider", issuable > 0, `${issuable}`)
+  check(
+    "no bon was issued against a provider that is not agréé and active",
+    issuedAgainstUnusable === 0,
+    `${issuedAgainstUnusable} found`
+  )
+
   console.log("\nThe IPM firm exposes nothing else")
   await expectStatus(ipm, `/${IPM_SLUG}/hr/employees`, 404)
   await expectStatus(ipm, `/${IPM_SLUG}/hr/contracts`, 404)
@@ -415,6 +495,8 @@ async function main() {
     // route, because each one calls requireModule for itself.
     await expectStatus(hr, `/${slug}/ipm/participants`, 404)
     await expectStatus(hr, `/${slug}/ipm/formules`, 404)
+    await expectStatus(hr, `/${slug}/ipm/bons`, 404)
+    await expectStatus(hr, `/${slug}/ipm/prestataires`, 404)
   }
   if (sample) {
     // A real participant id, aimed at a firm that does not have the module.

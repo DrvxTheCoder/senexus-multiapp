@@ -34,6 +34,8 @@ model User {
   userFirms          UserFirm[]
   ipmContributions   IpmMemberContribution[] @relation("IpmContributionAuthor")
   ipmCards           IpmMemberCard[]         @relation("IpmCardAuthor")
+  ipmVouchersIssued  IpmVoucher[]            @relation("IpmVoucherIssuer")
+  ipmVouchersSettled IpmVoucher[]            @relation("IpmVoucherSettler")
 
   @@map("users")
 }
@@ -134,6 +136,13 @@ model Firm {
   ipmDependents          Dependent[]
   ipmContributions       IpmMemberContribution[]
   ipmCards               IpmMemberCard[]
+  ipmProviders           IpmProvider[]
+  ipmProviderBranches    IpmProviderBranch[]
+  ipmAgreements          IpmAgreement[]
+  ipmVouchers            IpmVoucher[]
+  ipmVoucherLines        IpmVoucherLine[]
+  ipmConsumptions        IpmConsumption[]
+  ipmSequences           IpmSequence[]
 
   @@map("firms")
 }
@@ -834,6 +843,7 @@ model Organization {
   holding   Holding       @relation(fields: [holdingId], references: [id], onDelete: Cascade)
   clients   Client[]
   employers IpmEmployer[]
+  providers IpmProvider[]
 
   @@unique([holdingId, ninea])
   @@index([holdingId, name])
@@ -864,6 +874,8 @@ model IpmServiceCategory {
   serviceTypes  IpmServiceType[]
   planRates     IpmPlanRate[]
   employerRates IpmEmployerRate[]
+  vouchers      IpmVoucher[]
+  consumptions  IpmConsumption[]
 
   @@unique([firmId, code])
   @@map("ipm_service_categories")
@@ -886,6 +898,7 @@ model IpmServiceType {
   firm        Firm               @relation(fields: [firmId], references: [id], onDelete: Cascade)
   category    IpmServiceCategory @relation(fields: [categoryId], references: [id])
   medicalActs IpmMedicalAct[]
+  vouchers    IpmVoucher[]
 
   @@unique([firmId, code])
   @@index([firmId, categoryId])
@@ -904,7 +917,8 @@ model IpmProviderSpecialty {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  firm Firm @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  firm      Firm          @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  providers IpmProvider[]
 
   @@unique([firmId, code])
   @@map("ipm_provider_specialties")
@@ -922,8 +936,9 @@ model IpmMedicalAct {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  firm        Firm           @relation(fields: [firmId], references: [id], onDelete: Cascade)
-  serviceType IpmServiceType @relation(fields: [serviceTypeId], references: [id])
+  firm         Firm             @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  serviceType  IpmServiceType   @relation(fields: [serviceTypeId], references: [id])
+  voucherLines IpmVoucherLine[]
 
   @@unique([firmId, code])
   @@index([firmId, serviceTypeId])
@@ -1151,6 +1166,8 @@ model Member {
   dependents    Dependent[]
   contributions IpmMemberContribution[]
   card          IpmMemberCard?
+  vouchers      IpmVoucher[]
+  consumptions  IpmConsumption[]
 
   @@unique([firmId, matricule])
   @@unique([firmId, legacyCode])
@@ -1179,9 +1196,10 @@ model Dependent {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  firm   Firm   @relation(fields: [firmId], references: [id], onDelete: Cascade)
-  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  person Person @relation(fields: [personId], references: [id])
+  firm     Firm         @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  member   Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  person   Person       @relation(fields: [personId], references: [id])
+  vouchers IpmVoucher[]
 
   @@unique([firmId, matricule])
   @@unique([memberId, rank])
@@ -1264,4 +1282,273 @@ model IpmMemberCard {
   @@unique([memberId])
   @@index([firmId, inputsHash])
   @@map("ipm_member_cards")
+}
+
+// ============================================================================
+// IPM — PRESTATAIRES ET CONVENTIONS
+// ============================================================================
+
+enum IpmProviderStatus {
+  ACTIVE
+  SUSPENDED
+  TERMINATED
+}
+
+enum IpmAgreementStatus {
+  DRAFT
+  ACTIVE
+  EXPIRED
+  TERMINATED
+}
+
+/// Prestataire de soins — pharmacie, clinique, cabinet, laboratoire.
+///
+/// `accredited` is separate from `status` on purpose. A provider can be a
+/// live, payable counterparty and still not be agréé for tiers payant; the
+/// two answer different questions, and collapsing them is how a voucher gets
+/// issued against somebody who never signed a convention.
+model IpmProvider {
+  id              String            @id @default(cuid())
+  firmId          String
+  organizationId  String?
+  legacyCode      String?
+  name            String
+  specialtyId     String?
+  address         String?
+  phone           String?
+  email           String?
+  /// Compte fournisseur SYSCOHADA 400xxx.
+  accountCode     String?
+  /// Agréé pour le tiers payant. Distinct from being an active counterparty.
+  accredited      Boolean           @default(false)
+  status          IpmProviderStatus @default(ACTIVE)
+  /// Délai de règlement, en jours. 60 in the current agreements.
+  paymentTermDays Int               @default(60)
+  bankName        String?
+  bankAccount     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  firm         Firm                  @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  organization Organization?         @relation(fields: [organizationId], references: [id])
+  specialty    IpmProviderSpecialty? @relation(fields: [specialtyId], references: [id])
+  branches     IpmProviderBranch[]
+  agreements   IpmAgreement[]
+  vouchers     IpmVoucher[]
+
+  @@unique([firmId, legacyCode])
+  @@index([firmId, status, accredited])
+  @@index([firmId, name])
+  @@map("ipm_providers")
+}
+
+model IpmProviderBranch {
+  id         String   @id @default(cuid())
+  firmId     String
+  providerId String
+  name       String
+  address    String?
+  phone      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  firm     Firm        @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  provider IpmProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@index([firmId, providerId])
+  @@map("ipm_provider_branches")
+}
+
+/// Convention. A new construction, not a migration: the 101 legacy provider
+/// records carry no dates and no rates at all (plan §4.5).
+model IpmAgreement {
+  id             String             @id @default(cuid())
+  firmId         String
+  providerId     String
+  reference      String
+  startDate      DateTime
+  endDate        DateTime?
+  /// Remise négociée sur le tarif affiché, en fraction. Not a prise en charge
+  /// rate — that belongs to the formule, and confusing the two would apply a
+  /// provider discount as if it were the institution's share.
+  negotiatedRate Decimal?           @db.Decimal(5, 4)
+  terms          String?
+  status         IpmAgreementStatus @default(DRAFT)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  firm     Firm        @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  provider IpmProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@unique([firmId, reference])
+  @@index([firmId, providerId, status])
+  @@map("ipm_agreements")
+}
+
+// ============================================================================
+// IPM — BONS DE PRISE EN CHARGE
+// ============================================================================
+
+/// The four legacy document families: BPI pharmacie, BCI optique,
+/// LGI lettre de garantie, LHI lettre d'hospitalisation.
+enum IpmVoucherType {
+  PHARMACY
+  OPTICAL
+  GUARANTEE
+  HOSPITALIZATION
+}
+
+/// Replaces the legacy OK/KO pair, which cannot tell "issued" from "rejected"
+/// and leaves the counter guessing (plan §4.6).
+enum IpmVoucherStatus {
+  ISSUED
+  PRESENTED
+  SETTLED
+  INVOICED
+  CANCELLED
+  EXPIRED
+}
+
+/// Bon de prise en charge.
+///
+/// `beneficiaryRef` points at the covered head — the participant themselves or
+/// one of their ayants droit — and is what consumption accumulates against.
+/// Both are stored: `memberId` is the family the cotisation belongs to,
+/// `dependentId` is who actually presented.
+model IpmVoucher {
+  id     String         @id @default(cuid())
+  firmId String
+  number String
+  type   IpmVoucherType
+
+  memberId        String
+  dependentId     String?
+  /// Denormalised at issue: the rate a bon was priced at must not move when
+  /// somebody later edits a barème (plan §4.3, and the same reason cotisations
+  /// are effective-dated).
+  beneficiaryType IpmBeneficiaryType
+  beneficiaryName String
+
+  providerId    String
+  serviceTypeId String
+  categoryId    String
+
+  issueDate  DateTime
+  expiryDate DateTime
+  status     IpmVoucherStatus @default(ISSUED)
+
+  totalAmount  Decimal @default(0) @db.Decimal(12, 2)
+  insurerShare Decimal @default(0) @db.Decimal(12, 2)
+  memberShare  Decimal @default(0) @db.Decimal(12, 2)
+  /// The resolved taux, frozen. Fraction, never a percentage.
+  appliedRate  Decimal @db.Decimal(5, 4)
+  /// Where the rate came from, so a settlement can be explained years later.
+  rateSource   String
+
+  /// HMAC token for counter verification. Rotated when the bon is cancelled.
+  qrToken String @unique
+
+  issuedById   String?
+  settledAt    DateTime?
+  settledById  String?
+  cancelledAt  DateTime?
+  cancelReason String?
+
+  providerInvoiceId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  firm        Firm               @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  member      Member             @relation(fields: [memberId], references: [id])
+  dependent   Dependent?         @relation(fields: [dependentId], references: [id])
+  provider    IpmProvider        @relation(fields: [providerId], references: [id])
+  serviceType IpmServiceType     @relation(fields: [serviceTypeId], references: [id])
+  category    IpmServiceCategory @relation(fields: [categoryId], references: [id])
+  issuedBy    User?              @relation("IpmVoucherIssuer", fields: [issuedById], references: [id])
+  settledBy   User?              @relation("IpmVoucherSettler", fields: [settledById], references: [id])
+  lines       IpmVoucherLine[]
+  consumption IpmConsumption[]
+
+  @@unique([firmId, number])
+  @@index([firmId, status, issueDate])
+  @@index([firmId, memberId])
+  @@index([firmId, providerId, status])
+  @@map("ipm_vouchers")
+}
+
+model IpmVoucherLine {
+  id           String   @id @default(cuid())
+  firmId       String
+  voucherId    String
+  medicalActId String?
+  label        String
+  quantity     Decimal  @default(1) @db.Decimal(8, 2)
+  unitPrice    Decimal  @db.Decimal(12, 2)
+  amount       Decimal  @db.Decimal(12, 2)
+  createdAt    DateTime @default(now())
+
+  firm       Firm           @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  voucher    IpmVoucher     @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  medicalAct IpmMedicalAct? @relation(fields: [medicalActId], references: [id])
+
+  @@index([firmId, voucherId])
+  @@map("ipm_voucher_lines")
+}
+
+/// Consommation — plan §4.7.
+///
+/// Fed by both flows (bons and, from phase 4, remboursements). Without it no
+/// plafond is enforceable at the moment of issue, which is the whole reason it
+/// exists as a table rather than being derived on demand: the issuance check
+/// runs on every bon and cannot afford to sum the history each time.
+model IpmConsumption {
+  id             String @id @default(cuid())
+  firmId         String
+  /// The covered head: `member:<id>` or `dependent:<id>`.
+  beneficiaryRef String
+  memberId       String
+  categoryId     String
+  periodYear     Int
+  periodMonth    Int
+
+  voucherId String?
+
+  amount       Decimal @db.Decimal(12, 2)
+  insurerShare Decimal @db.Decimal(12, 2)
+
+  createdAt DateTime @default(now())
+
+  firm     Firm               @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  member   Member             @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  category IpmServiceCategory @relation(fields: [categoryId], references: [id])
+  voucher  IpmVoucher?        @relation(fields: [voucherId], references: [id], onDelete: SetNull)
+
+  @@index([firmId, beneficiaryRef, categoryId, periodYear])
+  @@index([firmId, memberId, periodYear, periodMonth])
+  @@map("ipm_consumptions")
+}
+
+/// Séquences de numérotation, par type et par exercice.
+///
+/// A row per (firm, kind, year) whose `next` is advanced inside the issuing
+/// transaction. Computing "max + 1" instead is what the HR module did, and two
+/// concurrent issues then produce the same number — for a bon, that is a
+/// document handed to two different people.
+model IpmSequence {
+  id     String @id @default(cuid())
+  firmId String
+  /// `BPI`, `BCI`, `LGI`, `LHI`, `DEC`, `FACT`…
+  kind   String
+  year   Int
+  next   Int    @default(1)
+
+  updatedAt DateTime @updatedAt
+
+  firm Firm @relation(fields: [firmId], references: [id], onDelete: Cascade)
+
+  @@unique([firmId, kind, year])
+  @@map("ipm_sequences")
 }

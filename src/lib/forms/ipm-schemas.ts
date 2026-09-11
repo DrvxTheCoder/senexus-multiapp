@@ -363,3 +363,106 @@ export const revokeCardSchema = z.object({
   memberId: z.string().min(1),
   reason: optionalText(200),
 })
+
+/* ==========================================================================
+ * Prestataires et conventions
+ * ========================================================================== */
+
+export const PROVIDER_STATUSES = ["ACTIVE", "SUSPENDED", "TERMINATED"] as const
+export const AGREEMENT_STATUSES = [
+  "DRAFT",
+  "ACTIVE",
+  "EXPIRED",
+  "TERMINATED",
+] as const
+export const VOUCHER_TYPES = [
+  "PHARMACY",
+  "OPTICAL",
+  "GUARANTEE",
+  "HOSPITALIZATION",
+] as const
+
+const providerFields = {
+  name: z.string().trim().min(2, "Nom requis.").max(160),
+  specialtyId: z.string().min(1).or(z.literal("")).optional(),
+  legacyCode: optionalText(20),
+  accountCode: optionalText(20),
+  address: optionalText(200),
+  phone: optionalText(40),
+  email: z.string().trim().email("Adresse e-mail invalide.").or(z.literal("")).optional(),
+  /// Agréé pour le tiers payant — distinct from being an active counterparty.
+  accredited: z.coerce.boolean().default(false),
+  status: z.enum(PROVIDER_STATUSES).default("ACTIVE"),
+  paymentTermDays: z.coerce.number().int().min(0).max(365).default(60),
+  bankName: optionalText(120),
+  bankAccount: optionalText(60),
+}
+
+export const createProviderSchema = z.object({ ...firmScoped, ...providerFields })
+
+export const updateProviderSchema = z.object({
+  ...firmScoped,
+  ...providerFields,
+  providerId: z.string().min(1),
+})
+
+export const createAgreementSchema = z.object({
+  ...firmScoped,
+  providerId: z.string().min(1),
+  reference: z.string().trim().min(2).max(60),
+  startDate: dateField,
+  endDate: optionalDateField,
+  /// Remise négociée, en pourcentage. Not a prise en charge rate.
+  negotiatedRate: rateField.optional(),
+  terms: optionalText(2000),
+  status: z.enum(AGREEMENT_STATUSES).default("ACTIVE"),
+})
+
+/* ==========================================================================
+ * Bons
+ * ========================================================================== */
+
+export const voucherLineSchema = z.object({
+  medicalActId: z.string().min(1).or(z.literal("")).optional(),
+  label: z.string().trim().min(1, "Libellé requis.").max(160),
+  quantity: z.coerce.number().min(0.01).max(9999).default(1),
+  unitPrice: amountField.refine((value) => value !== null && value >= 0, {
+    message: "Prix unitaire requis.",
+  }),
+})
+
+/**
+ * Émission d'un bon.
+ *
+ * The total is **not** an input: it is the sum of the lines, computed on the
+ * server. Accepting a total alongside lines invites the two to disagree, and
+ * the one that decides what the institution pays would be whichever the code
+ * happened to read.
+ */
+export const issueVoucherSchema = z.object({
+  ...firmScoped,
+  type: z.enum(VOUCHER_TYPES),
+  memberId: z.string().min(1, "Sélectionnez un participant."),
+  dependentId: z.string().min(1).or(z.literal("")).optional(),
+  providerId: z.string().min(1, "Sélectionnez un prestataire."),
+  serviceTypeId: z.string().min(1, "Sélectionnez une prestation."),
+  issueDate: dateField,
+  lines: z.array(voucherLineSchema).min(1, "Au moins une ligne."),
+  /// Set by the operator to proceed despite a warning. Never past a refusal.
+  acknowledgeWarnings: z.coerce.boolean().default(false),
+})
+
+/** Dry run: same input, no write. Powers the pre-flight in the form. */
+export const previewVoucherSchema = issueVoucherSchema
+
+export const settleVoucherSchema = z.object({
+  ...firmScoped,
+  voucherId: z.string().min(1),
+  settledOn: dateField,
+})
+
+export const cancelVoucherSchema = z.object({
+  ...firmScoped,
+  voucherId: z.string().min(1),
+  reason: z.string().trim().min(3, "Motif requis.").max(200),
+})

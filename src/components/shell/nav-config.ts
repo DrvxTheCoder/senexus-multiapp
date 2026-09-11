@@ -8,6 +8,7 @@ import {
   File01Icon,
   Folder01Icon,
   HealthIcon,
+  Hospital01Icon,
   Settings02Icon,
   UserMultipleIcon,
   UserSettings01Icon,
@@ -109,6 +110,8 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: "Vue d'ensemble", href: "/ipm", icon: HealthIcon },
       { label: "Participants", href: "/ipm/participants", icon: UserMultipleIcon },
+      { label: "Bons", href: "/ipm/bons", icon: File01Icon },
+      { label: "Prestataires", href: "/ipm/prestataires", icon: Hospital01Icon },
       { label: "Employeurs", href: "/ipm/employeurs", icon: Building03Icon },
       { label: "Cartes", href: "/ipm/cartes", icon: CreditCardIcon },
       { label: "Formules", href: "/ipm/formules", icon: File01Icon },
