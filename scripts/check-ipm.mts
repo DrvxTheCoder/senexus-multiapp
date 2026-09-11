@@ -630,6 +630,46 @@ async function main() {
     307
   )
 
+  console.log("\nPilotage")
+  const pilotage = await expectStatus(ipm, `/${IPM_SLUG}/ipm/pilotage`, 200)
+  const pilotageHtml = await pilotage.text()
+
+  check(
+    "the dashboard reports the ratio the direction asks for",
+    pilotageHtml.includes("Ratio cotisations")
+  )
+
+  // An employer with no claims must show no ratio. Rendering an undefined
+  // ratio as a number would rank them best or worst in the portfolio when
+  // there is nothing yet to judge.
+  const employerWithoutConsumption = await db.ipmEmployer.findFirst({
+    where: {
+      firm: { slug: IPM_SLUG },
+      members: { every: { ledgerEntries: { none: { type: "CONSUMPTION" } } } },
+    },
+    select: { id: true },
+  })
+  check(
+    "an employer with no consumption shows no ratio rather than a zero",
+    !employerWithoutConsumption || pilotageHtml.includes("aucune consommation"),
+    employerWithoutConsumption ? "one exists" : "none to show"
+  )
+
+  // §9: totals built on registers with no opening balance are wrong, and a
+  // dashboard that hides that is worse than one that does not exist.
+  check(
+    "it says so when registers lack an opening balance",
+    unopened === 0 || pilotageHtml.includes("sans ouverture"),
+    `${unopened} unopened`
+  )
+
+  const criticalAlerts = pilotageHtml.includes("Critique")
+  check(
+    "critical alerts surface rather than being averaged away",
+    unopened === 0 || criticalAlerts,
+    criticalAlerts ? "present" : "none rendered"
+  )
+
   console.log("\nThe IPM firm exposes nothing else")
   await expectStatus(ipm, `/${IPM_SLUG}/hr/employees`, 404)
   await expectStatus(ipm, `/${IPM_SLUG}/hr/contracts`, 404)
@@ -742,6 +782,7 @@ async function main() {
     await expectStatus(hr, `/${slug}/ipm/cotisations`, 404)
     await expectStatus(hr, `/${slug}/ipm/factures`, 404)
     await expectStatus(hr, `/${slug}/ipm/decaissements`, 404)
+    await expectStatus(hr, `/${slug}/ipm/pilotage`, 404)
   }
   if (sample) {
     // A real participant id, aimed at a firm that does not have the module.

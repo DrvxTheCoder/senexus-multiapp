@@ -110,6 +110,7 @@ export const NAV_GROUPS: NavGroup[] = [
     icon: HealthIcon,
     items: [
       { label: "Vue d'ensemble", href: "/ipm", icon: HealthIcon },
+      { label: "Pilotage", href: "/ipm/pilotage", icon: DashboardSquare01Icon },
       { label: "Participants", href: "/ipm/participants", icon: UserMultipleIcon },
       { label: "Bons", href: "/ipm/bons", icon: File01Icon },
       { label: "Prestataires", href: "/ipm/prestataires", icon: Hospital01Icon },
