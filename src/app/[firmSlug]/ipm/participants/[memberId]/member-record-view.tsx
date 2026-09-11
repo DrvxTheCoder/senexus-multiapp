@@ -24,6 +24,7 @@ import {
   MEMBER_STATUS_LABELS,
   MEMBER_STATUS_TONES,
 } from "@/lib/queries/ipm/member-query"
+import { CARD_STATE_LABELS } from "@/server/domain/ipm/card"
 import { RELATION_LABELS } from "@/server/domain/ipm/coverage"
 import { formatRate } from "@/server/domain/ipm/rates"
 import type { MemberRecord } from "@/server/queries/ipm/member-record"
@@ -342,6 +343,52 @@ export function MemberRecordView({
             </tbody>
           </table>
         )}
+      </Panel>
+
+      {/* ---- carte -------------------------------------------------------- */}
+      <Panel
+        titleAs="h2"
+        title="Carte de tiers payant"
+        description={
+          record.card.state === "STALE"
+            ? "Le contenu imprimé a changé depuis la dernière génération."
+            : "54 × 85,6 mm, 300 ppi. Recto et verso."
+        }
+        tools={
+          <Link
+            href={`/${firmSlug}/ipm/cartes`}
+            className="flex h-8 items-center rounded-control border border-line px-2.5 text-[13px] hover:bg-sub"
+          >
+            Toutes les cartes
+          </Link>
+        }
+      >
+        <div className="flex flex-wrap items-center gap-3 text-[13px]">
+          <StatusPill
+            tone={
+              record.card.state === "CURRENT"
+                ? "ok"
+                : record.card.state === "STALE"
+                  ? "alert"
+                  : record.card.state === "MISSING"
+                    ? "signal"
+                    : "muted"
+            }
+          >
+            {CARD_STATE_LABELS[record.card.state]}
+          </StatusPill>
+          {record.card.version ? (
+            <span className="text-ink-3">
+              v{record.card.version} · {formatDate(record.card.generatedAt)}
+            </span>
+          ) : null}
+          {record.dependents.filter((entry) => entry.status === "ACTIVE").length >
+          9 ? (
+            <span className="text-[12.5px] text-signal">
+              Le verso affiche 9 ayants droit et mentionne le reste.
+            </span>
+          ) : null}
+        </div>
       </Panel>
 
       {/* ---- cotisations ------------------------------------------------- */}

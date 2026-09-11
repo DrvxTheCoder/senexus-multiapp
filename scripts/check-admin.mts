@@ -335,10 +335,32 @@ async function main() {
     },
   })
   check("documents module row exists", documents !== null)
+
+  // **Not** "for every firm". Documents depends on hr, so installing it on a
+  // firm without hr would create a row whose declared dependency is unmet —
+  // which is how IPM Tawfeikh silently acquired the employee-documents
+  // surface. The assertion is the dependency, not the firm count.
+  const hrFirmIds = await db.firmModule.findMany({
+    where: { module: { slug: "hr" }, isEnabled: true },
+    select: { firmId: true },
+  })
+  const documentsFirmIds = await db.firmModule.findMany({
+    where: { module: { slug: "documents" } },
+    select: { firmId: true },
+  })
+  const hrSet = new Set(hrFirmIds.map((row) => row.firmId))
+
   check(
-    "documents installed for every firm",
-    documents?._count.firmModules === firms.length,
-    `${documents?._count.firmModules}/${firms.length}`
+    "documents installed for every firm that has hr",
+    hrFirmIds.every((row) =>
+      documentsFirmIds.some((entry) => entry.firmId === row.firmId)
+    ),
+    `${documentsFirmIds.length} installs for ${hrFirmIds.length} hr firms`
+  )
+  check(
+    "documents installed for no firm without hr",
+    documentsFirmIds.every((row) => hrSet.has(row.firmId)),
+    documentsFirmIds.filter((row) => !hrSet.has(row.firmId)).length + " stray"
   )
   check(
     "documents depends on hr",

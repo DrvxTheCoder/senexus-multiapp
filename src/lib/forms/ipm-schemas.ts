@@ -348,3 +348,18 @@ export type CreateEmployerInput = z.infer<typeof createEmployerSchema>
 export type CreateMemberInput = z.infer<typeof createMemberSchema>
 export type CreateDependentInput = z.infer<typeof createDependentSchema>
 export type OpenContributionInput = z.infer<typeof openContributionSchema>
+
+/* ==========================================================================
+ * Cartes
+ * ========================================================================== */
+
+export const generateCardSchema = z.object({
+  ...firmScoped,
+  memberId: z.string().min(1),
+})
+
+export const revokeCardSchema = z.object({
+  ...firmScoped,
+  memberId: z.string().min(1),
+  reason: optionalText(200),
+})

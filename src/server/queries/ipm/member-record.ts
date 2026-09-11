@@ -7,6 +7,7 @@ import {
   majorityDate,
   type CoverageRefusal,
 } from "@/server/domain/ipm/coverage"
+import { cardInputsHash, cardState, type CardState } from "@/server/domain/ipm/card"
 import {
   contributionOn,
   currentContribution,
@@ -99,6 +100,8 @@ export type MemberRecord = {
   /** Non-empty only when the cotisation history is broken. Shown, not hidden. */
   contributionOverlaps: number
   rates: ResolvedCategoryRate[]
+  /** The card's state, computed from what it would print. */
+  card: { state: CardState; version: number; generatedAt: Date | null }
 }
 
 function toRateRows(
@@ -197,6 +200,14 @@ export async function getMemberRecord(
               photoUrl: true,
             },
           },
+        },
+      },
+      card: {
+        select: {
+          version: true,
+          inputsHash: true,
+          revokedAt: true,
+          generatedAt: true,
         },
       },
       contributions: {
@@ -324,6 +335,34 @@ export async function getMemberRecord(
     }
   })
 
+  // The card's printed content, assembled from rows this query already holds —
+  // no second round trip just to say whether the card is out of date.
+  const cardInputs = {
+    matricule: member.matricule,
+    firstName: member.person.firstName,
+    lastName: member.person.lastName,
+    birthDate: member.person.birthDate
+      ? member.person.birthDate.toISOString().slice(0, 10)
+      : null,
+    birthPlace: member.person.birthPlace,
+    photoUrl: member.person.photoUrl,
+    employerName: member.employer.organization.name,
+    planLabel: member.employer.plan?.name ?? "Barème employeur",
+    rates: rates.map((entry) => ({
+      category: entry.categoryLabel,
+      rate: entry.rate,
+    })),
+    dependents: member.dependents
+      .filter((entry) => entry.status === "ACTIVE")
+      .map((entry) => ({
+        matricule: entry.matricule,
+        firstName: entry.person.firstName,
+        lastName: entry.person.lastName,
+        relation: entry.relation,
+        photoUrl: entry.person.photoUrl,
+      })),
+  }
+
   const currentEntry =
     contributions.find((entry) => entry.current) ??
     // A record opened as of a past date shows what applied then, not today's.
@@ -361,5 +400,12 @@ export async function getMemberRecord(
     currentContribution: currentEntry,
     contributionOverlaps: findOverlaps(periods).length,
     rates,
+    // Computed from the same digest the cards screen uses, so the record and
+    // that list cannot disagree about whether a card is out of date.
+    card: {
+      state: cardState(member.card, cardInputsHash(cardInputs)),
+      version: member.card?.version ?? 0,
+      generatedAt: member.card?.generatedAt ?? null,
+    },
   }
 }

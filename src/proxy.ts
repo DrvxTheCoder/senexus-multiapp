@@ -22,6 +22,11 @@ const PUBLIC_PREFIXES = [
   // the inconsistency the previous application had. They contain no data.
   "/manifest.webmanifest",
   "/icons/",
+  // Card verification. A pharmacist at a counter has no account, so this one
+  // page is public by design (plan §6). Its only credential is the HMAC-signed
+  // token in the URL, which the page itself verifies — being listed here
+  // exempts it from the session redirect, not from that check.
+  "/v/",
 ]
 
 export default auth((req) => {

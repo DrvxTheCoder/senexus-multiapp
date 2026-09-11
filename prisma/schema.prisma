@@ -33,6 +33,7 @@ model User {
   clientAssignments  UserClientAssignment[]
   userFirms          UserFirm[]
   ipmContributions   IpmMemberContribution[] @relation("IpmContributionAuthor")
+  ipmCards           IpmMemberCard[]         @relation("IpmCardAuthor")
 
   @@map("users")
 }
@@ -132,6 +133,7 @@ model Firm {
   ipmMembers             Member[]
   ipmDependents          Dependent[]
   ipmContributions       IpmMemberContribution[]
+  ipmCards               IpmMemberCard[]
 
   @@map("firms")
 }
@@ -1148,6 +1150,7 @@ model Member {
   employee      Employee?               @relation(fields: [employeeId], references: [id])
   dependents    Dependent[]
   contributions IpmMemberContribution[]
+  card          IpmMemberCard?
 
   @@unique([firmId, matricule])
   @@unique([firmId, legacyCode])
@@ -1224,4 +1227,41 @@ model IpmMemberContribution {
 
   @@index([firmId, memberId, validFrom])
   @@map("ipm_member_contributions")
+}
+
+/// Carte de tiers payant — plan §4.10 et §6.
+///
+/// The row records *that* a card exists and what it was generated from; the
+/// image itself is rendered on demand through an authenticated route rather
+/// than stored. Storing the bytes buys nothing while a card can be redrawn in
+/// milliseconds, and it would immediately create the problem the plan warns
+/// about elsewhere: a file on disk that no longer matches the data.
+///
+/// `inputsHash` is what makes staleness computable. It digests exactly the
+/// fields printed on the card, so adding an ayant droit, correcting a name,
+/// changing a formule or a child reaching majority all change it — and the
+/// dashboard can count cards whose hash no longer matches without rendering
+/// anything.
+///
+/// `revokedAt` is radiation: the card stops verifying, and the row stays as
+/// the record that it once did.
+model IpmMemberCard {
+  id            String    @id @default(cuid())
+  firmId        String
+  memberId      String
+  /// Incremented on every regeneration, and printed on the card.
+  version       Int       @default(1)
+  inputsHash    String
+  ppi           Int       @default(300)
+  generatedAt   DateTime  @default(now())
+  generatedById String?
+  revokedAt     DateTime?
+
+  firm        Firm   @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  member      Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  generatedBy User?  @relation("IpmCardAuthor", fields: [generatedById], references: [id])
+
+  @@unique([memberId])
+  @@index([firmId, inputsHash])
+  @@map("ipm_member_cards")
 }

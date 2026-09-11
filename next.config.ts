@@ -9,7 +9,23 @@ const nextConfig: NextConfig = {
     // src/server/errors.ts map onto.
     authInterrupts: true,
   },
-  serverExternalPackages: ["@prisma/client", "bcryptjs"],
+  // Packages that must be resolved by Node rather than bundled, because they
+  // reach for files on disk that a bundler cannot represent:
+  //
+  //   - `@resvg/resvg-js` loads a `.node` binary, which cannot sit in an ESM
+  //     chunk at all;
+  //   - `satori` loads `hb.wasm` through harfbuzzjs by path. Bundled, that
+  //     path is rewritten to a location that does not exist and the card
+  //     renderer dies at runtime with an ENOENT for `C:\ROOT\...` — a failure
+  //     that only shows up in a production build, never in dev;
+  //   - `sharp` is a native addon in the same position.
+  serverExternalPackages: [
+    "@prisma/client",
+    "bcryptjs",
+    "satori",
+    "@resvg/resvg-js",
+    "sharp",
+  ],
   poweredByHeader: false,
 }
 

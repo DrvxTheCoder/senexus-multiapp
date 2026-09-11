@@ -561,7 +561,24 @@ export const installDocumentsModule = holdingAction({
       }
     }
 
-    const firms = await tx.firm.findMany({ select: { id: true } })
+    // **Only firms that have HR.**
+    //
+    // This used to be `findMany({})` — every firm in the database — which was
+    // harmless while every firm was an HR filiale and became a leak the moment
+    // one was not: IPM Tawfeikh came out with the employee-documents surface
+    // enabled, and a FirmModule row whose declared dependency on `hr` was not
+    // met. A bulk install must respect the dependency it just declared, and a
+    // firm added later must not be granted a module by a loop written before
+    // it existed.
+    const firms = hr
+      ? await tx.firm.findMany({
+          where: {
+            firmModules: { some: { moduleId: hr.id, isEnabled: true } },
+          },
+          select: { id: true },
+        })
+      : []
+
     for (const firm of firms) {
       await tx.firmModule.upsert({
         where: {

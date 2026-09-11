@@ -11,8 +11,10 @@ import {
   createPlanSchema,
   createServiceTypeSchema,
   createSpecialtySchema,
+  generateCardSchema,
   openContributionSchema,
   removeEmployerRateSchema,
+  revokeCardSchema,
   removePlanRateSchema,
   setEmployerRateSchema,
   setPlanRateSchema,
@@ -30,6 +32,7 @@ import {
   nextDependentRank,
   withMemberMatricule,
 } from "@/server/domain/ipm/matricule"
+import { cardSnapshot } from "@/server/queries/ipm/cards"
 
 /**
  * IPM write layer.
@@ -1101,5 +1104,116 @@ export const createSpecialty = firmAction({
     })
 
     return specialty
+  },
+})
+
+/* ==========================================================================
+ * Cartes
+ * ========================================================================== */
+
+/**
+ * Génère ou regénère la carte.
+ *
+ * The image is not stored. What is recorded is the digest of what was printed
+ * and a version number, which is enough to answer "is this card out of date"
+ * without keeping a file that can fall out of step with the data — the exact
+ * problem the plan warns about for the legacy document store.
+ *
+ * Regenerating bumps the version, and the version is printed on the card, so
+ * two cards for the same participant are distinguishable in the hand.
+ */
+export const generateCard = firmAction({
+  input: generateCardSchema,
+  minimumRole: "MANAGER",
+  module: IPM_MODULE,
+  revalidate: (input) => [
+    listPath(input.firmSlug, "cartes"),
+    listPath(input.firmSlug, "participants", input.memberId),
+  ],
+  handler: async ({ input, ctx, tx, audit }) => {
+    const member = await tx.member.findFirst({
+      where: { id: input.memberId, firmId: ctx.firmId },
+      select: { id: true, status: true, matricule: true },
+    })
+    if (!member) throw new ActionError("Participant introuvable.")
+    if (member.status === "TERMINATED") {
+      throw new ActionError(
+        "Ce participant est radié : sa carte est révoquée, pas regénérée."
+      )
+    }
+
+    // The hash is computed from the same inputs the renderer uses, through the
+    // same function, so a card reported as up to date really is.
+    const snapshot = await cardSnapshot(tx, ctx.firmId, member.id)
+    if (!snapshot) throw new ActionError("Participant introuvable.")
+
+    const existing = await tx.ipmMemberCard.findUnique({
+      where: { memberId: member.id },
+      select: { id: true, version: true },
+    })
+
+    const card = existing
+      ? await tx.ipmMemberCard.update({
+          where: { id: existing.id },
+          data: {
+            version: existing.version + 1,
+            inputsHash: snapshot.hash,
+            generatedAt: new Date(),
+            generatedById: ctx.userId,
+            revokedAt: null,
+          },
+          select: { id: true, version: true },
+        })
+      : await tx.ipmMemberCard.create({
+          data: {
+            firmId: ctx.firmId,
+            memberId: member.id,
+            inputsHash: snapshot.hash,
+            generatedById: ctx.userId,
+          },
+          select: { id: true, version: true },
+        })
+
+    await audit({
+      action: existing ? "REGENERATE_CARD" : "GENERATE_CARD",
+      entity: "IPM_MEMBER",
+      entityId: member.id,
+      metadata: { matricule: member.matricule, version: card.version },
+    })
+
+    return card
+  },
+})
+
+/** Révocation — la carte cesse de vérifier, la trace reste. */
+export const revokeCard = firmAction({
+  input: revokeCardSchema,
+  minimumRole: "MANAGER",
+  module: IPM_MODULE,
+  revalidate: (input) => [
+    listPath(input.firmSlug, "cartes"),
+    listPath(input.firmSlug, "participants", input.memberId),
+  ],
+  handler: async ({ input, ctx, tx, audit }) => {
+    const card = await tx.ipmMemberCard.findFirst({
+      where: { memberId: input.memberId, firmId: ctx.firmId },
+      select: { id: true, revokedAt: true },
+    })
+    if (!card) throw new ActionError("Aucune carte à révoquer.")
+    if (card.revokedAt) throw new ActionError("Cette carte est déjà révoquée.")
+
+    await tx.ipmMemberCard.update({
+      where: { id: card.id },
+      data: { revokedAt: new Date() },
+    })
+
+    await audit({
+      action: "REVOKE_CARD",
+      entity: "IPM_MEMBER",
+      entityId: input.memberId,
+      metadata: { reason: input.reason ?? null },
+    })
+
+    return { id: card.id }
   },
 })

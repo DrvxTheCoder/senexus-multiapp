@@ -23,9 +23,14 @@
  *   pnpm check:ipm
  */
 import { PrismaClient } from "@prisma/client"
+import sharp from "sharp"
 import { hash } from "bcryptjs"
 
 import { FLYER_PLANS } from "@/server/domain/ipm/referentiel"
+import {
+  issueToken,
+  verificationSecret,
+} from "@/server/domain/ipm/verification-token"
 
 const BASE = process.env.HARNESS_BASE_URL ?? "http://localhost:3000"
 const PASSWORD = "harness-senexus-1"
@@ -246,6 +251,63 @@ async function main() {
     )
   }
 
+  console.log("\nCartes")
+  await expectStatus(ipm, `/${IPM_SLUG}/ipm/cartes`, 200)
+
+  if (sample) {
+    for (const face of ["recto", "verso"]) {
+      const image = await get(ipm, `/${IPM_SLUG}/api/ipm/cards/${sample.id}/${face}`)
+      const bytes = Buffer.from(await image.arrayBuffer())
+      check(
+        `${face} renders as a PNG`,
+        image.status === 200 &&
+          image.headers.get("content-type") === "image/png" &&
+          // PNG magic number. A 200 carrying an HTML error page would
+          // otherwise pass a status-only check.
+          bytes.subarray(0, 8).equals(
+            Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+          ),
+        `status ${image.status}, ${bytes.length} bytes`
+      )
+
+      // 54 × 85.6 mm at 300 ppi, and the density written into the file — resvg
+      // emits none, and without it a printer places the card at 225 mm.
+      const meta = await sharp(bytes).metadata()
+      check(
+        `${face} is 638×1011 at 300 ppi`,
+        meta.width === 638 && meta.height === 1011 && meta.density === 300,
+        `${meta.width}×${meta.height} @ ${meta.density}`
+      )
+
+      check(
+        `${face} is never cached by a shared cache`,
+        image.headers.get("cache-control")?.includes("private") === true &&
+          image.headers.get("cache-control")?.includes("no-store") === true,
+        image.headers.get("cache-control") ?? "(none)"
+      )
+
+      // §11 Q8: a real CMYK file for the printer. PNG cannot hold CMYK, so
+      // this is a TIFF — and it must come back with 5 channels, not 4.
+      const print = await get(
+        ipm,
+        `/${IPM_SLUG}/api/ipm/cards/${sample.id}/${face}?format=tiff`
+      )
+      const printBytes = Buffer.from(await print.arrayBuffer())
+      const printMeta = await sharp(printBytes).metadata()
+      check(
+        `${face} print file is CMYK at 300 ppi`,
+        print.status === 200 &&
+          printMeta.space === "cmyk" &&
+          printMeta.density === 300,
+        `${printMeta.space} @ ${printMeta.density}`
+      )
+    }
+
+    // Card images carry the photo, the birth date and the matricule, which §6
+    // says are authenticated-only.
+    await expectStatus(null, `/${IPM_SLUG}/api/ipm/cards/${sample.id}/recto`, 307)
+  }
+
   console.log("\nThe IPM firm exposes nothing else")
   await expectStatus(ipm, `/${IPM_SLUG}/hr/employees`, 404)
   await expectStatus(ipm, `/${IPM_SLUG}/hr/contracts`, 404)
@@ -371,6 +433,52 @@ async function main() {
   const hrHtml = await hrDashboard.text()
   check("HR dashboard renders", hrDashboard.status === 200, `got ${hrDashboard.status}`)
   check("no IPM link in an HR firm's sidebar", !hrHtml.includes(`/${HR_SLUGS[0]}/ipm`))
+
+  console.log("\nLa page publique de vérification")
+  if (sample) {
+    const secret = verificationSecret()
+    const token = issueToken({ kind: "member", id: sample.id }, secret)
+
+    // Public by design: a pharmacist at a counter has no account.
+    const page = await get(null, `/v/${token}`)
+    const html = await page.text()
+    check("a valid token resolves without a session", page.status === 200,
+      `got ${page.status}`)
+    check("it states the verdict", html.includes("Couverture"))
+    check("it shows the matricule the card carries", html.includes(sample.matricule))
+
+    // The privacy decision, asserted rather than described: §6 requires the
+    // photo and the birth date to be authenticated-only, so neither may leak
+    // onto a page with no authentication.
+    const person = await db.member.findUnique({
+      where: { id: sample.id },
+      select: { person: { select: { birthDate: true, nationalId: true } } },
+    })
+    const birthDate = person?.person.birthDate?.toISOString().slice(0, 10)
+    check(
+      "it does not publish the date of birth",
+      !birthDate || !html.includes(birthDate),
+      birthDate ?? "(none recorded)"
+    )
+    check(
+      "it does not publish the CNI",
+      !person?.person.nationalId || !html.includes(person.person.nationalId)
+    )
+    check("it does not publish a photo", !/<img[^>]*photo/i.test(html))
+
+    const forged = token.slice(0, -4) + "AAAA"
+    const refused = await get(null, `/v/${forged}`)
+    const refusedHtml = await refused.text()
+    check(
+      "a tampered token is refused",
+      refusedHtml.includes("non valide"),
+      `status ${refused.status}`
+    )
+    check(
+      "a refusal leaks no name",
+      !refusedHtml.includes(sample.matricule)
+    )
+  }
 
   console.log("\nAn anonymous request reaches nothing")
   const anonymous = await get(null, `/${IPM_SLUG}/ipm`)

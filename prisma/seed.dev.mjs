@@ -425,16 +425,29 @@ async function main() {
   // routes to Connect Interim the moment a module is added to the catalogue.
   const HR_FIRM_MODULES = ["hr", "crm", "documents"]
 
+  // The list is authoritative, not additive: a module the firm should not have
+  // is removed. Without that, anything that installs a module in bulk leaves a
+  // row the seed can never take back — which is how the IPM firm ended up with
+  // `documents` after a run of check:admin, and how the isolation it exists to
+  // demonstrate was quietly broken between two green runs.
   async function install(firm, slugs) {
-    for (const slug of slugs) {
-      const moduleId = moduleBySlug[slug].id
+    const moduleIds = slugs.map((slug) => moduleBySlug[slug].id)
+
+    for (const moduleId of moduleIds) {
       await db.firmModule.upsert({
         where: { firmId_moduleId: { firmId: firm.id, moduleId } },
         update: { isEnabled: true },
         create: { firmId: firm.id, moduleId, isEnabled: true },
       })
     }
-    console.log(`  ${firm.name}: ${slugs.join(", ")}`)
+
+    const removed = await db.firmModule.deleteMany({
+      where: { firmId: firm.id, moduleId: { notIn: moduleIds } },
+    })
+
+    console.log(
+      `  ${firm.name}: ${slugs.join(", ")}${removed.count ? ` (${removed.count} retiré${removed.count > 1 ? "s" : ""})` : ""}`
+    )
   }
 
   for (const firm of seededFirms) {
