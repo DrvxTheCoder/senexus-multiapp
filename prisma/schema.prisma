@@ -36,6 +36,8 @@ model User {
   ipmCards           IpmMemberCard[]         @relation("IpmCardAuthor")
   ipmVouchersIssued  IpmVoucher[]            @relation("IpmVoucherIssuer")
   ipmVouchersSettled IpmVoucher[]            @relation("IpmVoucherSettler")
+  ipmLedgerEntries   IpmLedgerEntry[]        @relation("IpmLedgerAuthor")
+  ipmInvoiceStatuses IpmEmployerInvoice[]    @relation("IpmInvoiceStatusAuthor")
 
   @@map("users")
 }
@@ -143,6 +145,9 @@ model Firm {
   ipmVoucherLines        IpmVoucherLine[]
   ipmConsumptions        IpmConsumption[]
   ipmSequences           IpmSequence[]
+  ipmLedgerEntries       IpmLedgerEntry[]
+  ipmEmployerInvoices    IpmEmployerInvoice[]
+  ipmInvoiceLines        IpmEmployerInvoiceLine[]
 
   @@map("firms")
 }
@@ -870,12 +875,17 @@ model IpmServiceCategory {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  firm          Firm              @relation(fields: [firmId], references: [id], onDelete: Cascade)
-  serviceTypes  IpmServiceType[]
-  planRates     IpmPlanRate[]
-  employerRates IpmEmployerRate[]
-  vouchers      IpmVoucher[]
-  consumptions  IpmConsumption[]
+  firm           Firm                     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  serviceTypes   IpmServiceType[]
+  planRates      IpmPlanRate[]
+  employerRates  IpmEmployerRate[]
+  vouchers       IpmVoucher[]
+  consumptions   IpmConsumption[]
+  ledgerEntries  IpmLedgerEntry[]
+  invoiceLines   IpmEmployerInvoiceLine[]
+  /// Cache of the register total. The register is the truth; this is rebuilt.
+  currentBalance Decimal                  @default(0) @db.Decimal(14, 2)
+  balanceAsOf    DateTime?
 
   @@unique([firmId, code])
   @@map("ipm_service_categories")
@@ -1123,11 +1133,12 @@ model IpmEmployer {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  firm         Firm              @relation(fields: [firmId], references: [id], onDelete: Cascade)
-  organization Organization      @relation(fields: [organizationId], references: [id])
-  plan         IpmPlan?          @relation(fields: [planId], references: [id])
+  firm         Firm                 @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  organization Organization         @relation(fields: [organizationId], references: [id])
+  plan         IpmPlan?             @relation(fields: [planId], references: [id])
   members      Member[]
   rates        IpmEmployerRate[]
+  invoices     IpmEmployerInvoice[]
 
   @@unique([firmId, organizationId])
   @@unique([firmId, legacyEmployerCode])
@@ -1156,18 +1167,26 @@ model Member {
   terminationDate DateTime?
   status          IpmMemberStatus @default(PENDING)
 
+  /// Cache of the register total (§4.8bis). The register is the source of
+  /// truth; this exists so a list of 265 participants does not fold 265
+  /// histories, and `recomputeBalances` rebuilds it from the entries.
+  currentBalance Decimal   @default(0) @db.Decimal(14, 2)
+  balanceAsOf    DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  firm          Firm                    @relation(fields: [firmId], references: [id], onDelete: Cascade)
-  person        Person                  @relation(fields: [personId], references: [id])
-  employer      IpmEmployer             @relation(fields: [employerId], references: [id])
-  employee      Employee?               @relation(fields: [employeeId], references: [id])
+  firm          Firm                     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  person        Person                   @relation(fields: [personId], references: [id])
+  employer      IpmEmployer              @relation(fields: [employerId], references: [id])
+  employee      Employee?                @relation(fields: [employeeId], references: [id])
   dependents    Dependent[]
   contributions IpmMemberContribution[]
   card          IpmMemberCard?
   vouchers      IpmVoucher[]
   consumptions  IpmConsumption[]
+  ledgerEntries IpmLedgerEntry[]
+  invoiceLines  IpmEmployerInvoiceLine[]
 
   @@unique([firmId, matricule])
   @@unique([firmId, legacyCode])
@@ -1551,4 +1570,164 @@ model IpmSequence {
 
   @@unique([firmId, kind, year])
   @@map("ipm_sequences")
+}
+
+// ============================================================================
+// IPM — REGISTRE PARTICIPANT (PHASE 3)
+// ============================================================================
+
+/// Nature d'une écriture au registre — plan §4.8bis.
+enum IpmLedgerType {
+  /// Solde d'ouverture à la bascule. §11 Q11: the figure is supplied by the
+  /// institution, never derived, and a member without one is reported rather
+  /// than assumed to start at zero.
+  OPENING
+  CONTRIBUTION
+  CONSUMPTION
+  ADJUSTMENT
+  REVERSAL
+}
+
+enum IpmLedgerSource {
+  OPENING
+  INVOICE
+  VOUCHER
+  REIMBURSEMENT
+  MANUAL
+}
+
+/// Registre participant — **écriture seule**.
+///
+/// No row is ever modified or deleted. A correction is an ADJUSTMENT or a
+/// REVERSAL, which is the only way to get a financial trail anybody can defend
+/// and the only way to stop balances changing retroactively with no
+/// explanation (plan §4.8bis).
+///
+/// `balanceAfter` is stored per row so a statement can be read without
+/// re-summing the history, and `Member.currentBalance` caches the last one.
+/// Both are derived: the sum of the register is the truth, and a recompute
+/// command exists precisely because a cache that cannot be rebuilt is a
+/// liability.
+model IpmLedgerEntry {
+  id       String @id @default(cuid())
+  firmId   String
+  memberId String
+
+  periodYear  Int
+  periodMonth Int
+
+  type       IpmLedgerType
+  sourceType IpmLedgerSource
+  sourceId   String?
+
+  credit       Decimal @default(0) @db.Decimal(14, 2)
+  debit        Decimal @default(0) @db.Decimal(14, 2)
+  /// Running balance after this entry, in insertion order.
+  balanceAfter Decimal @db.Decimal(14, 2)
+
+  note String?
+
+  createdAt   DateTime @default(now())
+  createdById String?
+
+  firm                 Firm                @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  member               Member              @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  createdBy            User?               @relation("IpmLedgerAuthor", fields: [createdById], references: [id])
+  ipmServiceCategory   IpmServiceCategory? @relation(fields: [ipmServiceCategoryId], references: [id])
+  ipmServiceCategoryId String?
+
+  @@index([firmId, memberId, createdAt])
+  @@index([firmId, periodYear, periodMonth])
+  @@map("ipm_ledger_entries")
+}
+
+// ============================================================================
+// IPM — FACTURATION EMPLOYEUR (PHASE 3)
+// ============================================================================
+
+enum IpmEmployerInvoiceStatus {
+  DRAFT
+  ISSUED
+  PARTIALLY_PAID
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+/// Facture employeur — plan §4.8ter.
+///
+/// One per employer per month, enforced by the unique constraint: a second
+/// closing for the same period is a duplicate, not a correction.
+///
+/// The status is the user's to change, but every change records who and when
+/// and passes through AuditLog. A "paid" with no trace of who entered it has
+/// no evidential value, which is the whole point of the field.
+model IpmEmployerInvoice {
+  id         String @id @default(cuid())
+  firmId     String
+  employerId String
+
+  number      String
+  periodYear  Int
+  periodMonth Int
+
+  issueDate DateTime
+  dueDate   DateTime
+
+  memberCount   Int
+  employerShare Decimal @db.Decimal(14, 2)
+  employeeShare Decimal @db.Decimal(14, 2)
+  totalAmount   Decimal @db.Decimal(14, 2)
+
+  status IpmEmployerInvoiceStatus @default(DRAFT)
+
+  paidAmount       Decimal   @default(0) @db.Decimal(14, 2)
+  paidAt           DateTime?
+  paymentMethod    String?
+  paymentReference String?
+
+  statusChangedById String?
+  statusChangedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  firm            Firm                     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  employer        IpmEmployer              @relation(fields: [employerId], references: [id])
+  statusChangedBy User?                    @relation("IpmInvoiceStatusAuthor", fields: [statusChangedById], references: [id])
+  lines           IpmEmployerInvoiceLine[]
+
+  @@unique([employerId, periodYear, periodMonth])
+  @@unique([firmId, number])
+  @@index([firmId, status, periodYear])
+  @@map("ipm_employer_invoices")
+}
+
+/// A line per participant, with their name and matricule **copied in**.
+///
+/// Denormalised on purpose: an invoice is a document that was issued on a
+/// date, and it must still read the same after somebody is renamed or radiated.
+model IpmEmployerInvoiceLine {
+  id        String @id @default(cuid())
+  firmId    String
+  invoiceId String
+  memberId  String
+
+  matricule  String
+  memberName String
+
+  monthlyContribution Decimal @db.Decimal(12, 2)
+  employerShare       Decimal @db.Decimal(12, 2)
+  employeeShare       Decimal @db.Decimal(12, 2)
+
+  createdAt DateTime @default(now())
+
+  firm                 Firm                @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  invoice              IpmEmployerInvoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  member               Member              @relation(fields: [memberId], references: [id])
+  ipmServiceCategory   IpmServiceCategory? @relation(fields: [ipmServiceCategoryId], references: [id])
+  ipmServiceCategoryId String?
+
+  @@index([firmId, invoiceId])
+  @@map("ipm_employer_invoice_lines")
 }

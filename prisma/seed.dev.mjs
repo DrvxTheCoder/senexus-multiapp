@@ -286,6 +286,9 @@ async function main() {
   // IPM first: its rows point at persons and organizations that the HR wipe
   // below also releases, and a dependent must go before the member it hangs
   // off. Scoped to the IPM firm like everything else here.
+  await db.ipmEmployerInvoiceLine.deleteMany({ where: { firmId: ipmFirm.id } })
+  await db.ipmEmployerInvoice.deleteMany({ where: { firmId: ipmFirm.id } })
+  await db.ipmLedgerEntry.deleteMany({ where: { firmId: ipmFirm.id } })
   await db.ipmConsumption.deleteMany({ where: { firmId: ipmFirm.id } })
   await db.ipmVoucherLine.deleteMany({ where: { firmId: ipmFirm.id } })
   await db.ipmVoucher.deleteMany({ where: { firmId: ipmFirm.id } })
@@ -1497,8 +1500,12 @@ async function main() {
   const issuable = providers.filter(
     (p) => p.accredited && p.status === "ACTIVE"
   )
+  // Ordered explicitly. Postgres returns rows in whatever order it likes, and
+  // this list drives a deterministic RNG — an unordered read makes the whole
+  // seed produce a different database on every run.
   const activeMembers = await db.member.findMany({
     where: { firmId: ipmFirm.id, status: "ACTIVE" },
+    orderBy: { matricule: "asc" },
     select: {
       id: true,
       matricule: true,
@@ -1594,7 +1601,12 @@ async function main() {
     // to nothing, exactly as they would in the application.
     if (!["CONSULTATION", "SOINS", "PHARMACIE"].includes(categoryCode)) continue
 
-    const useDependent = member.dependents.length > 0 && chance(0.4)
+    // Drawn unconditionally. `length > 0 && chance(...)` short-circuits, so a
+    // member with no ayants droit consumes one fewer random number and every
+    // draw after it shifts — which is how a "deterministic" seed stops being
+    // reproducible.
+    const wantsDependent = chance(0.4)
+    const useDependent = member.dependents.length > 0 && wantsDependent
     const dependent = useDependent ? pick(member.dependents) : null
     const beneficiaryType = dependent ? dependent.relation : "MEMBER"
 
@@ -1724,6 +1736,285 @@ async function main() {
   totals.ipmVouchers = voucherCount
   console.log(
     `  ${voucherCount} bons, ${lineRows.length} lignes, ${consumptionCount} lignes de consommation`
+  )
+
+
+  // ---- IPM: registre participant -----------------------------------------
+  // Simulated history, so the statements and the direction's ratio have real
+  // shape to show. Three things are reproduced faithfully rather than
+  // approximated, because they are what the screens assert:
+  //
+  //   - the register is append-only and `balanceAfter` is a running total in
+  //     insertion order, so a recompute finds nothing to correct;
+  //   - a prise en charge debits the **IPM share**, not the voucher total
+  //     (§11 Q9);
+  //   - a tenth of participants are deliberately left **without an OPENING
+  //     entry**, because that is the real state at switchover and the screens
+  //     exist to surface it (§11 Q11, still unanswered).
+  console.log("\nRegistre participant")
+
+  const ledgerMembers = await db.member.findMany({
+    where: { firmId: ipmFirm.id },
+    orderBy: { matricule: "asc" },
+    select: {
+      id: true,
+      status: true,
+      affiliationDate: true,
+      contributions: {
+        orderBy: { validFrom: "asc" },
+        select: { monthlyAmount: true, validFrom: true, validTo: true },
+      },
+    },
+  })
+
+  const settledVouchers = await db.ipmVoucher.findMany({
+    where: { firmId: ipmFirm.id, status: { in: ["SETTLED", "INVOICED"] } },
+    orderBy: { number: "asc" },
+    select: {
+      id: true,
+      number: true,
+      memberId: true,
+      settledAt: true,
+      insurerShare: true,
+    },
+  })
+  const vouchersByMember = new Map()
+  for (const voucher of settledVouchers) {
+    const list = vouchersByMember.get(voucher.memberId) ?? []
+    list.push(voucher)
+    vouchersByMember.set(voucher.memberId, list)
+  }
+
+  // Twelve months back from the seed's "today".
+  const LEDGER_MONTHS = 12
+  const ledgerRows = []
+  const balanceUpdates = []
+  let openingCount = 0
+  let contributionCount = 0
+  let consumptionCount2 = 0
+
+  for (const [index, member] of ledgerMembers.entries()) {
+    const movements = []
+
+    // One in ten is left unopened on purpose — the switchover state the
+    // Cotisations screen is built to report.
+    const opened = index % 10 !== 0
+    if (opened) {
+      const openingAmount = chance(0.25)
+        ? -int(5, 60) * 1000 // a participant who arrives in debt
+        : int(0, 120) * 1000
+      movements.push({
+        date: addDays(TODAY, -(LEDGER_MONTHS * 30 + 5)),
+        type: "OPENING",
+        sourceType: "OPENING",
+        sourceId: null,
+        credit: openingAmount > 0 ? openingAmount : 0,
+        debit: openingAmount < 0 ? -openingAmount : 0,
+        note: "Solde d'ouverture repris de WebLamps",
+      })
+      openingCount += 1
+    }
+
+    // Monthly cotisations, priced against the period's own contribution row —
+    // the effective-dated history, used as designed.
+    for (let back = LEDGER_MONTHS - 1; back >= 0; back -= 1) {
+      const when = new Date(TODAY.getFullYear(), TODAY.getMonth() - back, 1)
+      if (when < member.affiliationDate) continue
+      if (member.status === "TERMINATED") continue
+
+      const period = member.contributions.find(
+        (row) =>
+          row.validFrom <= when && (row.validTo === null || row.validTo > when)
+      )
+      if (!period) continue
+
+      movements.push({
+        date: when,
+        type: "CONTRIBUTION",
+        sourceType: "INVOICE",
+        sourceId: null,
+        credit: Number(period.monthlyAmount),
+        debit: 0,
+        note: `Cotisation ${String(when.getMonth() + 1).padStart(2, "0")}/${when.getFullYear()}`,
+      })
+      contributionCount += 1
+    }
+
+    // Consumption, debited at the IPM share (§11 Q9).
+    for (const voucher of vouchersByMember.get(member.id) ?? []) {
+      movements.push({
+        date: voucher.settledAt ?? TODAY,
+        type: "CONSUMPTION",
+        sourceType: "VOUCHER",
+        sourceId: voucher.id,
+        credit: 0,
+        debit: Number(voucher.insurerShare),
+        note: `Bon ${voucher.number}`,
+      })
+      consumptionCount2 += 1
+    }
+
+    movements.sort((a, b) => a.date - b.date)
+
+    let running = 0
+    for (const [moveIndex, move] of movements.entries()) {
+      running += move.credit - move.debit
+      ledgerRows.push({
+        id: `seed_ipm_ledger_${index}_${moveIndex}`,
+        firmId: ipmFirm.id,
+        memberId: member.id,
+        periodYear: move.date.getFullYear(),
+        periodMonth: move.date.getMonth() + 1,
+        type: move.type,
+        sourceType: move.sourceType,
+        sourceId: move.sourceId,
+        credit: move.credit,
+        debit: move.debit,
+        balanceAfter: running,
+        note: move.note,
+        createdAt: move.date,
+        createdById: owner.id,
+      })
+    }
+
+    balanceUpdates.push({ id: member.id, balance: running })
+  }
+
+  await createInBatches(db.ipmLedgerEntry, ledgerRows)
+
+  // The cache, set to what the register actually says — so a recompute finds
+  // nothing to correct and the coherence check on the screen reads zero.
+  for (const update of balanceUpdates) {
+    await db.member.update({
+      where: { id: update.id },
+      data: { currentBalance: update.balance, balanceAsOf: TODAY },
+    })
+  }
+
+  console.log(
+    `  ${ledgerRows.length} écritures — ${openingCount} ouvertures, ${contributionCount} cotisations, ${consumptionCount2} consommations`
+  )
+  console.log(
+    `  ${ledgerMembers.length - openingCount} registres volontairement non ouverts (état réel à la bascule)`
+  )
+
+  // ---- IPM: factures employeur -------------------------------------------
+  // The last three closed months, one invoice per employer, with the lines
+  // frozen as they were: a facture is a document that was issued on a date and
+  // must still read the same after somebody is renamed or radiated.
+  const invoiceRows = []
+  const invoiceLineRows = []
+  let invoiceSeq = 0
+
+  for (let back = 3; back >= 1; back -= 1) {
+    const period = new Date(TODAY.getFullYear(), TODAY.getMonth() - back, 1)
+    const periodEnd = new Date(period.getFullYear(), period.getMonth() + 1, 0)
+
+    for (const employer of employers) {
+      const billable = ledgerMembers.filter((m) => {
+        if (m.status !== "ACTIVE") return false
+        if (m.affiliationDate > period) return false
+        return true
+      })
+      // Members of *this* employer only.
+      const mine = await db.member.findMany({
+        where: {
+          firmId: ipmFirm.id,
+          employerId: employer.id,
+          status: "ACTIVE",
+          affiliationDate: { lte: period },
+        },
+        select: {
+          id: true,
+          matricule: true,
+          person: { select: { firstName: true, lastName: true } },
+          contributions: {
+            where: { validTo: null },
+            select: {
+              monthlyAmount: true,
+              employerAmount: true,
+              employeeAmount: true,
+            },
+            take: 1,
+          },
+        },
+      })
+      void billable
+
+      const withContribution = mine.filter((m) => m.contributions.length > 0)
+      if (withContribution.length === 0) continue
+
+      invoiceSeq += 1
+      const invoiceId = `seed_ipm_invoice_${invoiceSeq}`
+      let employerShare = 0
+      let employeeShare = 0
+      let total = 0
+
+      for (const member of withContribution) {
+        const contribution = member.contributions[0]
+        const monthly = Number(contribution.monthlyAmount)
+        const empAmount = Number(contribution.employerAmount ?? 0)
+        const salAmount = Number(contribution.employeeAmount ?? 0)
+        const resolvedEmployer =
+          empAmount + salAmount === 0 ? monthly : empAmount
+
+        employerShare += resolvedEmployer
+        employeeShare += salAmount
+        total += monthly
+
+        invoiceLineRows.push({
+          id: `${invoiceId}_line_${member.id}`,
+          firmId: ipmFirm.id,
+          invoiceId,
+          memberId: member.id,
+          matricule: member.matricule,
+          memberName: `${member.person.lastName.toUpperCase()} ${member.person.firstName}`,
+          monthlyContribution: monthly,
+          employerShare: resolvedEmployer,
+          employeeShare: salAmount,
+        })
+      }
+
+      const dueDate = addDays(periodEnd, 30)
+      const paid = back >= 2 ? chance(0.8) : chance(0.35)
+
+      invoiceRows.push({
+        id: invoiceId,
+        firmId: ipmFirm.id,
+        employerId: employer.id,
+        number: `FACT-${period.getFullYear()}-${String(invoiceSeq).padStart(5, "0")}`,
+        periodYear: period.getFullYear(),
+        periodMonth: period.getMonth() + 1,
+        issueDate: periodEnd,
+        dueDate,
+        memberCount: withContribution.length,
+        employerShare,
+        employeeShare,
+        totalAmount: total,
+        status: paid ? "PAID" : "ISSUED",
+        paidAmount: paid ? total : 0,
+        paidAt: paid ? addDays(periodEnd, int(3, 28)) : null,
+        paymentMethod: paid ? pick(["Virement", "Chèque"]) : null,
+        paymentReference: paid ? `REF${int(10000, 99999)}` : null,
+        statusChangedById: owner.id,
+        statusChangedAt: periodEnd,
+      })
+    }
+  }
+
+  await createInBatches(db.ipmEmployerInvoice, invoiceRows)
+  await createInBatches(db.ipmEmployerInvoiceLine, invoiceLineRows)
+
+  await db.ipmSequence.upsert({
+    where: { firmId_kind_year: { firmId: ipmFirm.id, kind: "FACT", year: TODAY.getFullYear() } },
+    update: { next: invoiceSeq + 1 },
+    create: { firmId: ipmFirm.id, kind: "FACT", year: TODAY.getFullYear(), next: invoiceSeq + 1 },
+  })
+
+  totals.ipmLedgerEntries = ledgerRows.length
+  totals.ipmInvoices = invoiceRows.length
+  console.log(
+    `  ${invoiceRows.length} factures employeur, ${invoiceLineRows.length} lignes`
   )
 
 

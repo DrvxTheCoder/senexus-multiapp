@@ -114,6 +114,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Prestataires", href: "/ipm/prestataires", icon: Hospital01Icon },
       { label: "Employeurs", href: "/ipm/employeurs", icon: Building03Icon },
       { label: "Cartes", href: "/ipm/cartes", icon: CreditCardIcon },
+      { label: "Cotisations", href: "/ipm/cotisations", icon: Calendar03Icon },
+      { label: "Factures", href: "/ipm/factures", icon: File01Icon },
       { label: "Formules", href: "/ipm/formules", icon: File01Icon },
       { label: "Référentiel", href: "/ipm/referentiel", icon: Settings02Icon },
     ],

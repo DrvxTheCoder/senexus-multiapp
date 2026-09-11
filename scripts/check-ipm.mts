@@ -388,6 +388,126 @@ async function main() {
     `${issuedAgainstUnusable} found`
   )
 
+  console.log("\nRegistre, cotisations et factures")
+  for (const path of ["cotisations", "factures"]) {
+    await expectStatus(ipm, `/${IPM_SLUG}/ipm/${path}`, 200)
+  }
+
+  const anyEmployer = await db.ipmEmployer.findFirst({
+    where: { firm: { slug: IPM_SLUG } },
+    select: { id: true },
+  })
+  if (anyEmployer) {
+    const statement = await expectStatus(
+      ipm,
+      `/${IPM_SLUG}/ipm/employeurs/${anyEmployer.id}/releve`,
+      200
+    )
+    const statementHtml = await statement.text()
+    check(
+      "the statement reports cotisations against consommation",
+      statementHtml.includes("Cotisations") &&
+        statementHtml.includes("Consommation")
+    )
+  }
+
+  // The register is append-only and its cache is rebuildable. If these drift,
+  // every balance on every statement is wrong and nothing else says so.
+  const [drift] = await db.$queryRawUnsafe<{ n: number }[]>(
+    `SELECT count(*)::int AS n FROM (
+       SELECT m."id"
+       FROM "ipm_members" m
+       LEFT JOIN "ipm_ledger_entries" l ON l."memberId" = m."id"
+       GROUP BY m."id", m."currentBalance"
+       HAVING COALESCE(SUM(l."credit" - l."debit"), 0) <> m."currentBalance"
+     ) t`
+  )
+  check("every cached balance equals the sum of its register", drift.n === 0,
+    `${drift.n} drifted`)
+
+  const bothSides = await db.ipmLedgerEntry.count({
+    where: { firm: { slug: IPM_SLUG }, credit: { gt: 0 }, debit: { gt: 0 } },
+  })
+  check("no entry carries a credit and a debit at once", bothSides === 0)
+
+  const [doubleOpening] = await db.$queryRawUnsafe<{ n: number }[]>(
+    `SELECT count(*)::int AS n FROM (
+       SELECT "memberId" FROM "ipm_ledger_entries"
+       WHERE "type" = 'OPENING' GROUP BY 1 HAVING count(*) > 1
+     ) t`
+  )
+  check("no register was opened twice", doubleOpening.n === 0)
+
+  // §11 Q9: a prise en charge debits the IPM share, never the voucher total.
+  const [wrongBasis] = await db.$queryRawUnsafe<{ n: number }[]>(
+    `SELECT count(*)::int AS n
+     FROM "ipm_ledger_entries" l
+     JOIN "ipm_vouchers" v ON v."id" = l."sourceId"
+     WHERE l."type" = 'CONSUMPTION' AND l."debit" <> v."insurerShare"`
+  )
+  check(
+    "consumption debits the IPM share, not the voucher total",
+    wrongBasis.n === 0,
+    `${wrongBasis.n} debited otherwise`
+  )
+
+  // §11 Q11 stays unanswered, so the unopened registers must be *visible*
+  // rather than silently treated as starting at zero.
+  const totalMembers = await db.member.count({ where: { firm: { slug: IPM_SLUG } } })
+  const openedMembers = await db.ipmLedgerEntry.findMany({
+    where: { firm: { slug: IPM_SLUG }, type: "OPENING" },
+    select: { memberId: true },
+    distinct: ["memberId"],
+  })
+  const unopened = totalMembers - openedMembers.length
+  check(
+    "the fixtures include registers with no opening balance",
+    unopened > 0,
+    `${unopened} of ${totalMembers}`
+  )
+
+  const cotisations = await get(ipm, `/${IPM_SLUG}/ipm/cotisations`)
+  const cotisationsHtml = await cotisations.text()
+  check(
+    "the cotisations screen reports them rather than hiding them",
+    cotisationsHtml.includes("non ouvert"),
+    `${unopened} unopened`
+  )
+
+  // An invoice must agree with its own lines, or it is not a document.
+  const invoices = await db.ipmEmployerInvoice.findMany({
+    where: { firm: { slug: IPM_SLUG } },
+    select: {
+      id: true,
+      totalAmount: true,
+      lines: { select: { monthlyContribution: true } },
+    },
+  })
+  const mismatched = invoices.filter(
+    (invoice) =>
+      Math.abs(
+        Number(invoice.totalAmount) -
+          invoice.lines.reduce(
+            (sum, line) => sum + Number(line.monthlyContribution),
+            0
+          )
+      ) > 0.005
+  )
+  check(
+    "every facture totals its own lines",
+    mismatched.length === 0,
+    `${mismatched.length} disagree`
+  )
+
+  const [duplicatePeriods] = await db.$queryRawUnsafe<{ n: number }[]>(
+    `SELECT count(*)::int AS n FROM (
+       SELECT "employerId", "periodYear", "periodMonth"
+       FROM "ipm_employer_invoices"
+       GROUP BY 1,2,3 HAVING count(*) > 1
+     ) t`
+  )
+  check("no employer was invoiced twice for one month", duplicatePeriods.n === 0)
+
   console.log("\nThe IPM firm exposes nothing else")
   await expectStatus(ipm, `/${IPM_SLUG}/hr/employees`, 404)
   await expectStatus(ipm, `/${IPM_SLUG}/hr/contracts`, 404)
@@ -497,6 +617,8 @@ async function main() {
     await expectStatus(hr, `/${slug}/ipm/formules`, 404)
     await expectStatus(hr, `/${slug}/ipm/bons`, 404)
     await expectStatus(hr, `/${slug}/ipm/prestataires`, 404)
+    await expectStatus(hr, `/${slug}/ipm/cotisations`, 404)
+    await expectStatus(hr, `/${slug}/ipm/factures`, 404)
   }
   if (sample) {
     // A real participant id, aimed at a firm that does not have the module.
