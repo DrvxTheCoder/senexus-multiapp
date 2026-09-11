@@ -103,8 +103,15 @@ export const NAV_GROUPS: NavGroup[] = [
     // that has no business seeing prestations and the pages that show them, so
     // this entry must never be given `module: null` for convenience.
     module: "ipm",
-    collapsible: false,
-    items: [{ label: "IPM", href: "/ipm", icon: HealthIcon }],
+    collapsible: true,
+    icon: HealthIcon,
+    items: [
+      { label: "Vue d'ensemble", href: "/ipm", icon: HealthIcon },
+      { label: "Participants", href: "/ipm/participants", icon: UserMultipleIcon },
+      { label: "Employeurs", href: "/ipm/employeurs", icon: Building03Icon },
+      { label: "Formules", href: "/ipm/formules", icon: File01Icon },
+      { label: "Référentiel", href: "/ipm/referentiel", icon: Settings02Icon },
+    ],
   },
   {
     id: "account",

@@ -25,6 +25,8 @@
 import { PrismaClient } from "@prisma/client"
 import { hash } from "bcryptjs"
 
+import { FLYER_PLANS } from "@/server/domain/ipm/referentiel"
+
 const BASE = process.env.HARNESS_BASE_URL ?? "http://localhost:3000"
 const PASSWORD = "harness-senexus-1"
 
@@ -206,11 +208,138 @@ async function main() {
     html.includes(`/${IPM_SLUG}/ipm`)
   )
 
+  console.log("\nEvery IPM screen answers")
+  for (const path of ["participants", "employeurs", "formules", "referentiel"]) {
+    await expectStatus(ipm, `/${IPM_SLUG}/ipm/${path}`, 200)
+  }
+
+  // A participant record, fetched by a real id rather than a guessed one.
+  const sample = await db.member.findFirst({
+    where: { firm: { slug: IPM_SLUG } },
+    select: { id: true, matricule: true },
+  })
+  if (!sample) {
+    check("a seeded participant exists to open", false)
+  } else {
+    const record = await expectStatus(
+      ipm,
+      `/${IPM_SLUG}/ipm/participants/${sample.id}`,
+      200
+    )
+    const recordHtml = await record.text()
+    check(
+      "the record shows the participant's matricule",
+      recordHtml.includes(sample.matricule)
+    )
+    // Optique and hospitalisation have no rate, so the record must say so in
+    // words — twice, once per category. Counting is the point: asserting only
+    // that the phrase appears would also pass if one of the two silently
+    // rendered a rate nobody chose.
+    //
+    // Do not "improve" this into a search for "0 %": `100 %` contains that as
+    // a substring, so the test would report a phantom on every passing run.
+    const missingCells = recordHtml.split("Barème manquant").length - 1
+    check(
+      "both unpriced catégories read as a gap, not as a rate",
+      missingCells === 2,
+      `${missingCells} cells say "Barème manquant"`
+    )
+  }
+
   console.log("\nThe IPM firm exposes nothing else")
   await expectStatus(ipm, `/${IPM_SLUG}/hr/employees`, 404)
   await expectStatus(ipm, `/${IPM_SLUG}/hr/contracts`, 404)
   await expectStatus(ipm, `/${IPM_SLUG}/crm/clients`, 404)
   await expectStatus(ipm, `/${IPM_SLUG}/documents`, 404)
+
+  console.log("\nThe data model holds its invariants")
+  const [memberCount, openPeriods, overlapRows, crossFirm] = await Promise.all([
+    db.member.count({ where: { firm: { slug: IPM_SLUG } } }),
+    db.ipmMemberContribution.count({
+      where: { firm: { slug: IPM_SLUG }, validTo: null },
+    }),
+    db.$queryRawUnsafe<{ n: number }[]>(
+      `SELECT count(*)::int AS n FROM (
+         SELECT "memberId" FROM ipm_member_contributions
+         WHERE "validTo" IS NULL GROUP BY 1 HAVING count(*) > 1
+       ) t`
+    ),
+    // Nothing IPM may reference a row belonging to another firm.
+    db.member.count({
+      where: {
+        firm: { slug: IPM_SLUG },
+        employer: { firm: { slug: { not: IPM_SLUG } } },
+      },
+    }),
+  ])
+
+  check(
+    "every participant has exactly one open cotisation",
+    openPeriods === memberCount,
+    `${openPeriods} open for ${memberCount} participants`
+  )
+  check("no participant has two open periods", overlapRows[0].n === 0)
+  check("no participant points at another firm's employer", crossFirm === 0)
+
+  const orphanPersons = await db.person.count({
+    where: { employees: { none: {} }, members: { none: {} }, dependents: { none: {} } },
+  })
+  check("no orphan person rows", orphanPersons === 0, `${orphanPersons} found`)
+
+  const shared = await db.organization.count({
+    where: { clients: { some: {} }, employers: { some: {} } },
+  })
+  check(
+    "at least one organization is both a CRM client and an IPM employer",
+    shared > 0,
+    // The point of hoisting Organization to the holding: one legal entity,
+    // not one row per module.
+    `${shared} shared`
+  )
+
+  console.log("\nThe seeded formules match the flyer")
+  const plans = await db.ipmPlan.findMany({
+    where: { firm: { slug: IPM_SLUG } },
+    select: {
+      code: true,
+      monthlyPrice: true,
+      rates: {
+        select: { rate: true, category: { select: { code: true } } },
+      },
+    },
+  })
+  const planByCode = new Map(plans.map((plan) => [plan.code, plan]))
+
+  for (const flyer of FLYER_PLANS) {
+    const seeded = planByCode.get(flyer.code)
+    if (!seeded) {
+      check(`${flyer.code} is seeded`, false)
+      continue
+    }
+    check(
+      `${flyer.code} costs ${flyer.monthlyPrice}`,
+      Number(seeded.monthlyPrice) === flyer.monthlyPrice,
+      `got ${seeded.monthlyPrice}`
+    )
+    for (const [categoryCode, percent] of Object.entries(flyer.rates)) {
+      const rate = seeded.rates.find(
+        (entry) => entry.category.code === categoryCode
+      )
+      check(
+        `${flyer.code} / ${categoryCode} = ${percent}%`,
+        rate !== undefined && Math.round(Number(rate.rate) * 1000) / 10 === percent,
+        rate ? `got ${Number(rate.rate)}` : "missing"
+      )
+    }
+    // The flyer states nothing for optique or hospitalisation, and neither may
+    // the database: a guessed rate is indistinguishable from a real one.
+    for (const categoryCode of ["OPTIQUE", "HOSPITALISATION"]) {
+      check(
+        `${flyer.code} / ${categoryCode} is left unset`,
+        !seeded.rates.some((entry) => entry.category.code === categoryCode)
+      )
+    }
+  }
 
   console.log("\nThe dashboard survives a firm with no employees at all")
   await expectStatus(ipm, `/${IPM_SLUG}/dashboard`, 200)
@@ -220,6 +349,17 @@ async function main() {
   console.log("\nHR rights confer nothing on the health side")
   for (const slug of HR_SLUGS) {
     await expectStatus(hr, `/${slug}/ipm`, 404)
+    // Every screen, not just the landing page — the gate has to hold on each
+    // route, because each one calls requireModule for itself.
+    await expectStatus(hr, `/${slug}/ipm/participants`, 404)
+    await expectStatus(hr, `/${slug}/ipm/formules`, 404)
+  }
+  if (sample) {
+    // A real participant id, aimed at a firm that does not have the module.
+    await expectStatus(hr, `/${HR_SLUGS[0]}/ipm/participants/${sample.id}`, 404)
+    // And at the IPM firm, where the module is on but the caller is not a
+    // member: 403, and still not the record.
+    await expectStatus(hr, `/${IPM_SLUG}/ipm/participants/${sample.id}`, 403)
   }
   // Same holding, no membership: 403, not 404 — the firm is not hidden from a
   // colleague, its contents are.

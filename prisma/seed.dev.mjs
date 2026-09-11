@@ -7,8 +7,12 @@
  *
  * This never runs against a remote host: the guard below refuses anything that
  * is not localhost. It also only ever touches the firms it seeds: the two HR
- * filiales, which get fixture data, and IPM Tawfeikh, which gets a module and
- * nothing else until Phase 1 gives it a data model.
+ * filiales and IPM Tawfeikh.
+ *
+ * Shared identity (Person, Organization) is holding-scoped rather than
+ * firm-scoped, so its wipe is by reachability — a row nothing points at — and
+ * not by firm id. That is the one place here where "only the seeded firms" is
+ * enforced by the relation rather than by a where clause.
  *
  *   pnpm db:seed:dev
  *
@@ -279,6 +283,21 @@ async function main() {
 
   // ---- wipe domain data for the seeded firms (never users/firms/holdings) --
   console.log("Clearing existing domain rows…")
+  // IPM first: its rows point at persons and organizations that the HR wipe
+  // below also releases, and a dependent must go before the member it hangs
+  // off. Scoped to the IPM firm like everything else here.
+  await db.ipmMemberContribution.deleteMany({ where: { firmId: ipmFirm.id } })
+  await db.dependent.deleteMany({ where: { firmId: ipmFirm.id } })
+  await db.member.deleteMany({ where: { firmId: ipmFirm.id } })
+  await db.ipmEmployerRate.deleteMany({ where: { firmId: ipmFirm.id } })
+  await db.ipmEmployer.deleteMany({ where: { firmId: ipmFirm.id } })
+  await db.ipmPlanRate.deleteMany({ where: { firmId: ipmFirm.id } })
+  await db.ipmPlan.deleteMany({ where: { firmId: ipmFirm.id } })
+  await db.ipmMedicalAct.deleteMany({ where: { firmId: ipmFirm.id } })
+  await db.ipmServiceType.deleteMany({ where: { firmId: ipmFirm.id } })
+  await db.ipmProviderSpecialty.deleteMany({ where: { firmId: ipmFirm.id } })
+  await db.ipmServiceCategory.deleteMany({ where: { firmId: ipmFirm.id } })
+
   // No `fileObject` wipe: FileObject was dropped with the IPM draft models in
   // 8c9db50 — EmployeeDocument is the only file system in use.
   await db.employeeDocument.deleteMany({ where: { firmId: { in: firmIds } } })
@@ -294,6 +313,17 @@ async function main() {
   await db.clientFirmAssignment.deleteMany({ where: { firmId: { in: firmIds } } })
   await db.client.deleteMany({ where: { firmId: { in: firmIds } } })
   await db.dashboardView.deleteMany({ where: { firmId: { in: firmIds } } })
+
+  // Shared identity is holding-scoped, so it is not covered by the firm wipes
+  // above. Only rows nothing points at any more are removed: a Person that
+  // still has an employee, a member or an ayant droit is somebody's identity,
+  // not a fixture leftover.
+  await db.person.deleteMany({
+    where: { employees: { none: {} }, members: { none: {} }, dependents: { none: {} } },
+  })
+  await db.organization.deleteMany({
+    where: { clients: { none: {} }, employers: { none: {} } },
+  })
 
   // ---- modules -----------------------------------------------------------
   // Modules are data, not code (DATA_MODEL.md §6): a route under /hr, /crm or
@@ -911,6 +941,413 @@ async function main() {
     })
     transferIndex += 1
   }
+
+  // ---- shared identity ----------------------------------------------------
+  // Plan §4.1. A Person for every employee and an Organization for every
+  // client, so "identité unique par personne à l'échelle du groupe" is a fact
+  // in the database rather than an intention in the plan.
+  //
+  // Ids are derived from the employee's own seed id, which lets the link be
+  // set with one UPDATE instead of 488 round trips.
+  console.log("\nShared identity (holding)…")
+
+  const seenNationalIds = new Set()
+  const personRows = []
+  for (const employees of Object.values(employeesByFirm)) {
+    for (const employee of employees) {
+      // A CNI is unique per person. Two fixtures drawing the same one is a
+      // fixture collision, not a real duplicate, so the second keeps the
+      // person and loses the number rather than being dropped by the
+      // constraint — which createMany would do silently.
+      let nationalId = employee.cni
+      if (nationalId && seenNationalIds.has(nationalId)) nationalId = null
+      if (nationalId) seenNationalIds.add(nationalId)
+
+      personRows.push({
+        id: `${employee.id}_person`,
+        holdingId: holding.id,
+        firstName: employee.firstName,
+        lastName: employee.lastName,
+        birthDate: employee.dateOfBirth,
+        birthPlace: employee.placeOfBirth,
+        gender: employee.gender,
+        nationalId,
+        phone: employee.phone,
+        email: employee.email,
+        address: employee.address,
+      })
+    }
+  }
+  await createInBatches(db.person, personRows)
+
+  const linkedEmployees = await db.$executeRawUnsafe(
+    `UPDATE employees SET "personId" = id || '_person'
+     WHERE "firmId" = ANY($1::text[]) AND "personId" IS NULL`,
+    firmIds
+  )
+  console.log(`  ${personRows.length} persons, ${linkedEmployees} employees linked`)
+
+  const clientRows = await db.client.findMany({
+    where: { firmId: { in: firmIds } },
+    select: {
+      id: true,
+      name: true,
+      industry: true,
+      address: true,
+      contactPhone: true,
+      contactEmail: true,
+    },
+  })
+
+  const orgIdByName = new Map()
+  for (const client of clientRows) {
+    if (orgIdByName.has(client.name)) continue
+    const organization = await db.organization.create({
+      data: {
+        holdingId: holding.id,
+        name: client.name,
+        sector: client.industry,
+        address: client.address,
+        phone: client.contactPhone,
+        email: client.contactEmail,
+      },
+      select: { id: true },
+    })
+    orgIdByName.set(client.name, organization.id)
+  }
+  for (const client of clientRows) {
+    await db.client.update({
+      where: { id: client.id },
+      data: { organizationId: orgIdByName.get(client.name) },
+    })
+  }
+  console.log(`  ${orgIdByName.size} organizations, ${clientRows.length} clients linked`)
+
+  // ---- IPM: référentiel ---------------------------------------------------
+  // Five categories as rows (§11 Q3). Adding MATERNITE later is an
+  // administrator's edit, not a migration — which is the whole reason this is
+  // a table and not an enum.
+  console.log("\nIPM Tawfeikh")
+
+  const CATEGORIES_IPM = [
+    ["CONSULTATION", "Consultation"],
+    ["SOINS", "Soins"],
+    ["PHARMACIE", "Pharmacie"],
+    ["OPTIQUE", "Optique"],
+    ["HOSPITALISATION", "Hospitalisation"],
+  ]
+
+  const categoryIdByCode = {}
+  for (const [index, [code, label]] of CATEGORIES_IPM.entries()) {
+    const category = await db.ipmServiceCategory.create({
+      data: { firmId: ipmFirm.id, code, label, sortOrder: index },
+      select: { id: true },
+    })
+    categoryIdByCode[code] = category.id
+  }
+  console.log(`  ${CATEGORIES_IPM.length} catégories de soins`)
+
+  // ---- IPM: formules et barèmes -------------------------------------------
+  // The flyer, and only the flyer. Optique and hospitalisation carry no rate
+  // because theirs is on the 23 non-exportable pages awaiting manual re-entry
+  // (§8) — a seeded guess would be indistinguishable from a real barème, and
+  // the settlement engine refuses a missing rate rather than inventing one.
+  //
+  // Kept in step with src/server/domain/ipm/referentiel.ts by check:ipm, which
+  // compares what is in the database against that module.
+  const PLANS_IPM = [
+    ["TAWFEIKH", "Tawfeikh", 35000, { CONSULTATION: 100, SOINS: 90, PHARMACIE: 80 }],
+    ["XEWEUL", "Xeweul", 25000, { CONSULTATION: 85, SOINS: 85, PHARMACIE: 80 }],
+    ["TERANGA", "Teranga", 20000, { CONSULTATION: 80, SOINS: 80, PHARMACIE: 70 }],
+    ["NOFLAY", "Noflay", 12000, { CONSULTATION: 50, SOINS: 50, PHARMACIE: 50 }],
+  ]
+
+  const VALID_FROM = new Date("2026-01-01T00:00:00.000Z")
+  const planIdByCode = {}
+  let rateCount = 0
+
+  for (const [code, name, monthlyPrice, rates] of PLANS_IPM) {
+    const plan = await db.ipmPlan.create({
+      data: {
+        firmId: ipmFirm.id,
+        code,
+        name,
+        monthlyPrice,
+        validFrom: VALID_FROM,
+        active: true,
+      },
+      select: { id: true },
+    })
+    planIdByCode[code] = plan.id
+
+    for (const [categoryCode, percent] of Object.entries(rates)) {
+      await db.ipmPlanRate.create({
+        data: {
+          firmId: ipmFirm.id,
+          planId: plan.id,
+          categoryId: categoryIdByCode[categoryCode],
+          beneficiaryType: "ALL",
+          // The column holds a fraction; the flyer states a percentage.
+          rate: percent / 100,
+          // `delai_suspension_optique` = 730 applies to optique, which has no
+          // rate yet, so nothing here carries a carence.
+          waitingPeriodDays: 0,
+        },
+      })
+      rateCount += 1
+    }
+  }
+  console.log(`  ${PLANS_IPM.length} formules, ${rateCount} lignes de barème`)
+
+  // ---- IPM: employeurs ----------------------------------------------------
+  // Two of them are companies that already exist as CRM clients, which is the
+  // point of hoisting Organization to the holding: the same legal entity is a
+  // client of Connect Interim and an employer of the IPM, once.
+  const EMPLOYERS_IPM = [
+    { name: "Touba Gaz Mbao", plan: "TAWFEIKH", code: "001", ageMajority: 21 },
+    { name: "Sococim Industries", plan: "XEWEUL", code: "002", ageMajority: 22 },
+    { name: "Clinique du Cap", plan: "TERANGA", code: "003", ageMajority: 21, sector: "Santé" },
+    { name: "Sen Textile", plan: "NOFLAY", code: "004", ageMajority: 21, sector: "Textile" },
+    { name: "Groupe Ndiaye et Fils", plan: null, code: "005", ageMajority: 21, sector: "Négoce" },
+    { name: "École Les Baobabs", plan: "TERANGA", code: "006", ageMajority: 22, sector: "Éducation" },
+  ]
+
+  const employers = []
+  for (const spec of EMPLOYERS_IPM) {
+    let organizationId = orgIdByName.get(spec.name)
+    if (!organizationId) {
+      const organization = await db.organization.create({
+        data: {
+          holdingId: holding.id,
+          name: spec.name,
+          sector: spec.sector ?? null,
+          address: pick(CITIES),
+          phone: `+221 33 ${int(100, 999)} ${int(10, 99)} ${int(10, 99)}`,
+        },
+        select: { id: true },
+      })
+      organizationId = organization.id
+      orgIdByName.set(spec.name, organizationId)
+    }
+
+    const employer = await db.ipmEmployer.create({
+      data: {
+        firmId: ipmFirm.id,
+        organizationId,
+        legacyEmployerCode: spec.code,
+        accountCode: `463${spec.code}`,
+        planId: spec.plan ? planIdByCode[spec.plan] : null,
+        affiliationDate: addDays(TODAY, -int(400, 2200)),
+        status: "ACTIVE",
+        ageMajority: spec.ageMajority,
+        contributionEmployerAmount: spec.plan ? null : 9000,
+        contributionEmployeeAmount: spec.plan ? null : 3000,
+        reminderDelayDays: 15,
+        suspensionDelayDays: 90,
+      },
+      select: { id: true, ageMajority: true, planId: true, affiliationDate: true },
+    })
+    employers.push({ ...employer, spec })
+  }
+
+  // The employer with no formule keeps a single negotiated rate across every
+  // category — the shape the 20 real employers are in today (§4.3), and the
+  // reason EmployerRate wins over PlanRate in resolution.
+  const flatRateEmployer = employers.find((employer) => employer.spec.plan === null)
+  for (const code of Object.keys(categoryIdByCode)) {
+    await db.ipmEmployerRate.create({
+      data: {
+        firmId: ipmFirm.id,
+        employerId: flatRateEmployer.id,
+        categoryId: categoryIdByCode[code],
+        beneficiaryType: "ALL",
+        rate: 0.7,
+      },
+    })
+  }
+  console.log(`  ${employers.length} employeurs (dont 1 à taux unique)`)
+
+  // ---- IPM: participants et ayants droit ----------------------------------
+  // Matricules follow the card format (§11 Q1): a firm-wide five-digit
+  // sequence, `01716`. `legacyCode` carries the WebLamps `001-00185-21` so a
+  // number read off an old card still finds its participant.
+  const MEMBER_COUNT = 64
+  let matriculeSeq = 1700
+  let legacySeq = 180
+  let dependentTotal = 0
+  let contributionTotal = 0
+
+  for (let i = 0; i < MEMBER_COUNT; i += 1) {
+    const employer = employers[i % employers.length]
+    const female = chance(0.44)
+    const firstName = female ? pick(FEMALE_FIRST) : pick(MALE_FIRST)
+    const lastName = pick(LAST)
+
+    const person = await db.person.create({
+      data: {
+        holdingId: holding.id,
+        firstName,
+        lastName,
+        birthDate: addDays(TODAY, -int(24, 58) * 365),
+        birthPlace: pick(CITIES),
+        gender: female ? "FEMALE" : "MALE",
+        phone: `+221 7${pick([0, 6, 7, 8])} ${int(100, 999)} ${int(10, 99)} ${int(10, 99)}`,
+        address: pick(CITIES),
+      },
+      select: { id: true },
+    })
+
+    matriculeSeq += 1
+    legacySeq += 1
+    const matricule = String(matriculeSeq).padStart(5, "0")
+
+    // A handful are not active, so the lists have something to filter and the
+    // coverage rules have something to refuse.
+    const status = chance(0.88)
+      ? "ACTIVE"
+      : chance(0.5)
+        ? "SUSPENDED"
+        : chance(0.5)
+          ? "PENDING"
+          : "TERMINATED"
+
+    const affiliationDate = addDays(
+      employer.affiliationDate,
+      int(0, Math.max(1, Math.floor((TODAY - employer.affiliationDate) / DAY) - 30))
+    )
+
+    const member = await db.member.create({
+      data: {
+        firmId: ipmFirm.id,
+        personId: person.id,
+        employerId: employer.id,
+        matricule,
+        legacyCode: `${employer.spec.code}-${String(legacySeq).padStart(5, "0")}-21`,
+        jobTitle: pick(JOBS_FIELD.concat(JOBS_OFFICE)),
+        affiliationDate,
+        terminationDate: status === "TERMINATED" ? addDays(TODAY, -int(10, 300)) : null,
+        status,
+      },
+      select: { id: true },
+    })
+
+    // ---- cotisation -------------------------------------------------------
+    // One row per member, opened on the affiliation date. Every fourth member
+    // also carries a superseded period, so the effective-dated history is
+    // exercised by the seed rather than only by its unit tests: the earlier
+    // row is closed, never overwritten.
+    const planId = employer.planId
+    const basePrice = planId
+      ? Number(PLANS_IPM.find(([code]) => planIdByCode[code] === planId)[2])
+      : 12000
+
+    if (i % 4 === 0) {
+      const upgradeDate = addDays(affiliationDate, int(200, 700))
+      await db.ipmMemberContribution.create({
+        data: {
+          firmId: ipmFirm.id,
+          memberId: member.id,
+          planId,
+          monthlyAmount: Math.round(basePrice * 0.6),
+          validFrom: affiliationDate,
+          validTo: upgradeDate,
+          reason: "Cotisation initiale",
+          createdById: owner.id,
+        },
+      })
+      await db.ipmMemberContribution.create({
+        data: {
+          firmId: ipmFirm.id,
+          memberId: member.id,
+          planId,
+          monthlyAmount: basePrice,
+          validFrom: upgradeDate,
+          reason: "Passage à la formule complète",
+          createdById: owner.id,
+        },
+      })
+      contributionTotal += 2
+    } else {
+      await db.ipmMemberContribution.create({
+        data: {
+          firmId: ipmFirm.id,
+          memberId: member.id,
+          planId,
+          monthlyAmount: basePrice,
+          validFrom: affiliationDate,
+          reason: "Cotisation initiale",
+          createdById: owner.id,
+        },
+      })
+      contributionTotal += 1
+    }
+
+    // ---- ayants droit -----------------------------------------------------
+    const dependentCount = chance(0.2) ? 0 : int(1, 4)
+    for (let rank = 1; rank <= dependentCount; rank += 1) {
+      const isSpouse = rank === 1 && chance(0.7)
+      const relation = isSpouse
+        ? female
+          ? "SPOUSE_M"
+          : "SPOUSE_F"
+        : chance(0.85)
+          ? "CHILD"
+          : "ASCENDANT"
+
+      // Children straddle the majority age on purpose, so a list showing who
+      // ages out next has real rows to show.
+      const years =
+        relation === "CHILD"
+          ? int(1, employer.ageMajority + 2)
+          : relation === "ASCENDANT"
+            ? int(58, 84)
+            : int(22, 52)
+
+      const dependentFemale = relation === "SPOUSE_F" || chance(0.5)
+      const dependentPerson = await db.person.create({
+        data: {
+          holdingId: holding.id,
+          firstName: dependentFemale ? pick(FEMALE_FIRST) : pick(MALE_FIRST),
+          lastName,
+          // A fifth of children have no recorded birth date, matching the gaps
+          // in the legacy export — and exercising the rule that an absent date
+          // does not age anyone out.
+          birthDate:
+            relation === "CHILD" && chance(0.2)
+              ? null
+              : addDays(TODAY, -years * 365 - int(0, 300)),
+          birthPlace: pick(CITIES),
+          gender: dependentFemale ? "FEMALE" : "MALE",
+        },
+        select: { id: true },
+      })
+
+      await db.dependent.create({
+        data: {
+          firmId: ipmFirm.id,
+          memberId: member.id,
+          personId: dependentPerson.id,
+          matricule: `${matricule}-${String(rank).padStart(2, "0")}`,
+          relation,
+          rank,
+          marriageDate: isSpouse ? addDays(affiliationDate, -int(200, 3000)) : null,
+          coverageStart: addDays(affiliationDate, int(0, 60)),
+          coverageEnd: null,
+          status: "ACTIVE",
+        },
+      })
+      dependentTotal += 1
+    }
+  }
+
+  totals.ipmEmployers = employers.length
+  totals.ipmMembers = MEMBER_COUNT
+  totals.ipmDependents = dependentTotal
+  totals.ipmContributions = contributionTotal
+  console.log(
+    `  ${MEMBER_COUNT} participants, ${dependentTotal} ayants droit, ${contributionTotal} périodes de cotisation`
+  )
+
 
   console.log("\n----------------------------------------")
   console.log("Seed complete.")

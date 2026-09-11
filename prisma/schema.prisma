@@ -32,6 +32,7 @@ model User {
   sessions           Session[]
   clientAssignments  UserClientAssignment[]
   userFirms          UserFirm[]
+  ipmContributions   IpmMemberContribution[] @relation("IpmContributionAuthor")
 
   @@map("users")
 }
@@ -77,12 +78,14 @@ model VerificationToken {
 }
 
 model Holding {
-  id          String   @id @default(cuid())
-  name        String
-  description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  firms       Firm[]
+  id            String         @id @default(cuid())
+  name          String
+  description   String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  firms         Firm[]
+  persons       Person[]
+  organizations Organization[]
 
   @@map("holdings")
 }
@@ -115,6 +118,20 @@ model Firm {
   payslips              Payslip[]
   userClientAssignments UserClientAssignment[]
   userFirms             UserFirm[]
+
+  // IPM. Every row is firm-scoped, which is what §7 relies on: the tenancy
+  // predicate on these tables is the same one every other resolver applies.
+  ipmServiceCategories   IpmServiceCategory[]
+  ipmServiceTypes        IpmServiceType[]
+  ipmProviderSpecialties IpmProviderSpecialty[]
+  ipmMedicalActs         IpmMedicalAct[]
+  ipmPlans               IpmPlan[]
+  ipmPlanRates           IpmPlanRate[]
+  ipmEmployerRates       IpmEmployerRate[]
+  ipmEmployers           IpmEmployer[]
+  ipmMembers             Member[]
+  ipmDependents          Dependent[]
+  ipmContributions       IpmMemberContribution[]
 
   @@map("firms")
 }
@@ -196,51 +213,57 @@ model Department {
 }
 
 model Employee {
-  id                  String                       @id @default(cuid())
-  firmId              String
-  userId              String?
-  firstName           String
-  lastName            String
-  matricule           String
-  departmentId        String?
-  status              EmployeeStatus               @default(ACTIVE)
-  hireDate            DateTime
-  createdAt           DateTime                     @default(now())
-  updatedAt           DateTime                     @updatedAt
-  address             String?
-  assignedClientId    String?
-  email               String?
-  emergencyContact    Json?
-  phone               String?
-  category            String?
-  cni                 String?
-  contractEndDate     DateTime?
-  dateOfBirth         DateTime?
-  fatherName          String?
-  gender              Gender?
-  jobTitle            String?
-  maritalStatus       String?
-  motherName          String?
-  nationality         String?
-  netSalary           Decimal?                     @db.Decimal(10, 2)
-  photoUrl            String?
-  placeOfBirth        String?
-  absences            Absence[]
-  contracts           Contract[]
-  managedDepartments  Department[]                 @relation("DepartmentManager")
-  documents           EmployeeDocument[]
-  salaries            EmployeeSalary[]
-  transfersOut        EmployeeTransfer[]           @relation("TransferFrom")
-  assignedClient      Client?                      @relation(fields: [assignedClientId], references: [id])
-  department          Department?                  @relation("DepartmentEmployees", fields: [departmentId], references: [id])
-  firm                Firm                         @relation(fields: [firmId], references: [id], onDelete: Cascade)
-  user                User?                        @relation(fields: [userId], references: [id])
-  leaveBalances       LeaveBalance[]
-  leaveRequests       LeaveRequest[]
-  requestedMissions   Mission[]
-  payslips            Payslip[]
+  id                 String             @id @default(cuid())
+  firmId             String
+  userId             String?
+  firstName          String
+  lastName           String
+  matricule          String
+  departmentId       String?
+  status             EmployeeStatus     @default(ACTIVE)
+  hireDate           DateTime
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  address            String?
+  assignedClientId   String?
+  email              String?
+  emergencyContact   Json?
+  phone              String?
+  category           String?
+  cni                String?
+  contractEndDate    DateTime?
+  dateOfBirth        DateTime?
+  fatherName         String?
+  gender             Gender?
+  jobTitle           String?
+  maritalStatus      String?
+  motherName         String?
+  nationality        String?
+  netSalary          Decimal?           @db.Decimal(10, 2)
+  photoUrl           String?
+  placeOfBirth       String?
+  /// Shared identity (§4.1). Nullable: this is a link, not the Employment
+  /// split — no HR query reads it yet, and rows predating the seed have none.
+  personId           String?
+  absences           Absence[]
+  contracts          Contract[]
+  managedDepartments Department[]       @relation("DepartmentManager")
+  documents          EmployeeDocument[]
+  salaries           EmployeeSalary[]
+  transfersOut       EmployeeTransfer[] @relation("TransferFrom")
+  assignedClient     Client?            @relation(fields: [assignedClientId], references: [id])
+  department         Department?        @relation("DepartmentEmployees", fields: [departmentId], references: [id])
+  firm               Firm               @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  user               User?              @relation(fields: [userId], references: [id])
+  leaveBalances      LeaveBalance[]
+  leaveRequests      LeaveRequest[]
+  requestedMissions  Mission[]
+  payslips           Payslip[]
+  person             Person?            @relation(fields: [personId], references: [id])
+  ipmMembers         Member[]
 
   @@unique([firmId, matricule])
+  @@index([personId])
   @@map("employees")
 }
 
@@ -493,6 +516,9 @@ model Client {
   industry          String?
   notes             String?
   photoUrl          String?
+  /// Shared identity (§4.1). A client and an IPM employer can be the same
+  /// company; nullable because no CRM query reads it yet.
+  organizationId    String?
   firmAssignments   ClientFirmAssignment[]
   quarterlyReports  ClientQuarterlyReport[]
   firm              Firm                    @relation(fields: [firmId], references: [id], onDelete: Cascade)
@@ -500,7 +526,9 @@ model Client {
   transfers         EmployeeTransfer[]
   assignedEmployees Employee[]
   userAssignments   UserClientAssignment[]
+  organization      Organization?           @relation(fields: [organizationId], references: [id])
 
+  @@index([organizationId])
   @@map("clients")
 }
 
@@ -561,7 +589,6 @@ model ClientQuarterlyReport {
   @@unique([clientId, quarter])
   @@map("client_quarterly_reports")
 }
-
 
 model EmployeeDocument {
   id              String       @id @default(cuid())
@@ -722,8 +749,6 @@ enum ClientStatus {
   ARCHIVED
 }
 
-
-
 enum DocumentType {
   CV
   ID_CARD
@@ -746,4 +771,457 @@ enum FileEntity {
   MISSION
   LEAVE_REQUEST
   CLAIM
+}
+
+// ============================================================================
+// SHARED IDENTITY — HOLDING LEVEL
+// ============================================================================
+// Plan §4.1. A person may be simultaneously an employee of Connect Interim and
+// an IPM participant; a company may be a CRM client, an employer of interims
+// and an IPM employer. Identity therefore lives above the firm, and the
+// firm-scoped records point at it.
+//
+// This does **not** rewrite Employee or Client onto Person/Organization — that
+// is the Employment split the plan lists as Phase 0 socle, and it touches every
+// HR query. The links below are nullable so identity can be established
+// incrementally; the IPM side uses them as the source of truth from day one.
+
+model Person {
+  id         String    @id @default(cuid())
+  holdingId  String
+  firstName  String
+  lastName   String
+  birthDate  DateTime?
+  birthPlace String?
+  gender     Gender?
+  /// CNI sénégalaise.
+  nationalId String?
+  passportNo String?
+  phone      String?
+  email      String?
+  address    String?
+  /// Zipline URL, same convention as Employee.photoUrl.
+  photoUrl   String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  holding    Holding     @relation(fields: [holdingId], references: [id], onDelete: Cascade)
+  employees  Employee[]
+  members    Member[]
+  dependents Dependent[]
+
+  // Postgres treats NULLs as distinct, so people without a CNI do not collide.
+  @@unique([holdingId, nationalId])
+  @@index([holdingId, lastName, firstName])
+  @@map("persons")
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  holdingId String
+  /// Raison sociale.
+  name      String
+  ninea     String?
+  sector    String?
+  address   String?
+  phone     String?
+  email     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  holding   Holding       @relation(fields: [holdingId], references: [id], onDelete: Cascade)
+  clients   Client[]
+  employers IpmEmployer[]
+
+  @@unique([holdingId, ninea])
+  @@index([holdingId, name])
+  @@map("organizations")
+}
+
+// ============================================================================
+// IPM — RÉFÉRENTIELS
+// ============================================================================
+
+/// Catégorie de soins. A **table, not an enum** (§11 Q3).
+///
+/// Asked whether accouchement should be priced separately, the answer was that
+/// plan options must stay configurable — so categories, rates, ceilings and
+/// waiting periods are data an administrator edits, never an enum that needs a
+/// deploy. Adding MATERNITE is a row, not a migration.
+model IpmServiceCategory {
+  id        String   @id @default(cuid())
+  firmId    String
+  code      String
+  label     String
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  firm          Firm              @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  serviceTypes  IpmServiceType[]
+  planRates     IpmPlanRate[]
+  employerRates IpmEmployerRate[]
+
+  @@unique([firmId, code])
+  @@map("ipm_service_categories")
+}
+
+/// Type de prestation — WebLamps codes 0-49, SYSCOHADA 602xxx.
+model IpmServiceType {
+  id          String   @id @default(cuid())
+  firmId      String
+  categoryId  String
+  code        String
+  label       String
+  /// Compte SYSCOHADA 602xxx. Not renumbered — see plan §3.
+  accountCode String?
+  legacyCode  String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  firm        Firm               @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  category    IpmServiceCategory @relation(fields: [categoryId], references: [id])
+  medicalActs IpmMedicalAct[]
+
+  @@unique([firmId, code])
+  @@index([firmId, categoryId])
+  @@map("ipm_service_types")
+}
+
+/// Spécialité prestataire — codes 0-99, SYSCOHADA 400xxx.
+model IpmProviderSpecialty {
+  id          String   @id @default(cuid())
+  firmId      String
+  code        String
+  label       String
+  accountCode String?
+  legacyCode  String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  firm Firm @relation(fields: [firmId], references: [id], onDelete: Cascade)
+
+  @@unique([firmId, code])
+  @@map("ipm_provider_specialties")
+}
+
+model IpmMedicalAct {
+  id            String   @id @default(cuid())
+  firmId        String
+  serviceTypeId String
+  code          String
+  label         String
+  coefficient   Decimal? @db.Decimal(8, 2)
+  tariff        Decimal? @db.Decimal(12, 2)
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  firm        Firm           @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  serviceType IpmServiceType @relation(fields: [serviceTypeId], references: [id])
+
+  @@unique([firmId, code])
+  @@index([firmId, serviceTypeId])
+  @@map("ipm_medical_acts")
+}
+
+// ============================================================================
+// IPM — FORMULES ET BARÈMES
+// ============================================================================
+
+/// Who a rate applies to.
+///
+/// `ALL` is a real member rather than a nullable column on purpose: a nullable
+/// discriminator cannot be covered by a unique constraint in Postgres, where
+/// NULLs are distinct — two "applies to everyone" rows for the same category
+/// would both be accepted. Resolution tries the exact type, then ALL.
+///
+/// The numbers are the WebLamps `codebenef` values, kept for the import. The
+/// participant carries 1; `lienjuridique` is not used (229 CJ for 95 real
+/// spouses — see plan §4.2).
+enum IpmBeneficiaryType {
+  ALL
+  MEMBER // 1
+  SPOUSE_F // 2
+  CHILD // 3
+  SPOUSE_M // 4
+  ASCENDANT // 5
+  OTHER // 6
+}
+
+/// Formule commerciale (Tawfeikh / Xeweul / Teranga / Noflay).
+///
+/// Effective-dated: a voucher issued in January must still price against
+/// January's formule after a March change, so a price is never updated in
+/// place. `validTo` NULL means currently in force.
+model IpmPlan {
+  id           String    @id @default(cuid())
+  firmId       String
+  code         String
+  name         String
+  monthlyPrice Decimal   @db.Decimal(12, 2)
+  validFrom    DateTime
+  validTo      DateTime?
+  active       Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  firm          Firm                    @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  rates         IpmPlanRate[]
+  employers     IpmEmployer[]
+  contributions IpmMemberContribution[]
+
+  @@unique([firmId, code, validFrom])
+  @@index([firmId, active])
+  @@map("ipm_plans")
+}
+
+/// Barème — taux de prise en charge et plafonds.
+///
+/// `rate` is a fraction, not a percentage: the settlement engine computes
+/// `insurerShare = ceil(totalAmount × rate)` directly, and a stray ×100 in that
+/// line is the kind of error that is invisible until money moves. The interface
+/// renders it as a percentage; the column never holds one.
+model IpmPlanRate {
+  id                String             @id @default(cuid())
+  firmId            String
+  planId            String
+  categoryId        String
+  beneficiaryType   IpmBeneficiaryType @default(ALL)
+  rate              Decimal            @db.Decimal(5, 4)
+  ceilingPerAct     Decimal?           @db.Decimal(12, 2)
+  ceilingMonthly    Decimal?           @db.Decimal(12, 2)
+  ceilingAnnual     Decimal?           @db.Decimal(12, 2)
+  /// Délai de carence, en jours. Distinct des plafonds (plan §4.3).
+  waitingPeriodDays Int                @default(0)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  firm     Firm               @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  plan     IpmPlan            @relation(fields: [planId], references: [id], onDelete: Cascade)
+  category IpmServiceCategory @relation(fields: [categoryId], references: [id])
+
+  @@unique([planId, categoryId, beneficiaryType])
+  @@map("ipm_plan_rates")
+}
+
+/// Dérogation par employeur. Wins over the formule's own barème.
+///
+/// The 20 current employers apply a single rate (50, 70 or 80%) and are
+/// migrated here, then moved onto a formule when the IPM decides.
+model IpmEmployerRate {
+  id                String             @id @default(cuid())
+  firmId            String
+  employerId        String
+  categoryId        String
+  beneficiaryType   IpmBeneficiaryType @default(ALL)
+  rate              Decimal            @db.Decimal(5, 4)
+  ceilingPerAct     Decimal?           @db.Decimal(12, 2)
+  ceilingMonthly    Decimal?           @db.Decimal(12, 2)
+  ceilingAnnual     Decimal?           @db.Decimal(12, 2)
+  waitingPeriodDays Int?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  firm     Firm               @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  employer IpmEmployer        @relation(fields: [employerId], references: [id], onDelete: Cascade)
+  category IpmServiceCategory @relation(fields: [categoryId], references: [id])
+
+  @@unique([employerId, categoryId, beneficiaryType])
+  @@map("ipm_employer_rates")
+}
+
+// ============================================================================
+// IPM — AFFILIATION
+// ============================================================================
+
+enum IpmEmployerStatus {
+  ACTIVE
+  SUSPENDED
+  TERMINATED
+}
+
+enum IpmMemberStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  TERMINATED
+}
+
+enum IpmDependentStatus {
+  ACTIVE
+  SUSPENDED
+  TERMINATED
+}
+
+/// Ayant droit. WebLamps `codebenef`; `lienjuridique` is deliberately ignored.
+enum IpmDependentRelation {
+  SPOUSE_F // 2
+  CHILD // 3
+  SPOUSE_M // 4
+  ASCENDANT // 5
+  OTHER // 6
+}
+
+model IpmEmployer {
+  id                 String            @id @default(cuid())
+  firmId             String
+  organizationId     String
+  legacyCode         String?
+  /// The `001` of a WebLamps `001-00185-21`. Kept so a legacy matricule can be
+  /// rebuilt and reconciled; it does not number anything new.
+  legacyEmployerCode String?
+  /// Optional prefix for generated member matricules.
+  ///
+  /// NULL — the normal case — puts the employer's members on the firm-wide
+  /// five-digit sequence the cards carry (`01716`, §11 Q1). A prefix exists
+  /// only for an employer that later wants a series of its own, and is not
+  /// unique: several employers sharing the card sequence all have none.
+  matriculePrefix    String?
+  planId             String?
+  /// Compte SYSCOHADA 463xxx. Two legacy formats, normalised on import.
+  accountCode        String?
+  affiliationDate    DateTime
+  terminationDate    DateTime?
+  status             IpmEmployerStatus @default(ACTIVE)
+
+  /// Âge auquel un enfant cesse d'être couvert. 21 ou 22 selon l'employeur.
+  ageMajority   Int @default(21)
+  ageRetirement Int @default(60)
+
+  /// Defaults inherited by a new member's first contribution row.
+  contributionEmployerAmount Decimal? @db.Decimal(12, 2)
+  contributionEmployeeAmount Decimal? @db.Decimal(12, 2)
+  contributionRate           Decimal? @db.Decimal(5, 4)
+
+  reminderDelayDays   Int      @default(15)
+  suspensionDelayDays Int      @default(90)
+  /// `seuil_conso` 1e8–1e12 in the legacy data is imported as NULL = illimité.
+  consumptionCeiling  Decimal? @db.Decimal(14, 2)
+  debtCeiling         Decimal? @db.Decimal(14, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  firm         Firm              @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  organization Organization      @relation(fields: [organizationId], references: [id])
+  plan         IpmPlan?          @relation(fields: [planId], references: [id])
+  members      Member[]
+  rates        IpmEmployerRate[]
+
+  @@unique([firmId, organizationId])
+  @@unique([firmId, legacyEmployerCode])
+  @@unique([firmId, legacyCode])
+  @@index([firmId, status])
+  @@map("ipm_employers")
+}
+
+model Member {
+  id         String  @id @default(cuid())
+  firmId     String
+  personId   String
+  employerId String
+  /// Link to the employment that drives the affiliation (§7). Nullable: the IPM
+  /// also covers employers outside the group, who have no Employee row here.
+  employeeId String?
+
+  /// Canonical matricule — the short form printed on the cards (`01716`).
+  /// §11 Q1. `legacyCode` keeps the WebLamps `001-00185-21` so the two forms
+  /// stay cross-referenceable at the counter.
+  matricule  String
+  legacyCode String?
+
+  jobTitle        String?
+  affiliationDate DateTime
+  terminationDate DateTime?
+  status          IpmMemberStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  firm          Firm                    @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  person        Person                  @relation(fields: [personId], references: [id])
+  employer      IpmEmployer             @relation(fields: [employerId], references: [id])
+  employee      Employee?               @relation(fields: [employeeId], references: [id])
+  dependents    Dependent[]
+  contributions IpmMemberContribution[]
+
+  @@unique([firmId, matricule])
+  @@unique([firmId, legacyCode])
+  @@index([firmId, employerId, status])
+  @@index([firmId, personId])
+  @@map("ipm_members")
+}
+
+model Dependent {
+  id       String @id @default(cuid())
+  firmId   String
+  memberId String
+  personId String
+
+  matricule    String
+  legacyCode   String?
+  relation     IpmDependentRelation
+  /// Position within the member's family, 1-based. Drives the card's verso.
+  rank         Int
+  marriageDate DateTime?
+
+  coverageStart DateTime
+  coverageEnd   DateTime?
+  status        IpmDependentStatus @default(ACTIVE)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  firm   Firm   @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  person Person @relation(fields: [personId], references: [id])
+
+  @@unique([firmId, matricule])
+  @@unique([memberId, rank])
+  @@index([firmId, memberId, status])
+  @@map("ipm_dependents")
+}
+
+/// Cotisation du participant — effective-dated rows, never a mutable column.
+///
+/// §11 Q6: the contribution is a fixed amount, and an upgrade must not lose the
+/// previous one. A single `monthlyContribution` column cannot satisfy both — an
+/// UPDATE erases exactly the history being asked for — so each change closes the
+/// current row and opens a new one. A January voucher prices against January's
+/// amount even after a March upgrade.
+///
+/// §11 Q12: one contribution per family. The amount covers the participant and
+/// their ayants droit, not one per covered head.
+///
+/// `validTo` NULL means currently in force; exactly one such row per member.
+model IpmMemberContribution {
+  id       String  @id @default(cuid())
+  firmId   String
+  memberId String
+  /// The formule this amount was priced against, when there is one.
+  planId   String?
+
+  monthlyAmount  Decimal  @db.Decimal(12, 2)
+  employerAmount Decimal? @db.Decimal(12, 2)
+  employeeAmount Decimal? @db.Decimal(12, 2)
+
+  validFrom DateTime
+  validTo   DateTime?
+  /// Why it changed — an upgrade, a correction, a renegotiation.
+  reason    String?
+
+  createdAt   DateTime @default(now())
+  createdById String?
+
+  firm      Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  member    Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  plan      IpmPlan? @relation(fields: [planId], references: [id])
+  createdBy User?    @relation("IpmContributionAuthor", fields: [createdById], references: [id])
+
+  @@index([firmId, memberId, validFrom])
+  @@map("ipm_member_contributions")
 }
