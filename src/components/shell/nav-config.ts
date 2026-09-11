@@ -11,6 +11,7 @@ import {
   Hospital01Icon,
   Settings02Icon,
   UserMultipleIcon,
+  Wallet01Icon,
   UserSettings01Icon,
 } from "@hugeicons/core-free-icons"
 import type { IconSvgElement } from "@hugeicons/react"
@@ -116,6 +117,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Cartes", href: "/ipm/cartes", icon: CreditCardIcon },
       { label: "Cotisations", href: "/ipm/cotisations", icon: Calendar03Icon },
       { label: "Factures", href: "/ipm/factures", icon: File01Icon },
+      { label: "Décaissements", href: "/ipm/decaissements", icon: Wallet01Icon },
       { label: "Formules", href: "/ipm/formules", icon: File01Icon },
       { label: "Référentiel", href: "/ipm/referentiel", icon: Settings02Icon },
     ],

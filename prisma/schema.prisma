@@ -38,6 +38,11 @@ model User {
   ipmVouchersSettled IpmVoucher[]            @relation("IpmVoucherSettler")
   ipmLedgerEntries   IpmLedgerEntry[]        @relation("IpmLedgerAuthor")
   ipmInvoiceStatuses IpmEmployerInvoice[]    @relation("IpmInvoiceStatusAuthor")
+  ipmInvoicesChecked IpmProviderInvoice[]    @relation("IpmProviderInvoiceChecker")
+  ipmReimbReviewed   IpmReimbursement[]      @relation("IpmReimbursementReviewer")
+  ipmDisbEntered     IpmDisbursement[]       @relation("IpmDisbursementAuthor")
+  ipmDisbApproved    IpmDisbursement[]       @relation("IpmDisbursementApprover")
+  ipmDisbAccounting  IpmDisbursement[]       @relation("IpmDisbursementAccountant")
 
   @@map("users")
 }
@@ -148,6 +153,10 @@ model Firm {
   ipmLedgerEntries       IpmLedgerEntry[]
   ipmEmployerInvoices    IpmEmployerInvoice[]
   ipmInvoiceLines        IpmEmployerInvoiceLine[]
+  ipmProviderInvoices    IpmProviderInvoice[]
+  ipmReimbursements      IpmReimbursement[]
+  ipmDisbursements       IpmDisbursement[]
+  ipmDisbursementLines   IpmDisbursementLine[]
 
   @@map("firms")
 }
@@ -875,17 +884,18 @@ model IpmServiceCategory {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  firm           Firm                     @relation(fields: [firmId], references: [id], onDelete: Cascade)
-  serviceTypes   IpmServiceType[]
-  planRates      IpmPlanRate[]
-  employerRates  IpmEmployerRate[]
-  vouchers       IpmVoucher[]
-  consumptions   IpmConsumption[]
-  ledgerEntries  IpmLedgerEntry[]
-  invoiceLines   IpmEmployerInvoiceLine[]
+  firm              Firm                     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  serviceTypes      IpmServiceType[]
+  planRates         IpmPlanRate[]
+  employerRates     IpmEmployerRate[]
+  vouchers          IpmVoucher[]
+  consumptions      IpmConsumption[]
+  ledgerEntries     IpmLedgerEntry[]
+  invoiceLines      IpmEmployerInvoiceLine[]
   /// Cache of the register total. The register is the truth; this is rebuilt.
-  currentBalance Decimal                  @default(0) @db.Decimal(14, 2)
-  balanceAsOf    DateTime?
+  currentBalance    Decimal                  @default(0) @db.Decimal(14, 2)
+  balanceAsOf       DateTime?
+  ipmReimbursements IpmReimbursement[]
 
   @@unique([firmId, code])
   @@map("ipm_service_categories")
@@ -1176,17 +1186,18 @@ model Member {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  firm          Firm                     @relation(fields: [firmId], references: [id], onDelete: Cascade)
-  person        Person                   @relation(fields: [personId], references: [id])
-  employer      IpmEmployer              @relation(fields: [employerId], references: [id])
-  employee      Employee?                @relation(fields: [employeeId], references: [id])
-  dependents    Dependent[]
-  contributions IpmMemberContribution[]
-  card          IpmMemberCard?
-  vouchers      IpmVoucher[]
-  consumptions  IpmConsumption[]
-  ledgerEntries IpmLedgerEntry[]
-  invoiceLines  IpmEmployerInvoiceLine[]
+  firm           Firm                     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  person         Person                   @relation(fields: [personId], references: [id])
+  employer       IpmEmployer              @relation(fields: [employerId], references: [id])
+  employee       Employee?                @relation(fields: [employeeId], references: [id])
+  dependents     Dependent[]
+  contributions  IpmMemberContribution[]
+  card           IpmMemberCard?
+  vouchers       IpmVoucher[]
+  consumptions   IpmConsumption[]
+  ledgerEntries  IpmLedgerEntry[]
+  invoiceLines   IpmEmployerInvoiceLine[]
+  reimbursements IpmReimbursement[]
 
   @@unique([firmId, matricule])
   @@unique([firmId, legacyCode])
@@ -1215,10 +1226,11 @@ model Dependent {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  firm     Firm         @relation(fields: [firmId], references: [id], onDelete: Cascade)
-  member   Member       @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  person   Person       @relation(fields: [personId], references: [id])
-  vouchers IpmVoucher[]
+  firm              Firm               @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  member            Member             @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  person            Person             @relation(fields: [personId], references: [id])
+  vouchers          IpmVoucher[]
+  ipmReimbursements IpmReimbursement[]
 
   @@unique([firmId, matricule])
   @@unique([memberId, rank])
@@ -1355,6 +1367,7 @@ model IpmProvider {
   branches     IpmProviderBranch[]
   agreements   IpmAgreement[]
   vouchers     IpmVoucher[]
+  invoices     IpmProviderInvoice[]
 
   @@unique([firmId, legacyCode])
   @@index([firmId, status, accredited])
@@ -1730,4 +1743,207 @@ model IpmEmployerInvoiceLine {
 
   @@index([firmId, invoiceId])
   @@map("ipm_employer_invoice_lines")
+}
+
+// ============================================================================
+// IPM — DÉCAISSEMENTS (PHASE 4)
+// ============================================================================
+
+enum IpmProviderInvoiceStatus {
+  RECEIVED
+  CHECKED
+  APPROVED
+  PAID
+  REJECTED
+}
+
+/// Facture prestataire — plan §4.8.
+///
+/// The bons it covers are attached to it, and `totalAmount` is what the
+/// provider claims. The difference between that and the sum of the attached
+/// bons is the thing the contrôle exists to find, so both are kept rather
+/// than one being derived from the other.
+model IpmProviderInvoice {
+  id         String @id @default(cuid())
+  firmId     String
+  providerId String
+
+  number       String
+  receivedDate DateTime
+  periodFrom   DateTime
+  periodTo     DateTime
+
+  /// What the provider claims.
+  totalAmount   Decimal @db.Decimal(14, 2)
+  /// Sum of the attached bons' insurer shares, computed on attachment.
+  matchedAmount Decimal @default(0) @db.Decimal(14, 2)
+
+  status IpmProviderInvoiceStatus @default(RECEIVED)
+
+  checkedById  String?
+  checkedAt    DateTime?
+  rejectReason String?
+
+  disbursementId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  firm         Firm             @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  provider     IpmProvider      @relation(fields: [providerId], references: [id])
+  checkedBy    User?            @relation("IpmProviderInvoiceChecker", fields: [checkedById], references: [id])
+  disbursement IpmDisbursement? @relation(fields: [disbursementId], references: [id])
+
+  @@unique([firmId, providerId, number])
+  @@index([firmId, status])
+  @@map("ipm_provider_invoices")
+}
+
+enum IpmReimbursementStatus {
+  SUBMITTED
+  REVIEWING
+  APPROVED
+  REJECTED
+  PAID
+}
+
+/// Remboursement — the other flow into consumption (§4.7).
+///
+/// A participant who paid up front and claims it back. It feeds the register
+/// and the plafonds exactly as a bon does, which is why `IpmConsumption` was
+/// built to accept either source from the start.
+model IpmReimbursement {
+  id          String  @id @default(cuid())
+  firmId      String
+  memberId    String
+  dependentId String?
+
+  number        String
+  submittedDate DateTime
+  categoryId    String
+
+  totalAmount  Decimal @db.Decimal(12, 2)
+  insurerShare Decimal @db.Decimal(12, 2)
+  appliedRate  Decimal @db.Decimal(5, 4)
+
+  status IpmReimbursementStatus @default(SUBMITTED)
+
+  reviewedById String?
+  reviewedAt   DateTime?
+  rejectReason String?
+
+  disbursementId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  firm         Firm               @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  member       Member             @relation(fields: [memberId], references: [id])
+  dependent    Dependent?         @relation(fields: [dependentId], references: [id])
+  category     IpmServiceCategory @relation(fields: [categoryId], references: [id])
+  reviewedBy   User?              @relation("IpmReimbursementReviewer", fields: [reviewedById], references: [id])
+  disbursement IpmDisbursement?   @relation(fields: [disbursementId], references: [id])
+
+  @@unique([firmId, number])
+  @@index([firmId, status])
+  @@index([firmId, memberId])
+  @@map("ipm_reimbursements")
+}
+
+enum IpmDisbursementStatus {
+  DRAFT
+  APPROVED
+  POSTED
+  PAID
+  CANCELLED
+}
+
+enum IpmPayeeType {
+  PROVIDER
+  MEMBER
+  SUPPLIER
+}
+
+enum IpmPaymentMethod {
+  CHEQUE
+  TRANSFER
+  CASH
+  ORANGE_MONEY
+}
+
+/// Bon de décaissement — plan §4.9.
+///
+/// Deliberately generic (`payeeType`, and lines that carry a `sourceType`):
+/// the plan says this object is the foundation of a future Finance module and
+/// will serve frais généraux and salaries too. It is designed for that and
+/// exposed in v1 restricted to the IPM.
+///
+/// The three visas are three separate facts, each with its own author and
+/// timestamp. VISA RÉCEPTION stays manual — it is the payee who signs on
+/// collection, and no field here can stand for that.
+model IpmDisbursement {
+  id     String @id @default(cuid())
+  firmId String
+
+  number      String
+  date        DateTime
+  /// B1 · 02 · OM — the journal the entry lands in.
+  journalCode String
+
+  payeeType IpmPayeeType
+  payeeId   String?
+  payeeName String
+
+  amount Decimal @db.Decimal(14, 2)
+  motif  String
+
+  paymentMethod    IpmPaymentMethod
+  paymentReference String?
+
+  enteredById String?
+
+  /// VISA DIRECTION
+  approvedById   String?
+  approvedAt     DateTime?
+  /// VISA COMPTABILITÉ
+  accountingById String?
+  accountingAt   DateTime?
+  /// VISA RÉCEPTION — manuscrit, recorded when the payee collects.
+  receivedAt     DateTime?
+
+  status IpmDisbursementStatus @default(DRAFT)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  firm             Firm                  @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  enteredBy        User?                 @relation("IpmDisbursementAuthor", fields: [enteredById], references: [id])
+  approvedBy       User?                 @relation("IpmDisbursementApprover", fields: [approvedById], references: [id])
+  accountingBy     User?                 @relation("IpmDisbursementAccountant", fields: [accountingById], references: [id])
+  lines            IpmDisbursementLine[]
+  providerInvoices IpmProviderInvoice[]
+  reimbursements   IpmReimbursement[]
+
+  @@unique([firmId, number])
+  @@index([firmId, status, date])
+  @@map("ipm_disbursements")
+}
+
+model IpmDisbursementLine {
+  id             String @id @default(cuid())
+  firmId         String
+  disbursementId String
+
+  sourceType String
+  sourceId   String?
+  label      String
+  amount     Decimal @db.Decimal(14, 2)
+
+  createdAt DateTime @default(now())
+
+  firm         Firm            @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  disbursement IpmDisbursement @relation(fields: [disbursementId], references: [id], onDelete: Cascade)
+
+  @@index([firmId, disbursementId])
+  @@map("ipm_disbursement_lines")
 }

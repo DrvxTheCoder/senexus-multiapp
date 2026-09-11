@@ -286,6 +286,10 @@ async function main() {
   // IPM first: its rows point at persons and organizations that the HR wipe
   // below also releases, and a dependent must go before the member it hangs
   // off. Scoped to the IPM firm like everything else here.
+  await db.ipmDisbursementLine.deleteMany({ where: { firmId: ipmFirm.id } })
+  await db.ipmProviderInvoice.deleteMany({ where: { firmId: ipmFirm.id } })
+  await db.ipmReimbursement.deleteMany({ where: { firmId: ipmFirm.id } })
+  await db.ipmDisbursement.deleteMany({ where: { firmId: ipmFirm.id } })
   await db.ipmEmployerInvoiceLine.deleteMany({ where: { firmId: ipmFirm.id } })
   await db.ipmEmployerInvoice.deleteMany({ where: { firmId: ipmFirm.id } })
   await db.ipmLedgerEntry.deleteMany({ where: { firmId: ipmFirm.id } })
@@ -2015,6 +2019,190 @@ async function main() {
   totals.ipmInvoices = invoiceRows.length
   console.log(
     `  ${invoiceRows.length} factures employeur, ${invoiceLineRows.length} lignes`
+  )
+
+
+  // ---- IPM: factures prestataires, remboursements, décaissements ----------
+  // The écart is seeded deliberately: some invoices match the bons exactly,
+  // some claim more. That difference is the figure WebLamps cannot produce and
+  // the reason the contrôle queue exists, so the fixtures have to contain it.
+  console.log("\nDécaissements")
+
+  const invoicedVouchers = await db.ipmVoucher.findMany({
+    where: { firmId: ipmFirm.id, status: "INVOICED" },
+    orderBy: { number: "asc" },
+    select: { id: true, providerId: true, insurerShare: true, settledAt: true },
+  })
+
+  const byProvider = new Map()
+  for (const voucher of invoicedVouchers) {
+    const list = byProvider.get(voucher.providerId) ?? []
+    list.push(voucher)
+    byProvider.set(voucher.providerId, list)
+  }
+
+  const providerInvoiceRows = []
+  const disbursementRows = []
+  const disbursementLineRows = []
+  let providerInvoiceSeq = 0
+  let disbursementSeq = 0
+
+  for (const [providerId, vouchers] of [...byProvider.entries()].sort()) {
+    if (vouchers.length === 0) continue
+    const matched = vouchers.reduce((sum, v) => sum + Number(v.insurerShare), 0)
+
+    // A third of invoices claim more than the bons support.
+    const overclaims = chance(0.34)
+    const claimed = overclaims ? matched + int(5, 90) * 1000 : matched
+
+    providerInvoiceSeq += 1
+    const invoiceId = `seed_ipm_pinv_${providerInvoiceSeq}`
+    const dates = vouchers
+      .map((v) => v.settledAt)
+      .filter(Boolean)
+      .sort((a, b) => a - b)
+    const periodFrom = dates[0] ?? addDays(TODAY, -120)
+    const periodTo = dates.at(-1) ?? addDays(TODAY, -30)
+
+    // Only invoices that reconcile exactly reach APPROVED without a human
+    // looking at them; the rest stay in the queue, which is the point.
+    const status = overclaims
+      ? pick(["RECEIVED", "CHECKED"])
+      : pick(["APPROVED", "APPROVED", "PAID"])
+
+    providerInvoiceRows.push({
+      id: invoiceId,
+      firmId: ipmFirm.id,
+      providerId,
+      number: `F${String(2000 + providerInvoiceSeq).padStart(5, "0")}`,
+      receivedDate: addDays(periodTo, int(3, 20)),
+      periodFrom,
+      periodTo,
+      totalAmount: claimed,
+      matchedAmount: matched,
+      status,
+      checkedById: status === "RECEIVED" ? null : owner.id,
+      checkedAt: status === "RECEIVED" ? null : addDays(periodTo, int(5, 25)),
+    })
+
+    if (status === "PAID") {
+      disbursementSeq += 1
+      const disbursementId = `seed_ipm_disb_${disbursementSeq}`
+      const provider = providers.find((p) => p.id === providerId)
+
+      disbursementRows.push({
+        id: disbursementId,
+        firmId: ipmFirm.id,
+        number: String(160 + disbursementSeq).padStart(4, "0"),
+        date: addDays(periodTo, int(20, 50)),
+        journalCode: pick(["B1", "B1", "02"]),
+        payeeType: "PROVIDER",
+        payeeId: providerId,
+        payeeName: provider?.name ?? "Prestataire",
+        amount: claimed,
+        motif: "Règlement facture prestataire",
+        paymentMethod: pick(["TRANSFER", "CHEQUE"]),
+        paymentReference: `VIR${int(100000, 999999)}`,
+        enteredById: owner.id,
+        // The three visas, in order and each with its own timestamp. The
+        // application never lets one user stamp another's; the seed simply
+        // reproduces a document that went all the way through.
+        approvedById: owner.id,
+        approvedAt: addDays(periodTo, int(20, 30)),
+        accountingById: owner.id,
+        accountingAt: addDays(periodTo, int(31, 40)),
+        receivedAt: addDays(periodTo, int(41, 50)),
+        status: "PAID",
+      })
+
+      disbursementLineRows.push({
+        id: `${disbursementId}_line`,
+        firmId: ipmFirm.id,
+        disbursementId,
+        sourceType: "INVOICE",
+        sourceId: invoiceId,
+        label: `Facture F${String(2000 + providerInvoiceSeq).padStart(5, "0")}`,
+        amount: claimed,
+      })
+
+      providerInvoiceRows[providerInvoiceRows.length - 1].disbursementId =
+        disbursementId
+    }
+  }
+
+  // Décaissements must exist before the invoices that point at them.
+  await createInBatches(db.ipmDisbursement, disbursementRows)
+  await createInBatches(db.ipmProviderInvoice, providerInvoiceRows)
+  await createInBatches(db.ipmDisbursementLine, disbursementLineRows)
+
+  // ---- remboursements -----------------------------------------------------
+  // Priced with the same arithmetic as a bon: ceil(total × taux).
+  const reimbursementRows = []
+  const reimbursableMembers = activeMembers.slice(0, 24)
+
+  for (const [index, member] of reimbursableMembers.entries()) {
+    if (!chance(0.6)) continue
+
+    const categoryCode = pick(["CONSULTATION", "SOINS", "PHARMACIE"])
+    const categoryId = categoryIdByCode[categoryCode]
+    const resolved = rateFor(member, categoryId, "MEMBER")
+    if (!resolved) continue
+
+    const totalAmount = int(4, 70) * 1000
+    const insurerShare = Math.ceil(totalAmount * resolved.rate)
+    const submittedDate = addDays(TODAY, -int(5, 200))
+    const status = pick([
+      "SUBMITTED",
+      "REVIEWING",
+      "APPROVED",
+      "APPROVED",
+      "PAID",
+      "REJECTED",
+    ])
+
+    reimbursementRows.push({
+      id: `seed_ipm_remb_${index}`,
+      firmId: ipmFirm.id,
+      memberId: member.id,
+      number: `REMB-${TODAY.getFullYear()}-${String(index + 1).padStart(5, "0")}`,
+      submittedDate,
+      categoryId,
+      totalAmount,
+      insurerShare,
+      appliedRate: resolved.rate,
+      status,
+      reviewedById: ["SUBMITTED", "REVIEWING"].includes(status) ? null : owner.id,
+      reviewedAt: ["SUBMITTED", "REVIEWING"].includes(status)
+        ? null
+        : addDays(submittedDate, int(2, 20)),
+      rejectReason: status === "REJECTED" ? "Justificatif illisible" : null,
+    })
+  }
+
+  await createInBatches(db.ipmReimbursement, reimbursementRows)
+
+  // Sequences continue above the fixtures, so nothing issued through the
+  // application collides with a seeded document.
+  await db.ipmSequence.upsert({
+    where: { firmId_kind_year: { firmId: ipmFirm.id, kind: "DEC", year: TODAY.getFullYear() } },
+    update: { next: 160 + disbursementSeq + 1 },
+    create: { firmId: ipmFirm.id, kind: "DEC", year: TODAY.getFullYear(), next: 160 + disbursementSeq + 1 },
+  })
+  await db.ipmSequence.upsert({
+    where: { firmId_kind_year: { firmId: ipmFirm.id, kind: "REMB", year: TODAY.getFullYear() } },
+    update: { next: reimbursementRows.length + 1 },
+    create: { firmId: ipmFirm.id, kind: "REMB", year: TODAY.getFullYear(), next: reimbursementRows.length + 1 },
+  })
+
+  totals.ipmProviderInvoices = providerInvoiceRows.length
+  totals.ipmReimbursements = reimbursementRows.length
+  totals.ipmDisbursements = disbursementRows.length
+
+  const withVariance = providerInvoiceRows.filter(
+    (row) => Number(row.totalAmount) !== Number(row.matchedAmount)
+  ).length
+  console.log(
+    `  ${providerInvoiceRows.length} factures prestataires (${withVariance} avec écart), ${reimbursementRows.length} remboursements, ${disbursementRows.length} bons de décaissement`
   )
 
 

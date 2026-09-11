@@ -508,6 +508,128 @@ async function main() {
   )
   check("no employer was invoiced twice for one month", duplicatePeriods.n === 0)
 
+  console.log("\nDécaissements et export comptable")
+  await expectStatus(ipm, `/${IPM_SLUG}/ipm/decaissements`, 200)
+
+  // A remboursement must be priced by the *same* arithmetic as a bon, or a
+  // participant who pays up front is reimbursed differently from one who does
+  // not — and the one out of pocket is the one who notices.
+  const reimbursements = await db.ipmReimbursement.findMany({
+    where: { firm: { slug: IPM_SLUG } },
+    select: { totalAmount: true, insurerShare: true, appliedRate: true },
+  })
+  const mispriced = reimbursements.filter(
+    (entry) =>
+      Math.ceil(Number(entry.totalAmount) * Number(entry.appliedRate)) !==
+      Number(entry.insurerShare)
+  )
+  check(
+    "remboursements use the same ceil(total × taux) as the bons",
+    mispriced.length === 0,
+    `${mispriced.length} of ${reimbursements.length} differ`
+  )
+
+  // A décaissement is derived from what it settles; a hand-typed total would
+  // eventually disagree with its own list.
+  const disbursements = await db.ipmDisbursement.findMany({
+    where: { firm: { slug: IPM_SLUG } },
+    select: {
+      number: true,
+      amount: true,
+      approvedAt: true,
+      accountingAt: true,
+      receivedAt: true,
+      lines: { select: { amount: true } },
+    },
+  })
+  const unbalanced = disbursements.filter(
+    (entry) =>
+      Math.abs(
+        Number(entry.amount) -
+          entry.lines.reduce((sum, line) => sum + Number(line.amount), 0)
+      ) > 0.005
+  )
+  check(
+    "every bon de décaissement totals its own lines",
+    unbalanced.length === 0,
+    `${unbalanced.length} disagree`
+  )
+
+  // The three visas are ordered: direction, then comptabilité, then remise.
+  const outOfOrder = disbursements.filter(
+    (entry) =>
+      (entry.accountingAt && !entry.approvedAt) ||
+      (entry.receivedAt && !entry.accountingAt)
+  )
+  check("no visa was applied out of order", outOfOrder.length === 0,
+    `${outOfOrder.length} out of order`)
+
+  // The écart is the figure the contrôle exists for. The fixtures must contain
+  // some, or the queue is a screen nobody would ever have a reason to open.
+  const invoicesWithVariance = await db.$queryRawUnsafe<{ n: number }[]>(
+    `SELECT count(*)::int AS n FROM "ipm_provider_invoices"
+     WHERE "totalAmount" <> "matchedAmount"`
+  )
+  check(
+    "some provider invoices carry an écart against the bons",
+    invoicesWithVariance[0].n > 0,
+    `${invoicesWithVariance[0].n} with a variance`
+  )
+
+  // An invoice that does not reconcile must not be sitting approved.
+  const [approvedWithVariance] = await db.$queryRawUnsafe<{ n: number }[]>(
+    `SELECT count(*)::int AS n FROM "ipm_provider_invoices"
+     WHERE "totalAmount" <> "matchedAmount"
+       AND "status" IN ('APPROVED', 'PAID')`
+  )
+  check(
+    "no invoice was approved while its écart is unresolved",
+    approvedWithVariance.n === 0,
+    `${approvedWithVariance.n} approved with a variance`
+  )
+
+  const exportResponse = await get(
+    ipm,
+    `/${IPM_SLUG}/ipm/decaissements/export?from=2020-01-01&to=2030-12-31`
+  )
+  const csv = await exportResponse.text()
+  check(
+    "the accounting export returns a CSV",
+    exportResponse.status === 200 &&
+      exportResponse.headers.get("content-type")?.includes("text/csv") === true,
+    `status ${exportResponse.status}`
+  )
+  check(
+    "it is semicolon-separated with a header, for a French Excel",
+    csv.includes("Date;Journal;Référence;Compte;Libellé;Débit;Crédit")
+  )
+
+  // Every disbursement produces the pair a payment always produces. Not a
+  // ledger — §2 excludes double-entry explicitly — but the rows must still
+  // balance, or the bookkeeper importing them has to fix them by hand.
+  const dataLines = csv
+    .split(/\r?\n/)
+    .slice(1)
+    .filter((line) => line.trim().length > 0)
+  let debits = 0
+  let credits = 0
+  for (const line of dataLines) {
+    const cells = line.split(";")
+    debits += Number(cells[5] || 0)
+    credits += Number(cells[6] || 0)
+  }
+  check(
+    "the exported rows balance",
+    Math.abs(debits - credits) < 0.005,
+    `${debits} debit vs ${credits} credit`
+  )
+
+  await expectStatus(
+    null,
+    `/${IPM_SLUG}/ipm/decaissements/export?from=2020-01-01&to=2030-12-31`,
+    307
+  )
+
   console.log("\nThe IPM firm exposes nothing else")
   await expectStatus(ipm, `/${IPM_SLUG}/hr/employees`, 404)
   await expectStatus(ipm, `/${IPM_SLUG}/hr/contracts`, 404)
@@ -619,6 +741,7 @@ async function main() {
     await expectStatus(hr, `/${slug}/ipm/prestataires`, 404)
     await expectStatus(hr, `/${slug}/ipm/cotisations`, 404)
     await expectStatus(hr, `/${slug}/ipm/factures`, 404)
+    await expectStatus(hr, `/${slug}/ipm/decaissements`, 404)
   }
   if (sample) {
     // A real participant id, aimed at a firm that does not have the module.
