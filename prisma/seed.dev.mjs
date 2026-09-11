@@ -279,8 +279,9 @@ async function main() {
 
   // ---- wipe domain data for the seeded firms (never users/firms/holdings) --
   console.log("Clearing existing domain rows…")
+  // No `fileObject` wipe: FileObject was dropped with the IPM draft models in
+  // 8c9db50 — EmployeeDocument is the only file system in use.
   await db.employeeDocument.deleteMany({ where: { firmId: { in: firmIds } } })
-  await db.fileObject.deleteMany({ where: { firmId: { in: firmIds } } })
   await db.employeeTransfer.deleteMany({
     where: { OR: [{ fromFirmId: { in: firmIds } }, { toFirmId: { in: firmIds } }] },
   })
@@ -458,6 +459,17 @@ async function main() {
   // the seed quietly finished with no OWNER at all. It is created here like
   // the others — but `update` stays empty so a real account that already
   // exists keeps its own password.
+  //
+  // Whether it already existed is read *before* the upsert. Inferring it from
+  // `updatedAt === createdAt` afterwards is wrong for any row that has simply
+  // never been updated since sign-up, and it was wrong here: the summary told
+  // the owner of a real account that their password was `senexus-dev`.
+  const ownerWasCreated =
+    (await db.user.findUnique({
+      where: { email: OWNER_EMAIL },
+      select: { id: true },
+    })) === null
+
   const owner = await db.user.upsert({
     where: { email: OWNER_EMAIL },
     update: {},
@@ -468,9 +480,6 @@ async function main() {
       emailVerified: new Date(),
     },
   })
-  // An untouched upsert leaves updatedAt equal to createdAt, so this says
-  // whether the row was just created — which decides what password to print.
-  const ownerWasCreated = owner.createdAt.getTime() === owner.updatedAt.getTime()
 
   const manager = await db.user.upsert({
     where: { email: "manager.dev@senexus.local" },
