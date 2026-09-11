@@ -3,7 +3,8 @@
 import type { Prisma } from "@prisma/client"
 import { z } from "zod"
 
-import { amountField, dateField, toDate } from "@/lib/forms/hr-schemas"
+import { dateField, toDate } from "@/lib/forms/hr-schemas"
+import { setInvoiceStatusSchema } from "@/lib/forms/ipm-schemas"
 import { ActionError, firmAction } from "@/server/actions/define-action"
 import {
   balanceOf,
@@ -595,21 +596,6 @@ export const recomputeBalances = firmAction({
  * Facture : statut
  * ========================================================================== */
 
-const setInvoiceStatusSchema = z.object({
-  ...firmScoped,
-  invoiceId: z.string().min(1),
-  status: z.enum([
-    "DRAFT",
-    "ISSUED",
-    "PARTIALLY_PAID",
-    "PAID",
-    "OVERDUE",
-    "CANCELLED",
-  ]),
-  paidAmount: amountField.optional(),
-  paymentMethod: z.string().trim().max(40).or(z.literal("")).optional(),
-  paymentReference: z.string().trim().max(60).or(z.literal("")).optional(),
-})
 
 /**
  * The status is the user's to set — and every change records who and when.

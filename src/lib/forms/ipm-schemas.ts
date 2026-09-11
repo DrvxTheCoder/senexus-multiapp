@@ -510,3 +510,43 @@ export const visaDisbursementSchema = z.object({
   disbursementId: z.string().min(1),
   visa: z.enum(["DIRECTION", "COMPTABILITE", "RECEPTION"]),
 })
+
+/* ==========================================================================
+ * Factures employeur
+ * ========================================================================== */
+
+export const INVOICE_STATUSES = [
+  "DRAFT",
+  "ISSUED",
+  "PARTIALLY_PAID",
+  "PAID",
+  "OVERDUE",
+  "CANCELLED",
+] as const
+
+/**
+ * Statut d'une facture employeur, et le règlement qui l'explique.
+ *
+ * §4.8ter: a "réglée" with no trace of who entered it has no evidential
+ * value, so the figure, the mode and the référence travel with the status
+ * change rather than being patched in afterwards.
+ *
+ * A partial payment without an amount is the one combination that means
+ * nothing at all, so the schema refuses it on the field.
+ */
+export const setInvoiceStatusSchema = z
+  .object({
+    ...firmScoped,
+    invoiceId: z.string().min(1),
+    status: z.enum(INVOICE_STATUSES),
+    paidAmount: amountField.optional(),
+    paymentMethod: optionalText(40),
+    paymentReference: optionalText(60),
+  })
+  .refine(
+    (value) => value.status !== "PARTIALLY_PAID" || value.paidAmount != null,
+    {
+      message: "Indiquez le montant déjà réglé.",
+      path: ["paidAmount"],
+    }
+  )
