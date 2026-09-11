@@ -1,8 +1,14 @@
 "use client"
 
 import * as React from "react"
-import { useRouter } from "next/navigation"
+import type { ColumnDef } from "@tanstack/react-table"
 
+import {
+  RejectInvoiceDialog,
+  RejectReimbursementDialog,
+} from "@/app/[firmSlug]/ipm/decaissements/decision-dialogs"
+import { VisaStepper } from "@/app/[firmSlug]/ipm/decaissements/visa-stepper"
+import { DataTable } from "@/components/data-table"
 import { useAction } from "@/components/forms/use-action"
 import { Panel } from "@/components/panel"
 import {
@@ -12,12 +18,14 @@ import {
   TagCode,
   TwoFacts,
 } from "@/components/primitives"
+import { ResourceDrawer } from "@/components/resource-drawer"
+import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { formatCurrency, formatDate, formatNumber } from "@/lib/format"
 import {
   checkProviderInvoice,
   createDisbursement,
   reviewReimbursement,
-  visaDisbursement,
 } from "@/server/actions/ipm-disbursements"
 import { amountInWords } from "@/server/domain/ipm/amount-in-words"
 import type {
@@ -37,7 +45,7 @@ const INVOICE_STATUS: Record<string, string> = {
   REJECTED: "Rejetée",
 }
 
-const REIMB_STATUS: Record<string, string> = {
+const REIMBURSEMENT_STATUS: Record<string, string> = {
   SUBMITTED: "Déposé",
   REVIEWING: "En cours",
   APPROVED: "Approuvé",
@@ -45,12 +53,19 @@ const REIMB_STATUS: Record<string, string> = {
   PAID: "Réglé",
 }
 
-const DISB_STATUS: Record<string, string> = {
-  DRAFT: "Brouillon",
+const DISBURSEMENT_STATUS: Record<string, string> = {
+  DRAFT: "À viser",
   APPROVED: "Visa direction",
   POSTED: "Visa comptabilité",
   PAID: "Remis",
   CANCELLED: "Annulé",
+}
+
+const PAYMENT_METHOD: Record<string, string> = {
+  CHEQUE: "Chèque",
+  TRANSFER: "Virement",
+  CASH: "Espèces",
+  ORANGE_MONEY: "Orange Money",
 }
 
 const TONE: Record<string, "ok" | "signal" | "alert" | "muted" | "brand"> = {
@@ -61,22 +76,41 @@ const TONE: Record<string, "ok" | "signal" | "alert" | "muted" | "brand"> = {
   REJECTED: "alert",
   SUBMITTED: "signal",
   REVIEWING: "brand",
-  DRAFT: "muted",
+  DRAFT: "signal",
   POSTED: "brand",
   CANCELLED: "muted",
 }
 
+const PANEL: Record<Tab, { title: string; description: string }> = {
+  INVOICES: {
+    title: "Factures prestataires",
+    description:
+      "Triées par écart décroissant : les factures contestables d'abord.",
+  },
+  REIMBURSEMENTS: {
+    title: "Remboursements",
+    description:
+      "Un participant qui a avancé les frais, tarifé au même taux qu'un bon.",
+  },
+  DISBURSEMENTS: {
+    title: "Bons de décaissement",
+    description:
+      "Trois visas, dans l'ordre. Chacun est apposé par la personne qui l'appose.",
+  },
+}
+
 /**
- * Décaissements.
+ * Décaissements — plan §4.8 et §4.9.
  *
- * Three queues in one screen, because they are three stages of one flow:
- * a provider invoice or a member claim is checked, then approved, then a bon
- * de décaissement settles it. Splitting them across three pages would hide
- * the fact that the third cannot happen without the first two.
+ * Three queues on one screen, because they are three stages of one flow: a
+ * facture prestataire or a demande de remboursement is contrôlée, then
+ * approuvée, and a bon de décaissement settles it. Splitting them across three
+ * pages would hide that the third cannot happen without the first two.
  *
- * The **écart** column is the reason the invoice queue exists at all: what a
- * provider claims against the sum of the bons actually issued to them. Nobody
- * checks invoices today because WebLamps cannot produce that number.
+ * The **écart** is why the invoice queue exists at all: what a prestataire
+ * claims, against the sum of the parts IPM of the bons actually issued to
+ * them. That is the figure WebLamps cannot produce, so it leads the screen and
+ * sorts the queue — the contestable invoices are the ones in view.
  */
 export function DisbursementsView({
   firmSlug,
@@ -93,45 +127,44 @@ export function DisbursementsView({
   disbursements: DisbursementRow[]
   canWrite: boolean
 }) {
-  const router = useRouter()
   const [tab, setTab] = React.useState<Tab>("INVOICES")
   const [selected, setSelected] = React.useState<Set<string>>(new Set())
+  const [rejectInvoice, setRejectInvoice] =
+    React.useState<ProviderInvoiceRow | null>(null)
+  const [rejectReimbursement, setRejectReimbursement] =
+    React.useState<ReimbursementRow | null>(null)
+  // The id, not the row: a visa refreshes the server data, and a captured row
+  // object would leave the stepper showing the state from before the signature
+  // it just recorded.
+  const [openId, setOpenId] = React.useState<string | null>(null)
+  const openDisbursement =
+    disbursements.find((entry) => entry.id === openId) ?? null
 
   const check = useAction(checkProviderInvoice, {
     success: "Facture mise à jour.",
-    onSuccess: () => router.refresh(),
   })
   const review = useAction(reviewReimbursement, {
-    success: "Remboursement traité.",
-    onSuccess: () => router.refresh(),
-  })
-  const visa = useAction(visaDisbursement, {
-    success: "Visa apposé.",
-    onSuccess: () => router.refresh(),
+    success: "Remboursement approuvé.",
   })
   const create = useAction(createDisbursement, {
-    success: (data: { number: string; amount: number }) =>
-      `Bon n° ${data.number} — ${amountInWords(data.amount)}.`,
+    success: (data) =>
+      `Bon n° ${data.number} établi — ${formatCurrency(data.amount)}.`,
     onSuccess: () => {
       setSelected(new Set())
-      router.refresh()
+      setTab("DISBURSEMENTS")
     },
   })
 
-  const approvedInvoices = invoices.filter(
-    (invoice) => invoice.status === "APPROVED" && !invoice.disbursementNumber
+  const selectedInvoices = invoices.filter((invoice) => selected.has(invoice.id))
+  const selectedTotal = selectedInvoices.reduce(
+    (sum, invoice) => sum + invoice.totalAmount,
+    0
   )
-  const approvedReimbursements = reimbursements.filter(
-    (entry) => entry.status === "APPROVED" && !entry.disbursementNumber
-  )
-
-  const selectedTotal =
-    approvedInvoices
-      .filter((invoice) => selected.has(invoice.id))
-      .reduce((sum, invoice) => sum + invoice.totalAmount, 0) +
-    approvedReimbursements
-      .filter((entry) => selected.has(entry.id))
-      .reduce((sum, entry) => sum + entry.insurerShare, 0)
+  // One bon settles one bénéficiaire. Locking the selection to the prestataire
+  // of the first invoice picked is the honest way to say so; the alternative
+  // was a bon addressed to whichever provider happened to sort first, for
+  // money owed to several.
+  const lockedProviderId = selectedInvoices[0]?.providerId ?? null
 
   const toggle = (id: string) =>
     setSelected((state) => {
@@ -141,11 +174,364 @@ export function DisbursementsView({
       return next
     })
 
+  /* ---- factures --------------------------------------------------------- */
+
+  const invoiceColumns = React.useMemo<
+    ColumnDef<ProviderInvoiceRow, unknown>[]
+  >(
+    () => [
+      ...(canWrite
+        ? [
+            {
+              id: "select",
+              header: "",
+              size: 34,
+              cell: ({ row }) => {
+                const payable =
+                  row.original.status === "APPROVED" &&
+                  !row.original.disbursementNumber
+                if (!payable) return null
+                const blocked =
+                  lockedProviderId !== null &&
+                  lockedProviderId !== row.original.providerId
+                return (
+                  <Checkbox
+                    checked={selected.has(row.original.id)}
+                    disabled={blocked}
+                    onCheckedChange={() => toggle(row.original.id)}
+                    aria-label={`Sélectionner la facture ${row.original.number}`}
+                  />
+                )
+              },
+            } satisfies ColumnDef<ProviderInvoiceRow, unknown>,
+          ]
+        : []),
+      {
+        id: "invoice",
+        header: "Facture",
+        cell: ({ row }) => (
+          <TwoFacts
+            primary={row.original.providerName}
+            secondary={`n° ${row.original.number}`}
+          />
+        ),
+      },
+      {
+        id: "period",
+        header: "Période",
+        cell: ({ row }) => (
+          <span className="num text-[12px] text-ink-3">
+            {formatDate(row.original.periodFrom)} →{" "}
+            {formatDate(row.original.periodTo)}
+          </span>
+        ),
+      },
+      {
+        id: "claimed",
+        header: "Réclamé",
+        cell: ({ row }) => (
+          <span className="num">{formatCurrency(row.original.totalAmount)}</span>
+        ),
+      },
+      {
+        id: "matched",
+        header: "Bons rapprochés",
+        cell: ({ row }) => (
+          <span className="num text-ink-3">
+            {formatCurrency(row.original.matchedAmount)}
+          </span>
+        ),
+      },
+      {
+        id: "variance",
+        header: "Écart",
+        cell: ({ row }) =>
+          row.original.variance === 0 ? (
+            <span className="text-ink-3">—</span>
+          ) : (
+            <span className="num font-medium text-alert">
+              {row.original.variance > 0 ? "+" : ""}
+              {formatCurrency(row.original.variance)}
+            </span>
+          ),
+      },
+      {
+        id: "status",
+        header: "Statut",
+        cell: ({ row }) => (
+          <div className="flex items-center gap-1.5">
+            <StatusPill tone={TONE[row.original.status] ?? "muted"}>
+              {INVOICE_STATUS[row.original.status] ?? row.original.status}
+            </StatusPill>
+            {row.original.disbursementNumber ? (
+              <span className="text-[11.5px] text-ink-3">
+                bon n° {row.original.disbursementNumber}
+              </span>
+            ) : null}
+          </div>
+        ),
+      },
+      ...(canWrite
+        ? [
+            {
+              id: "actions",
+              header: "",
+              cell: ({ row }) => {
+                if (!["RECEIVED", "CHECKED"].includes(row.original.status)) {
+                  return null
+                }
+                const next =
+                  row.original.status === "RECEIVED" ? "CHECKED" : "APPROVED"
+                return (
+                  <div className="flex items-center justify-end gap-1.5">
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      disabled={check.pending}
+                      onClick={() =>
+                        void check.run({
+                          firmSlug,
+                          invoiceId: row.original.id,
+                          decision: next,
+                        })
+                      }
+                    >
+                      {next === "CHECKED" ? "Contrôler" : "Approuver"}
+                    </Button>
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      onClick={() => setRejectInvoice(row.original)}
+                    >
+                      Rejeter
+                    </Button>
+                  </div>
+                )
+              },
+            } satisfies ColumnDef<ProviderInvoiceRow, unknown>,
+          ]
+        : []),
+    ],
+    [canWrite, selected, lockedProviderId, check, firmSlug]
+  )
+
+  /* ---- remboursements --------------------------------------------------- */
+
+  const reimbursementColumns = React.useMemo<
+    ColumnDef<ReimbursementRow, unknown>[]
+  >(
+    () => [
+      {
+        id: "number",
+        header: "Demande",
+        cell: ({ row }) => (
+          <div>
+            <TagCode>{row.original.number}</TagCode>
+            <div className="mt-px text-[11.5px] text-ink-3">
+              déposée le {formatDate(row.original.submittedDate)}
+            </div>
+          </div>
+        ),
+      },
+      {
+        id: "member",
+        header: "Participant",
+        cell: ({ row }) => (
+          <TwoFacts
+            primary={row.original.memberName}
+            secondary={row.original.memberMatricule}
+          />
+        ),
+      },
+      {
+        id: "category",
+        header: "Catégorie",
+        cell: ({ row }) => (
+          <span className="text-ink-3">{row.original.categoryLabel}</span>
+        ),
+      },
+      {
+        id: "total",
+        header: "Engagé",
+        cell: ({ row }) => (
+          <span className="num text-ink-3">
+            {formatCurrency(row.original.totalAmount)}
+          </span>
+        ),
+      },
+      {
+        id: "share",
+        header: "Part IPM",
+        cell: ({ row }) => (
+          <span className="num font-medium">
+            {formatCurrency(row.original.insurerShare)}
+          </span>
+        ),
+      },
+      {
+        id: "status",
+        header: "Statut",
+        cell: ({ row }) => (
+          <div className="flex items-center gap-1.5">
+            <StatusPill tone={TONE[row.original.status] ?? "muted"}>
+              {REIMBURSEMENT_STATUS[row.original.status] ?? row.original.status}
+            </StatusPill>
+            {row.original.disbursementNumber ? (
+              <span className="text-[11.5px] text-ink-3">
+                bon n° {row.original.disbursementNumber}
+              </span>
+            ) : null}
+          </div>
+        ),
+      },
+      ...(canWrite
+        ? [
+            {
+              id: "actions",
+              header: "",
+              cell: ({ row }) => {
+                if (!["SUBMITTED", "REVIEWING"].includes(row.original.status)) {
+                  return null
+                }
+                return (
+                  <div className="flex items-center justify-end gap-1.5">
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      disabled={review.pending}
+                      onClick={() =>
+                        void review.run({
+                          firmSlug,
+                          reimbursementId: row.original.id,
+                          decision: "APPROVED",
+                        })
+                      }
+                    >
+                      Approuver
+                    </Button>
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      onClick={() => setRejectReimbursement(row.original)}
+                    >
+                      Rejeter
+                    </Button>
+                  </div>
+                )
+              },
+            } satisfies ColumnDef<ReimbursementRow, unknown>,
+          ]
+        : []),
+    ],
+    [canWrite, review, firmSlug]
+  )
+
+  /* ---- bons de décaissement --------------------------------------------- */
+
+  const disbursementColumns = React.useMemo<
+    ColumnDef<DisbursementRow, unknown>[]
+  >(
+    () => [
+      {
+        id: "number",
+        header: "N°",
+        cell: ({ row }) => (
+          <div>
+            <TagCode>{row.original.number}</TagCode>
+            <div className="mt-px text-[11.5px] text-ink-3">
+              {formatDate(row.original.date)} · journal{" "}
+              {row.original.journalCode}
+            </div>
+          </div>
+        ),
+      },
+      {
+        id: "payee",
+        header: "Bénéficiaire",
+        cell: ({ row }) => (
+          <TwoFacts
+            primary={row.original.payeeName}
+            secondary={row.original.motif}
+          />
+        ),
+      },
+      {
+        id: "amount",
+        header: "Montant",
+        cell: ({ row }) => (
+          <span className="num font-medium">
+            {formatCurrency(row.original.amount)}
+          </span>
+        ),
+      },
+      {
+        id: "method",
+        header: "Règlement",
+        cell: ({ row }) => (
+          <span className="text-ink-3">
+            {PAYMENT_METHOD[row.original.paymentMethod] ??
+              row.original.paymentMethod}
+            {row.original.paymentReference ? (
+              <span className="num"> · {row.original.paymentReference}</span>
+            ) : null}
+          </span>
+        ),
+      },
+      {
+        id: "visas",
+        header: "Visas",
+        cell: ({ row }) => {
+          const done = [
+            row.original.approvedAt,
+            row.original.accountingAt,
+            row.original.receivedAt,
+          ].filter(Boolean).length
+          return (
+            <div
+              className="flex items-center gap-1"
+              aria-label={`${done} visa sur 3`}
+            >
+              {[0, 1, 2].map((index) => (
+                <span
+                  key={index}
+                  aria-hidden
+                  className={`h-1.5 w-5 rounded-full ${
+                    index < done ? "bg-brand" : "bg-sunken"
+                  }`}
+                />
+              ))}
+              <span className="num ml-1 text-[11.5px] text-ink-3">
+                {done}/3
+              </span>
+            </div>
+          )
+        },
+      },
+      {
+        id: "status",
+        header: "Statut",
+        cell: ({ row }) => (
+          <StatusPill tone={TONE[row.original.status] ?? "muted"}>
+            {DISBURSEMENT_STATUS[row.original.status] ?? row.original.status}
+          </StatusPill>
+        ),
+      },
+    ],
+    []
+  )
+
+  /* ---- rendu ------------------------------------------------------------ */
+
+  const sortedInvoices = React.useMemo(
+    () => [...invoices].sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance)),
+    [invoices]
+  )
+
   return (
     <div className="space-y-3.5">
       <Panel
-        title="Décaissements"
-        description="Facture ou remboursement, contrôlé puis approuvé, puis réglé par un bon de décaissement."
+        title="Écart prestataires"
+        description="Le montant réclamé, moins la somme des parts IPM des bons rapprochés sur la période."
         stats={[
           {
             label: "Factures à contrôler",
@@ -158,438 +544,239 @@ export function DisbursementsView({
             tone: summary.reimbursementsToReview > 0 ? "signal" : undefined,
           },
           {
-            label: "Écart en cours",
-            value: formatCurrency(summary.openVariance),
-            tone: summary.openVariance !== 0 ? "alert" : "ok",
+            label: "Bons à viser",
+            value: formatNumber(summary.awaitingApproval),
           },
           {
             label: "Approuvé non remis",
             value: formatCurrency(summary.approvedUnpaid),
           },
         ]}
+      >
+        <div className="flex flex-wrap items-baseline gap-2.5">
+          <span
+            className={`num text-[27px] leading-none font-semibold tracking-[-0.02em] ${
+              summary.openVariance === 0 ? "text-ok" : "text-alert"
+            }`}
+          >
+            {summary.openVariance > 0 ? "+" : ""}
+            {formatCurrency(summary.openVariance)}
+          </span>
+          <span className="text-[12.5px] text-ink-3">
+            {summary.openVariance === 0
+              ? "aucune facture en cours ne diverge des bons émis."
+              : "en cours d'examen, sur les factures reçues ou contrôlées."}
+          </span>
+        </div>
+      </Panel>
+
+      <Panel
+        titleAs="h2"
+        title={PANEL[tab].title}
+        description={PANEL[tab].description}
         tools={
           <SegmentedControl
-            ariaLabel="Type de pièce"
+            ariaLabel="File à traiter"
             value={tab}
             onChange={setTab}
             options={[
-              { value: "INVOICES", label: `Factures (${invoices.length})` },
+              { value: "INVOICES", label: `Factures ${invoices.length}` },
               {
                 value: "REIMBURSEMENTS",
-                label: `Remboursements (${reimbursements.length})`,
+                label: `Remboursements ${reimbursements.length}`,
               },
-              { value: "DISBURSEMENTS", label: `Bons (${disbursements.length})` },
+              { value: "DISBURSEMENTS", label: `Bons ${disbursements.length}` },
             ]}
           />
         }
-      >
-        <p className="max-w-prose text-[13px] text-ink-3">
-          L&apos;écart est la différence entre ce que le prestataire réclame et
-          la somme des parts IPM des bons réellement émis sur la période. Un
-          écart positif veut dire que la facture dépasse les bons rapprochés.
-        </p>
-      </Panel>
-
-      {tab === "INVOICES" ? (
-        <Panel
-          titleAs="h2"
-          title="Factures prestataires"
-          padded={false}
-          footer={
-            canWrite && selected.size > 0
-              ? {
-                  summary: `${selected.size} pièce(s) — ${formatCurrency(selectedTotal)}`,
-                  action: (
-                    <button
-                      type="button"
+        padded={false}
+        footer={
+          tab === "INVOICES" && canWrite && selectedInvoices.length > 0
+            ? {
+                summary: (
+                  <span>
+                    <span className="num font-medium text-ink">
+                      {selectedInvoices.length}
+                    </span>{" "}
+                    facture{selectedInvoices.length > 1 ? "s" : ""} de{" "}
+                    {selectedInvoices[0]?.providerName} —{" "}
+                    <span className="num font-medium text-ink">
+                      {formatCurrency(selectedTotal)}
+                    </span>
+                  </span>
+                ),
+                action: (
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setSelected(new Set())}
+                    >
+                      Vider
+                    </Button>
+                    <Button
+                      size="sm"
                       disabled={create.pending}
-                      onClick={() =>
+                      onClick={() => {
+                        const first = selectedInvoices[0]
+                        if (!first) return
                         void create.run({
                           firmSlug,
                           journalCode: "B1",
                           date: new Date().toISOString().slice(0, 10),
                           payeeType: "PROVIDER",
-                          payeeName:
-                            approvedInvoices.find((invoice) =>
-                              selected.has(invoice.id)
-                            )?.providerName ?? "Prestataire",
-                          motif: "Règlement factures prestataires",
+                          payeeId: first.providerId,
+                          payeeName: first.providerName,
+                          motif: `Règlement facture${
+                            selectedInvoices.length > 1 ? "s" : ""
+                          } ${selectedInvoices
+                            .map((invoice) => invoice.number)
+                            .join(", ")}`.slice(0, 200),
                           paymentMethod: "TRANSFER",
-                          providerInvoiceIds: approvedInvoices
-                            .filter((invoice) => selected.has(invoice.id))
-                            .map((invoice) => invoice.id),
+                          providerInvoiceIds: selectedInvoices.map(
+                            (invoice) => invoice.id
+                          ),
                           reimbursementIds: [],
                         })
-                      }
-                      className="h-8 rounded-[7px] bg-brand px-2.5 text-[13px] font-medium text-brand-contrast hover:opacity-90 disabled:opacity-50"
+                      }}
                     >
-                      Établir le bon de décaissement
-                    </button>
-                  ),
-                }
-              : undefined
-          }
-        >
-          {invoices.length === 0 ? (
-            <EmptyState
-              title="Aucune facture prestataire"
-              description="Les factures arrivent par courrier et sont enregistrées ici pour être rapprochées des bons."
-            />
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[900px] text-[13px]">
-                <thead>
-                  <tr className="border-y border-line bg-sub text-left text-[11.5px] text-ink-3">
-                    {canWrite ? <th className="px-[15px] py-2" /> : null}
-                    <th className="px-[15px] py-2 font-medium">Facture</th>
-                    <th className="px-[15px] py-2 font-medium">Période</th>
-                    <th className="px-[15px] py-2 font-medium">Réclamé</th>
-                    <th className="px-[15px] py-2 font-medium">Bons rapprochés</th>
-                    <th className="px-[15px] py-2 font-medium">Écart</th>
-                    <th className="px-[15px] py-2 font-medium">Statut</th>
-                    {canWrite ? <th className="px-[15px] py-2" /> : null}
-                  </tr>
-                </thead>
-                <tbody>
-                  {invoices.map((invoice) => (
-                    <tr key={invoice.id} className="border-b border-line">
-                      {canWrite ? (
-                        <td className="px-[15px] py-2.5">
-                          {invoice.status === "APPROVED" &&
-                          !invoice.disbursementNumber ? (
-                            <input
-                              type="checkbox"
-                              checked={selected.has(invoice.id)}
-                              onChange={() => toggle(invoice.id)}
-                              aria-label={`Sélectionner ${invoice.number}`}
-                            />
-                          ) : null}
-                        </td>
-                      ) : null}
-                      <td className="px-[15px] py-2.5">
-                        <TwoFacts
-                          primary={invoice.providerName}
-                          secondary={invoice.number}
-                        />
-                      </td>
-                      <td className="px-[15px] py-2.5 tabular-nums text-ink-3">
-                        {formatDate(invoice.periodFrom)} →{" "}
-                        {formatDate(invoice.periodTo)}
-                      </td>
-                      <td className="px-[15px] py-2.5 tabular-nums">
-                        {formatCurrency(invoice.totalAmount)}
-                      </td>
-                      <td className="px-[15px] py-2.5 tabular-nums text-ink-3">
-                        {formatCurrency(invoice.matchedAmount)}
-                      </td>
-                      <td className="px-[15px] py-2.5">
-                        <span
-                          className={`tabular-nums ${invoice.variance !== 0 ? "text-alert" : "text-ok"}`}
-                        >
-                          {invoice.variance > 0 ? "+" : ""}
-                          {formatCurrency(invoice.variance)}
-                        </span>
-                      </td>
-                      <td className="px-[15px] py-2.5">
-                        <StatusPill tone={TONE[invoice.status] ?? "muted"}>
-                          {INVOICE_STATUS[invoice.status] ?? invoice.status}
-                        </StatusPill>
-                      </td>
-                      {canWrite ? (
-                        <td className="px-[15px] py-2.5 text-right whitespace-nowrap">
-                          {["RECEIVED", "CHECKED"].includes(invoice.status) ? (
-                            <>
-                              <button
-                                type="button"
-                                disabled={check.pending}
-                                onClick={() =>
-                                  void check.run({
-                                    firmSlug,
-                                    invoiceId: invoice.id,
-                                    decision:
-                                      invoice.status === "RECEIVED"
-                                        ? "CHECKED"
-                                        : "APPROVED",
-                                  })
-                                }
-                                className="rounded-[7px] border border-line px-2 py-1 text-[12.5px] hover:bg-sub disabled:opacity-50"
-                              >
-                                {invoice.status === "RECEIVED"
-                                  ? "Contrôler"
-                                  : "Approuver"}
-                              </button>
-                              <button
-                                type="button"
-                                disabled={check.pending}
-                                onClick={() => {
-                                  const reason = window.prompt("Motif du rejet ?")
-                                  if (!reason) return
-                                  void check.run({
-                                    firmSlug,
-                                    invoiceId: invoice.id,
-                                    decision: "REJECTED",
-                                    rejectReason: reason,
-                                  })
-                                }}
-                                className="ml-1.5 rounded-[7px] border border-line px-2 py-1 text-[12.5px] text-alert hover:bg-sub disabled:opacity-50"
-                              >
-                                Rejeter
-                              </button>
-                            </>
-                          ) : invoice.disbursementNumber ? (
-                            <span className="text-[12.5px] text-ink-3">
-                              Bon n° {invoice.disbursementNumber}
-                            </span>
-                          ) : null}
-                        </td>
-                      ) : null}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      Établir le bon
+                    </Button>
+                  </div>
+                ),
+              }
+            : undefined
+        }
+      >
+        {tab === "INVOICES" ? (
+          <DataTable
+            data={sortedInvoices}
+            columns={invoiceColumns}
+            getRowId={(row) => row.id}
+            sorting={[]}
+            onSortingChange={() => {}}
+            label="Factures prestataires"
+            empty={
+              <EmptyState
+                title="Aucune facture prestataire"
+                description="Les factures arrivent par courrier et sont enregistrées ici pour être rapprochées des bons émis."
+              />
+            }
+          />
+        ) : tab === "REIMBURSEMENTS" ? (
+          <DataTable
+            data={reimbursements}
+            columns={reimbursementColumns}
+            getRowId={(row) => row.id}
+            sorting={[]}
+            onSortingChange={() => {}}
+            label="Remboursements"
+            empty={
+              <EmptyState
+                title="Aucun remboursement"
+                description="Un participant qui a payé de sa poche dépose une demande ; elle est tarifée au même taux qu'un bon."
+              />
+            }
+          />
+        ) : (
+          <DataTable
+            data={disbursements}
+            columns={disbursementColumns}
+            getRowId={(row) => row.id}
+            sorting={[]}
+            onSortingChange={() => {}}
+            onRowClick={(row) => setOpenId(row.id)}
+            label="Bons de décaissement"
+            empty={
+              <EmptyState
+                title="Aucun bon de décaissement"
+                description="Sélectionnez des factures approuvées dans la file « Factures » pour en établir un."
+              />
+            }
+          />
+        )}
+      </Panel>
+
+      <ResourceDrawer
+        open={Boolean(openDisbursement)}
+        onClose={() => setOpenId(null)}
+        title={openDisbursement ? `Bon n° ${openDisbursement.number}` : ""}
+        subtitle={openDisbursement?.payeeName}
+      >
+        {openDisbursement ? (
+          <div className="space-y-4">
+            <div className="rounded-[7px] border border-line bg-sub px-3 py-2.5">
+              <div className="num text-[19px] leading-none font-semibold">
+                {formatCurrency(openDisbursement.amount)}
+              </div>
+              {/* Derived from the figure, never stored: an amount and its words
+                  must not be able to disagree on a payment instrument. */}
+              <p className="mt-1.5 text-[12px] text-ink-2">
+                Arrêté à la somme de{" "}
+                <span className="font-medium">
+                  {amountInWords(openDisbursement.amount)}
+                </span>
+                .
+              </p>
             </div>
-          )}
-        </Panel>
+
+            <dl className="grid grid-cols-2 gap-x-5 gap-y-2.5 text-[13px]">
+              <Fact label="Date">{formatDate(openDisbursement.date)}</Fact>
+              <Fact label="Journal">{openDisbursement.journalCode}</Fact>
+              <Fact label="Mode de règlement">
+                {PAYMENT_METHOD[openDisbursement.paymentMethod] ??
+                  openDisbursement.paymentMethod}
+              </Fact>
+              <Fact label="Référence">
+                {openDisbursement.paymentReference ?? "—"}
+              </Fact>
+              <Fact label="Motif">{openDisbursement.motif}</Fact>
+              <Fact label="Pièces réglées">
+                {formatNumber(openDisbursement.lineCount)}
+              </Fact>
+            </dl>
+
+            <div className="border-t border-line pt-3.5">
+              <VisaStepper
+                firmSlug={firmSlug}
+                disbursement={openDisbursement}
+                canWrite={canWrite}
+              />
+            </div>
+          </div>
+        ) : null}
+      </ResourceDrawer>
+
+      {rejectInvoice ? (
+        <RejectInvoiceDialog
+          firmSlug={firmSlug}
+          invoice={rejectInvoice}
+          onClose={() => setRejectInvoice(null)}
+        />
       ) : null}
 
-      {tab === "REIMBURSEMENTS" ? (
-        <Panel titleAs="h2" title="Remboursements" padded={false}>
-          {reimbursements.length === 0 ? (
-            <EmptyState
-              title="Aucun remboursement"
-              description="Un participant qui a payé de sa poche dépose une demande ; elle est tarifée au même taux qu'un bon."
-            />
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[840px] text-[13px]">
-                <thead>
-                  <tr className="border-y border-line bg-sub text-left text-[11.5px] text-ink-3">
-                    <th className="px-[15px] py-2 font-medium">Demande</th>
-                    <th className="px-[15px] py-2 font-medium">Participant</th>
-                    <th className="px-[15px] py-2 font-medium">Catégorie</th>
-                    <th className="px-[15px] py-2 font-medium">Engagé</th>
-                    <th className="px-[15px] py-2 font-medium">Part IPM</th>
-                    <th className="px-[15px] py-2 font-medium">Statut</th>
-                    {canWrite ? <th className="px-[15px] py-2" /> : null}
-                  </tr>
-                </thead>
-                <tbody>
-                  {reimbursements.map((entry) => (
-                    <tr key={entry.id} className="border-b border-line">
-                      <td className="px-[15px] py-2.5">
-                        <TagCode>{entry.number}</TagCode>
-                        <div className="mt-px text-[11.5px] text-ink-3">
-                          {formatDate(entry.submittedDate)}
-                        </div>
-                      </td>
-                      <td className="px-[15px] py-2.5">
-                        <TwoFacts
-                          primary={entry.memberName}
-                          secondary={entry.memberMatricule}
-                        />
-                      </td>
-                      <td className="px-[15px] py-2.5 text-ink-3">
-                        {entry.categoryLabel}
-                      </td>
-                      <td className="px-[15px] py-2.5 tabular-nums text-ink-3">
-                        {formatCurrency(entry.totalAmount)}
-                      </td>
-                      <td className="px-[15px] py-2.5 font-medium tabular-nums">
-                        {formatCurrency(entry.insurerShare)}
-                      </td>
-                      <td className="px-[15px] py-2.5">
-                        <StatusPill tone={TONE[entry.status] ?? "muted"}>
-                          {REIMB_STATUS[entry.status] ?? entry.status}
-                        </StatusPill>
-                      </td>
-                      {canWrite ? (
-                        <td className="px-[15px] py-2.5 text-right whitespace-nowrap">
-                          {["SUBMITTED", "REVIEWING"].includes(entry.status) ? (
-                            <>
-                              <button
-                                type="button"
-                                disabled={review.pending}
-                                onClick={() =>
-                                  void review.run({
-                                    firmSlug,
-                                    reimbursementId: entry.id,
-                                    decision: "APPROVED",
-                                  })
-                                }
-                                className="rounded-[7px] border border-line px-2 py-1 text-[12.5px] hover:bg-sub disabled:opacity-50"
-                              >
-                                Approuver
-                              </button>
-                              <button
-                                type="button"
-                                disabled={review.pending}
-                                onClick={() => {
-                                  const reason = window.prompt("Motif du rejet ?")
-                                  if (!reason) return
-                                  void review.run({
-                                    firmSlug,
-                                    reimbursementId: entry.id,
-                                    decision: "REJECTED",
-                                    rejectReason: reason,
-                                  })
-                                }}
-                                className="ml-1.5 rounded-[7px] border border-line px-2 py-1 text-[12.5px] text-alert hover:bg-sub disabled:opacity-50"
-                              >
-                                Rejeter
-                              </button>
-                            </>
-                          ) : null}
-                        </td>
-                      ) : null}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Panel>
+      {rejectReimbursement ? (
+        <RejectReimbursementDialog
+          firmSlug={firmSlug}
+          reimbursement={rejectReimbursement}
+          onClose={() => setRejectReimbursement(null)}
+        />
       ) : null}
+    </div>
+  )
+}
 
-      {tab === "DISBURSEMENTS" ? (
-        <Panel
-          titleAs="h2"
-          title="Bons de décaissement"
-          description="Trois visas distincts. Chacun est apposé par la personne qui l'appose — jamais en son nom."
-          padded={false}
-        >
-          {disbursements.length === 0 ? (
-            <EmptyState
-              title="Aucun bon de décaissement"
-              description="Sélectionnez des factures approuvées pour en établir un."
-            />
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[960px] text-[13px]">
-                <thead>
-                  <tr className="border-y border-line bg-sub text-left text-[11.5px] text-ink-3">
-                    <th className="px-[15px] py-2 font-medium">N°</th>
-                    <th className="px-[15px] py-2 font-medium">Bénéficiaire</th>
-                    <th className="px-[15px] py-2 font-medium">Montant</th>
-                    <th className="px-[15px] py-2 font-medium">Journal</th>
-                    <th className="px-[15px] py-2 font-medium">Visa direction</th>
-                    <th className="px-[15px] py-2 font-medium">Visa comptabilité</th>
-                    <th className="px-[15px] py-2 font-medium">Remise</th>
-                    {canWrite ? <th className="px-[15px] py-2" /> : null}
-                  </tr>
-                </thead>
-                <tbody>
-                  {disbursements.map((entry) => (
-                    <tr key={entry.id} className="border-b border-line">
-                      <td className="px-[15px] py-2.5">
-                        <TagCode>{entry.number}</TagCode>
-                        <div className="mt-px text-[11.5px] text-ink-3">
-                          {formatDate(entry.date)}
-                        </div>
-                      </td>
-                      <td className="px-[15px] py-2.5">
-                        <TwoFacts
-                          primary={entry.payeeName}
-                          secondary={entry.motif}
-                        />
-                      </td>
-                      <td className="px-[15px] py-2.5">
-                        <div className="font-medium tabular-nums">
-                          {formatCurrency(entry.amount)}
-                        </div>
-                        {/* Derived from the figure, never stored, so the two
-                            cannot disagree on a payment instrument. */}
-                        <div className="mt-px max-w-[240px] text-[11px] text-ink-3">
-                          {amountInWords(entry.amount)}
-                        </div>
-                      </td>
-                      <td className="px-[15px] py-2.5 text-ink-3">
-                        {entry.journalCode}
-                      </td>
-                      <td className="px-[15px] py-2.5 text-[12.5px] text-ink-3">
-                        {entry.approvedAt ? (
-                          <>
-                            {entry.approvedByName}
-                            <div>{formatDate(entry.approvedAt)}</div>
-                          </>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                      <td className="px-[15px] py-2.5 text-[12.5px] text-ink-3">
-                        {entry.accountingAt ? (
-                          <>
-                            {entry.accountingByName}
-                            <div>{formatDate(entry.accountingAt)}</div>
-                          </>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                      <td className="px-[15px] py-2.5 text-[12.5px] text-ink-3">
-                        {entry.receivedAt ? formatDate(entry.receivedAt) : "—"}
-                      </td>
-                      {canWrite ? (
-                        <td className="px-[15px] py-2.5 text-right whitespace-nowrap">
-                          {!entry.approvedAt ? (
-                            <button
-                              type="button"
-                              disabled={visa.pending}
-                              onClick={() =>
-                                void visa.run({
-                                  firmSlug,
-                                  disbursementId: entry.id,
-                                  visa: "DIRECTION",
-                                })
-                              }
-                              className="rounded-[7px] border border-line px-2 py-1 text-[12.5px] hover:bg-sub disabled:opacity-50"
-                            >
-                              Viser (direction)
-                            </button>
-                          ) : !entry.accountingAt ? (
-                            <button
-                              type="button"
-                              disabled={visa.pending}
-                              onClick={() =>
-                                void visa.run({
-                                  firmSlug,
-                                  disbursementId: entry.id,
-                                  visa: "COMPTABILITE",
-                                })
-                              }
-                              className="rounded-[7px] border border-line px-2 py-1 text-[12.5px] hover:bg-sub disabled:opacity-50"
-                            >
-                              Viser (comptabilité)
-                            </button>
-                          ) : !entry.receivedAt ? (
-                            <button
-                              type="button"
-                              disabled={visa.pending}
-                              onClick={() =>
-                                void visa.run({
-                                  firmSlug,
-                                  disbursementId: entry.id,
-                                  visa: "RECEPTION",
-                                })
-                              }
-                              className="rounded-[7px] border border-line px-2 py-1 text-[12.5px] hover:bg-sub disabled:opacity-50"
-                            >
-                              Remis au bénéficiaire
-                            </button>
-                          ) : (
-                            <StatusPill tone="ok">
-                              {DISB_STATUS[entry.status] ?? entry.status}
-                            </StatusPill>
-                          )}
-                        </td>
-                      ) : null}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Panel>
-      ) : null}
+function Fact({
+  label,
+  children,
+}: {
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-[11.5px] text-ink-3">{label}</dt>
+      <dd className="mt-px truncate">{children}</dd>
     </div>
   )
 }

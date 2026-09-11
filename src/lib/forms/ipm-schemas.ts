@@ -466,3 +466,47 @@ export const cancelVoucherSchema = z.object({
   voucherId: z.string().min(1),
   reason: z.string().trim().min(3, "Motif requis.").max(200),
 })
+
+/* ==========================================================================
+ * Décaissements
+ * ========================================================================== */
+
+export const PROVIDER_INVOICE_DECISIONS = [
+  "CHECKED",
+  "APPROVED",
+  "REJECTED",
+] as const
+
+export const checkProviderInvoiceSchema = z
+  .object({
+    ...firmScoped,
+    invoiceId: z.string().min(1),
+    decision: z.enum(PROVIDER_INVOICE_DECISIONS),
+    rejectReason: optionalText(200),
+  })
+  // A rejection without a reason tells the prestataire nothing and leaves the
+  // écart unexplained, so the schema refuses it rather than the handler.
+  .refine(
+    (value) =>
+      value.decision !== "REJECTED" || Boolean(value.rejectReason?.trim()),
+    { message: "Un rejet doit être motivé.", path: ["rejectReason"] }
+  )
+
+export const reviewReimbursementSchema = z
+  .object({
+    ...firmScoped,
+    reimbursementId: z.string().min(1),
+    decision: z.enum(["APPROVED", "REJECTED"]),
+    rejectReason: optionalText(200),
+  })
+  .refine(
+    (value) =>
+      value.decision !== "REJECTED" || Boolean(value.rejectReason?.trim()),
+    { message: "Un rejet doit être motivé.", path: ["rejectReason"] }
+  )
+
+export const visaDisbursementSchema = z.object({
+  ...firmScoped,
+  disbursementId: z.string().min(1),
+  visa: z.enum(["DIRECTION", "COMPTABILITE", "RECEPTION"]),
+})

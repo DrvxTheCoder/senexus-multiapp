@@ -3,6 +3,11 @@
 import { z } from "zod"
 
 import { amountField, dateField, toDate } from "@/lib/forms/hr-schemas"
+import {
+  checkProviderInvoiceSchema,
+  reviewReimbursementSchema,
+  visaDisbursementSchema,
+} from "@/lib/forms/ipm-schemas"
 import { ActionError, firmAction } from "@/server/actions/define-action"
 import { split } from "@/server/domain/ipm/settlement"
 import { nextInSequence } from "@/server/domain/ipm/sequence"
@@ -151,13 +156,6 @@ export const recordProviderInvoice = firmAction({
   },
 })
 
-const checkProviderInvoiceSchema = z.object({
-  ...firmScoped,
-  invoiceId: z.string().min(1),
-  decision: z.enum(["CHECKED", "APPROVED", "REJECTED"]),
-  rejectReason: z.string().trim().max(200).or(z.literal("")).optional(),
-})
-
 export const checkProviderInvoice = firmAction({
   input: checkProviderInvoiceSchema,
   minimumRole: "MANAGER",
@@ -297,13 +295,6 @@ export const recordReimbursement = firmAction({
 
     return reimbursement
   },
-})
-
-const reviewReimbursementSchema = z.object({
-  ...firmScoped,
-  reimbursementId: z.string().min(1),
-  decision: z.enum(["APPROVED", "REJECTED"]),
-  rejectReason: z.string().trim().max(200).or(z.literal("")).optional(),
 })
 
 /**
@@ -579,12 +570,6 @@ export const createDisbursement = firmAction({
 
     return { id: disbursement.id, number: disbursement.number, amount }
   },
-})
-
-const visaDisbursementSchema = z.object({
-  ...firmScoped,
-  disbursementId: z.string().min(1),
-  visa: z.enum(["DIRECTION", "COMPTABILITE", "RECEPTION"]),
 })
 
 /**

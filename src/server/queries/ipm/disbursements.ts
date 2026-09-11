@@ -15,6 +15,7 @@ import type { FirmContext } from "@/server/auth/require-firm-access"
 export type ProviderInvoiceRow = {
   id: string
   number: string
+  providerId: string
   providerName: string
   receivedDate: Date
   periodFrom: Date
@@ -43,7 +44,7 @@ export async function listProviderInvoices(
       totalAmount: true,
       matchedAmount: true,
       status: true,
-      provider: { select: { name: true } },
+      provider: { select: { id: true, name: true } },
       disbursement: { select: { number: true } },
     },
   })
@@ -51,6 +52,7 @@ export async function listProviderInvoices(
   return rows.map((row) => ({
     id: row.id,
     number: row.number,
+    providerId: row.provider.id,
     providerName: row.provider.name,
     receivedDate: row.receivedDate,
     periodFrom: row.periodFrom,
