@@ -6,6 +6,7 @@ import {
   DashboardSquare01Icon,
   File01Icon,
   Folder01Icon,
+  HealthIcon,
   Settings02Icon,
   UserMultipleIcon,
   UserSettings01Icon,
@@ -94,6 +95,16 @@ export const NAV_GROUPS: NavGroup[] = [
     module: "documents",
     collapsible: false,
     items: [{ label: "Documents", href: "/documents", icon: Folder01Icon }],
+  },
+  {
+    id: "ipm",
+    label: "Prévoyance maladie",
+    // Health data. The module gate is the only thing standing between a firm
+    // that has no business seeing prestations and the pages that show them, so
+    // this entry must never be given `module: null` for convenience.
+    module: "ipm",
+    collapsible: false,
+    items: [{ label: "IPM", href: "/ipm", icon: HealthIcon }],
   },
   {
     id: "account",

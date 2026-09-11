@@ -6,7 +6,9 @@
  * realistic volume and realistic distributions.
  *
  * This never runs against a remote host: the guard below refuses anything that
- * is not localhost. It also only ever touches the two seeded firms.
+ * is not localhost. It also only ever touches the firms it seeds: the two HR
+ * filiales, which get fixture data, and IPM Tawfeikh, which gets a module and
+ * nothing else until Phase 1 gives it a data model.
  *
  *   pnpm db:seed:dev
  *
@@ -168,8 +170,26 @@ const FIRMS = {
   },
 }
 
-// The account that owns both firms. Override when seeding for someone else.
+// The account that owns every filiale. Override when seeding for someone else.
 const OWNER_EMAIL = process.env.SEED_OWNER_EMAIL ?? "flanpaul19@gmail.com"
+
+/**
+ * IPM Tawfeikh — third filiale of the same holding, and deliberately **not** a
+ * member of `FIRMS`.
+ *
+ * `FIRMS` is the HR fixture generator's input: everything in it receives
+ * departments, employees, contracts, clients and a matricule prefix. The IPM
+ * runs one module and has none of those. Listing it there to save a loop would
+ * hand it the entire HR surface, which is precisely what the module boundary
+ * exists to prevent.
+ */
+const IPM_FIRM = {
+  slug: "ipm-tawfeikh",
+  displayName: "IPM Tawfeikh",
+  themeColor: "#0b5d53",
+  /** Not `documents`: that module is employee documents and depends on hr. */
+  modules: ["ipm"],
+}
 
 const DOCUMENT_TYPES = [
   "CONTRACT", "ID_CARD", "CV", "MEDICAL_CERTIFICATE", "CERTIFICATE",
@@ -214,6 +234,20 @@ async function main() {
     console.log(`Created firm ${config.displayName}.`)
   }
 
+  if (!bySlug[IPM_FIRM.slug]) {
+    bySlug[IPM_FIRM.slug] = await db.firm.create({
+      data: {
+        holdingId: holding.id,
+        slug: IPM_FIRM.slug,
+        name: IPM_FIRM.displayName,
+        themeColor: IPM_FIRM.themeColor,
+      },
+      select: { id: true, slug: true, name: true },
+    })
+    console.log(`Created firm ${IPM_FIRM.displayName}.`)
+  }
+  const ipmFirm = bySlug[IPM_FIRM.slug]
+
   // The second firm was seeded as `senexus-consulting` before the real name was
   // confirmed. Left behind it becomes a third firm full of stale fixtures that
   // every dashboard counts. Removed here, and only here — this seed already
@@ -233,7 +267,7 @@ async function main() {
   // A firm seeded before this rule existed may sit under a second holding.
   await db.firm.updateMany({
     where: {
-      slug: { in: Object.keys(FIRMS) },
+      slug: { in: [...Object.keys(FIRMS), IPM_FIRM.slug] },
       NOT: { holdingId: holding.id },
     },
     data: { holdingId: holding.id },
@@ -301,6 +335,18 @@ async function main() {
       isSystem: false,
       dependsOn: "hr",
     },
+    {
+      slug: "ipm",
+      name: "Prévoyance maladie",
+      description:
+        "Institution de prévoyance maladie : affiliation, formules, bons de prise en charge, cotisations.",
+      icon: "HealthIcon",
+      basePath: "/ipm",
+      isSystem: false,
+      // Deliberately no `dependsOn`. The IPM is a filiale with neither
+      // employees nor clients in MultiAPP, so a dependency on hr would be a
+      // lie that also forces the whole HR surface on.
+    },
   ]
 
   const moduleBySlug = {}
@@ -341,20 +387,29 @@ async function main() {
     }
   }
 
-  // Every seeded firm gets all three enabled, or its routes 404.
-  for (const firm of seededFirms) {
-    for (const spec of MODULES) {
-      const moduleId = moduleBySlug[spec.slug].id
+  // What a firm is *installed* with is never "every module in the catalogue".
+  // A FirmModule row is the authorisation boundary, so each firm's list is
+  // enumerated explicitly: the HR filiales get the three HR-side modules, the
+  // IPM gets `ipm` alone. Iterating MODULES here instead would hand health
+  // routes to Connect Interim the moment a module is added to the catalogue.
+  const HR_FIRM_MODULES = ["hr", "crm", "documents"]
+
+  async function install(firm, slugs) {
+    for (const slug of slugs) {
+      const moduleId = moduleBySlug[slug].id
       await db.firmModule.upsert({
         where: { firmId_moduleId: { firmId: firm.id, moduleId } },
         update: { isEnabled: true },
         create: { firmId: firm.id, moduleId, isEnabled: true },
       })
     }
+    console.log(`  ${firm.name}: ${slugs.join(", ")}`)
   }
-  console.log(
-    `  ${MODULES.length} modules (${MODULES.map((m) => m.slug).join(", ")}) on ${seededFirms.length} firms`
-  )
+
+  for (const firm of seededFirms) {
+    await install(firm, HR_FIRM_MODULES)
+  }
+  await install(ipmFirm, IPM_FIRM.modules)
 
   // ---- matricule prefixes ------------------------------------------------
   // The single most consequential legacy defect: `generateNextMatricule` took a
@@ -363,6 +418,13 @@ async function main() {
   // extension point — and the seed writes it so generated matricules match the
   // ones in the fixtures. This used to be skipped when the hr module was
   // missing, which on a fresh database meant always.
+  //
+  // It also used to `upsert`. A FirmModule row is the authorisation boundary,
+  // not a key-value store that happens to hang off a firm, and writing a
+  // setting must never be what brings one into existence — any firm added to
+  // FIRMS without HR would have come out with the whole HR surface enabled. It
+  // updates a row that the install step above has already created, and says so
+  // rather than silently granting one.
   const hrModuleId = moduleBySlug.hr.id
   for (const [slug, config] of Object.entries(FIRMS)) {
     const firm = bySlug[slug]
@@ -370,17 +432,15 @@ async function main() {
       where: { firmId_moduleId: { firmId: firm.id, moduleId: hrModuleId } },
       select: { settings: true },
     })
-    await db.firmModule.upsert({
+    if (!existing) {
+      console.log(`  ${firm.name}: RH non activé, préfixe non écrit.`)
+      continue
+    }
+    await db.firmModule.update({
       where: { firmId_moduleId: { firmId: firm.id, moduleId: hrModuleId } },
-      update: {
+      data: {
         isEnabled: true,
-        settings: { ...(existing?.settings ?? {}), matriculePrefix: config.prefix },
-      },
-      create: {
-        firmId: firm.id,
-        moduleId: hrModuleId,
-        isEnabled: true,
-        settings: { matriculePrefix: config.prefix },
+        settings: { ...(existing.settings ?? {}), matriculePrefix: config.prefix },
       },
     })
     console.log(`  ${firm.name}: matricules ${config.prefix}####`)
@@ -462,7 +522,16 @@ async function main() {
       create: { userId: owner.id, firmId: firm.id, role: "OWNER" },
     })
   }
-  console.log(`  owner ${OWNER_EMAIL} on ${seededFirms.length} firms`)
+  // The IPM gets the owner and no one else. `manager.dev` deliberately stays
+  // out: §7 asks that a right on the HR side confer nothing on the health side,
+  // and leaving one seeded account with HR access and no IPM membership is what
+  // makes that testable rather than merely asserted.
+  await db.userFirm.upsert({
+    where: { userId_firmId: { userId: owner.id, firmId: ipmFirm.id } },
+    update: { role: "OWNER" },
+    create: { userId: owner.id, firmId: ipmFirm.id, role: "OWNER" },
+  })
+  console.log(`  owner ${OWNER_EMAIL} on ${seededFirms.length + 1} firms`)
 
   // ---- per-firm data -----------------------------------------------------
   const totals = { clients: 0, departments: 0, employees: 0, contracts: 0, documents: 0, leaves: 0 }
@@ -841,7 +910,7 @@ async function main() {
   console.table([
     {
       email: OWNER_EMAIL,
-      role: "OWNER (both firms)",
+      role: "OWNER (les trois filiales)",
       // Created just now by this seed, or pre-existing with its own password.
       password: ownerWasCreated ? "senexus-dev" : "unchanged",
     },

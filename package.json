@@ -20,6 +20,7 @@
     "check:queries": "vite-node -c vitest.config.ts scripts/check-query-layer.mts",
     "check:admin": "vite-node -c vitest.config.ts scripts/check-admin.mts",
     "check:hr": "vite-node -c vitest.config.ts scripts/check-hr.mts",
+    "check:ipm": "vite-node -c vitest.config.ts scripts/check-ipm.mts",
     "test:watch": "vitest"
   },
   "dependencies": {
