@@ -277,7 +277,7 @@ export function IssueVoucherForm({
                   { label: "", quantity: "1", unitPrice: "" },
                 ])
               }
-              className="flex h-8 items-center gap-1.5 rounded-control border border-line px-2.5 text-[13px] hover:bg-sub"
+              className="flex h-8 items-center gap-1.5 rounded-[7px] border border-line px-2.5 text-[13px] hover:bg-sub"
             >
               <HugeiconsIcon icon={PlusSignIcon} size={13} aria-hidden />
               Ligne
@@ -478,7 +478,7 @@ export function IssueVoucherForm({
 }
 
 const selectClass =
-  "h-8 w-full rounded-control border border-line bg-surface px-2 text-[13px] outline-none focus:border-brand"
+  "h-8 w-full rounded-[7px] border border-line bg-surface px-2 text-[13px] outline-none focus:border-brand"
 
 function Field({
   label,

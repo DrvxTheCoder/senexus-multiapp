@@ -38,7 +38,7 @@ function listPath(firmSlug: string, ...rest: string[]): string {
  * Factures prestataires
  * ========================================================================== */
 
-export const recordProviderInvoiceSchema = z.object({
+const recordProviderInvoiceSchema = z.object({
   ...firmScoped,
   providerId: z.string().min(1),
   number: z.string().trim().min(1).max(40),
@@ -151,7 +151,7 @@ export const recordProviderInvoice = firmAction({
   },
 })
 
-export const checkProviderInvoiceSchema = z.object({
+const checkProviderInvoiceSchema = z.object({
   ...firmScoped,
   invoiceId: z.string().min(1),
   decision: z.enum(["CHECKED", "APPROVED", "REJECTED"]),
@@ -209,7 +209,7 @@ export const checkProviderInvoice = firmAction({
  * Remboursements
  * ========================================================================== */
 
-export const recordReimbursementSchema = z.object({
+const recordReimbursementSchema = z.object({
   ...firmScoped,
   memberId: z.string().min(1),
   dependentId: z.string().min(1).or(z.literal("")).optional(),
@@ -299,7 +299,7 @@ export const recordReimbursement = firmAction({
   },
 })
 
-export const reviewReimbursementSchema = z.object({
+const reviewReimbursementSchema = z.object({
   ...firmScoped,
   reimbursementId: z.string().min(1),
   decision: z.enum(["APPROVED", "REJECTED"]),
@@ -423,7 +423,7 @@ export const reviewReimbursement = firmAction({
  * Bons de décaissement
  * ========================================================================== */
 
-export const createDisbursementSchema = z.object({
+const createDisbursementSchema = z.object({
   ...firmScoped,
   journalCode: z.enum(["B1", "02", "OM"]),
   date: dateField,
@@ -581,7 +581,7 @@ export const createDisbursement = firmAction({
   },
 })
 
-export const visaDisbursementSchema = z.object({
+const visaDisbursementSchema = z.object({
   ...firmScoped,
   disbursementId: z.string().min(1),
   visa: z.enum(["DIRECTION", "COMPTABILITE", "RECEPTION"]),

@@ -1,6 +1,6 @@
 # ReUI components
 
-The 21 ReUI building blocks: `alert`, `autocomplete`, `badge`, `cascader`, `data-grid`, `date-selector`, `event-calendar`, `filters`, `frame`, `gantt`, `icon-stack`, `icon-tile`, `kanban`, `number-field`, `phone-input`, `rating`, `scrollspy`, `sortable`, `stepper`, `timeline`, `tree`. Examples and blocks are composed from these.
+The 22 ReUI building blocks: `alert`, `autocomplete`, `badge`, `cascader`, `code-block`, `data-grid`, `date-selector`, `event-calendar`, `filters`, `frame`, `gantt`, `icon-stack`, `icon-tile`, `kanban`, `number-field`, `phone-input`, `rating`, `scrollspy`, `sortable`, `stepper`, `timeline`, `tree`. Examples and blocks are composed from these.
 
 **Rule one: never guess a component's API. Read it first.** Call **`get_component(name)`** for its inline `api` (props + usage, no web fetch), and **share the result's `docsUrl`** (the component's API documentation page) with the user whenever you work with that component's API, so they have the full reference (the `/llms.txt` index is a further fallback). Then call **`get_examples(name)`** to install a worked example and copy real composition. The contracts below are first-try orientation (required props, composition shape, the one gotcha); the inline `api` is the full reference. No single block fits? Compose: search the components you need, read each `get_component`, install a `get_examples` example per component, and adapt.
 
@@ -361,6 +361,26 @@ const [value, setValue] = useState<DateSelectorValue | undefined>()
 ```
 
 **Gotcha:** the square container an icon sits in, so every list row, feature card and empty state shares one affordance. `variant`: `outline` (default) | `elevated` (muted fill, raised ring) | `soft` (tinted nested, tone from currentColor) | `solid` (filled tone, contrasting glyph) | `frame` (double container). `soft` and `solid` retint from one text color class (they default to `text-primary`). `size`: `xs | sm | default | lg | xl` (24/32/40/48/64px tile, glyph scales 12/14/16/20/24px). `radius`: `default | full`. Do not set a `size-*` class on the child icon unless you mean to override the tile's glyph size; recolor with `className` on the tile, not the icon.
+
+## code-block
+
+**Required:** `code` + `language`, or pre-highlighted `lines`.
+**Shape:**
+
+```tsx
+<CodeBlock code={code} language="tsx" />
+
+<CodeBlock code={code} language="tsx" showLineNumbers maxLines={20}>
+  <CodeBlockHeader>
+    <CodeBlockTitle>use-totals.ts</CodeBlockTitle>
+    <CodeBlockLanguage />
+    <CodeBlockCopyButton className="ml-auto" />
+  </CodeBlockHeader>
+  <CodeBlockExpandButton />
+</CodeBlock>
+```
+
+**Gotcha:** the one-liner is already a complete block; every child (header, title, language label, copy button, wrap toggle, expand button, line actions) is optional chrome, at any depth. Shiki is the only npm dependency and loads lazily, one chunk per language, on first highlight; `lines` (from `highlightCode` in `code-block-highlight`, which is server-safe and has no `"use client"`) or `highlight={false}` loads nothing at all. `maxLines` caps the height AND marks the block collapsible, which is what makes `CodeBlockExpandButton` appear. Use `variant="ghost"` when the block sits inside a surface that already has a border.
 
 ## alert
 

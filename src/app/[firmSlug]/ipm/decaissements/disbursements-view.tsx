@@ -221,7 +221,7 @@ export function DisbursementsView({
                           reimbursementIds: [],
                         })
                       }
-                      className="h-8 rounded-control bg-brand px-2.5 text-[13px] font-medium text-on-brand hover:opacity-90 disabled:opacity-50"
+                      className="h-8 rounded-[7px] bg-brand px-2.5 text-[13px] font-medium text-brand-contrast hover:opacity-90 disabled:opacity-50"
                     >
                       Établir le bon de décaissement
                     </button>
@@ -312,7 +312,7 @@ export function DisbursementsView({
                                         : "APPROVED",
                                   })
                                 }
-                                className="rounded-control border border-line px-2 py-1 text-[12.5px] hover:bg-sub disabled:opacity-50"
+                                className="rounded-[7px] border border-line px-2 py-1 text-[12.5px] hover:bg-sub disabled:opacity-50"
                               >
                                 {invoice.status === "RECEIVED"
                                   ? "Contrôler"
@@ -331,7 +331,7 @@ export function DisbursementsView({
                                     rejectReason: reason,
                                   })
                                 }}
-                                className="ml-1.5 rounded-control border border-line px-2 py-1 text-[12.5px] text-alert hover:bg-sub disabled:opacity-50"
+                                className="ml-1.5 rounded-[7px] border border-line px-2 py-1 text-[12.5px] text-alert hover:bg-sub disabled:opacity-50"
                               >
                                 Rejeter
                               </button>
@@ -416,7 +416,7 @@ export function DisbursementsView({
                                     decision: "APPROVED",
                                   })
                                 }
-                                className="rounded-control border border-line px-2 py-1 text-[12.5px] hover:bg-sub disabled:opacity-50"
+                                className="rounded-[7px] border border-line px-2 py-1 text-[12.5px] hover:bg-sub disabled:opacity-50"
                               >
                                 Approuver
                               </button>
@@ -433,7 +433,7 @@ export function DisbursementsView({
                                     rejectReason: reason,
                                   })
                                 }}
-                                className="ml-1.5 rounded-control border border-line px-2 py-1 text-[12.5px] text-alert hover:bg-sub disabled:opacity-50"
+                                className="ml-1.5 rounded-[7px] border border-line px-2 py-1 text-[12.5px] text-alert hover:bg-sub disabled:opacity-50"
                               >
                                 Rejeter
                               </button>
@@ -541,7 +541,7 @@ export function DisbursementsView({
                                   visa: "DIRECTION",
                                 })
                               }
-                              className="rounded-control border border-line px-2 py-1 text-[12.5px] hover:bg-sub disabled:opacity-50"
+                              className="rounded-[7px] border border-line px-2 py-1 text-[12.5px] hover:bg-sub disabled:opacity-50"
                             >
                               Viser (direction)
                             </button>
@@ -556,7 +556,7 @@ export function DisbursementsView({
                                   visa: "COMPTABILITE",
                                 })
                               }
-                              className="rounded-control border border-line px-2 py-1 text-[12.5px] hover:bg-sub disabled:opacity-50"
+                              className="rounded-[7px] border border-line px-2 py-1 text-[12.5px] hover:bg-sub disabled:opacity-50"
                             >
                               Viser (comptabilité)
                             </button>
@@ -571,7 +571,7 @@ export function DisbursementsView({
                                   visa: "RECEPTION",
                                 })
                               }
-                              className="rounded-control border border-line px-2 py-1 text-[12.5px] hover:bg-sub disabled:opacity-50"
+                              className="rounded-[7px] border border-line px-2 py-1 text-[12.5px] hover:bg-sub disabled:opacity-50"
                             >
                               Remis au bénéficiaire
                             </button>

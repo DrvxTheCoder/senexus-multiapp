@@ -242,7 +242,7 @@ export function MembersView({
                 }
                 placeholder="Nom, matricule, CNI…"
                 aria-label="Rechercher un participant"
-                className="h-8 w-56 rounded-control border border-line bg-surface pr-2 pl-7 text-[13px] outline-none focus:border-brand"
+                className="h-8 w-56 rounded-[7px] border border-line bg-surface pr-2 pl-7 text-[13px] outline-none focus:border-brand"
               />
             </div>
 
@@ -281,7 +281,7 @@ export function MembersView({
                     page: 1,
                   })
                 }
-                className="flex h-8 items-center gap-1.5 rounded-control px-2 text-[13px] text-ink-3 hover:text-ink"
+                className="flex h-8 items-center gap-1.5 rounded-[7px] px-2 text-[13px] text-ink-3 hover:text-ink"
               >
                 <HugeiconsIcon icon={Cancel01Icon} size={13} aria-hidden />
                 Effacer
@@ -292,7 +292,7 @@ export function MembersView({
               <button
                 type="button"
                 onClick={() => setCreating(true)}
-                className="flex h-8 items-center gap-1.5 rounded-control bg-brand px-2.5 text-[13px] font-medium text-on-brand hover:opacity-90"
+                className="flex h-8 items-center gap-1.5 rounded-[7px] bg-brand px-2.5 text-[13px] font-medium text-brand-contrast hover:opacity-90"
               >
                 <HugeiconsIcon icon={PlusSignIcon} size={13} aria-hidden />
                 Affilier

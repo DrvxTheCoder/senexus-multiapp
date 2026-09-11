@@ -106,7 +106,7 @@ async function post(
  * Solde d'ouverture — §11 Q11
  * ========================================================================== */
 
-export const openLedgerSchema = z.object({
+const openLedgerSchema = z.object({
   ...firmScoped,
   memberId: z.string().min(1),
   /** Signed: a participant may open in debt. */
@@ -182,7 +182,7 @@ export const openLedger = firmAction({
  * Régularisation
  * ========================================================================== */
 
-export const adjustLedgerSchema = z.object({
+const adjustLedgerSchema = z.object({
   ...firmScoped,
   memberId: z.string().min(1),
   amount: z.coerce.number().int().min(-99_999_999).max(99_999_999),
@@ -242,7 +242,7 @@ export const adjustLedger = firmAction({
  * Clôture mensuelle
  * ========================================================================== */
 
-export const closeMonthSchema = z.object({
+const closeMonthSchema = z.object({
   ...firmScoped,
   year: z.coerce.number().int().min(2020).max(2100),
   month: z.coerce.number().int().min(1).max(12),
@@ -421,7 +421,7 @@ export const closeMonth = firmAction({
  * Consommation → registre
  * ========================================================================== */
 
-export const postConsumptionSchema = z.object({
+const postConsumptionSchema = z.object({
   ...firmScoped,
   voucherId: z.string().min(1),
 })
@@ -502,7 +502,7 @@ export const postVoucherConsumption = firmAction({
  * Recalcul
  * ========================================================================== */
 
-export const recomputeBalancesSchema = z.object({ ...firmScoped })
+const recomputeBalancesSchema = z.object({ ...firmScoped })
 
 /**
  * Rebuilds every cached balance from the register.
@@ -595,7 +595,7 @@ export const recomputeBalances = firmAction({
  * Facture : statut
  * ========================================================================== */
 
-export const setInvoiceStatusSchema = z.object({
+const setInvoiceStatusSchema = z.object({
   ...firmScoped,
   invoiceId: z.string().min(1),
   status: z.enum([
@@ -671,7 +671,7 @@ export const setInvoiceStatus = firmAction({
  * Réaffiliation — §11 Q13
  * ========================================================================== */
 
-export const resetLedgerSchema = z.object({
+const resetLedgerSchema = z.object({
   ...firmScoped,
   memberId: z.string().min(1),
   asOf: dateField,

@@ -137,7 +137,7 @@ export function MemberRecordView({
               <button
                 type="button"
                 onClick={() => setEditing(true)}
-                className="flex h-8 items-center gap-1.5 rounded-control border border-line px-2.5 text-[13px] hover:bg-sub"
+                className="flex h-8 items-center gap-1.5 rounded-[7px] border border-line px-2.5 text-[13px] hover:bg-sub"
               >
                 <HugeiconsIcon icon={Edit02Icon} size={13} aria-hidden />
                 Modifier
@@ -146,7 +146,7 @@ export function MemberRecordView({
                 <button
                   type="button"
                   onClick={() => setTerminating(true)}
-                  className="flex h-8 items-center gap-1.5 rounded-control border border-line px-2.5 text-[13px] text-alert hover:bg-sub"
+                  className="flex h-8 items-center gap-1.5 rounded-[7px] border border-line px-2.5 text-[13px] text-alert hover:bg-sub"
                 >
                   <HugeiconsIcon icon={UserMinus01Icon} size={13} aria-hidden />
                   Radier
@@ -251,7 +251,7 @@ export function MemberRecordView({
             <button
               type="button"
               onClick={() => setDependent("new")}
-              className="flex h-8 items-center gap-1.5 rounded-control bg-brand px-2.5 text-[13px] font-medium text-on-brand hover:opacity-90"
+              className="flex h-8 items-center gap-1.5 rounded-[7px] bg-brand px-2.5 text-[13px] font-medium text-brand-contrast hover:opacity-90"
             >
               <HugeiconsIcon icon={PlusSignIcon} size={13} aria-hidden />
               Ajouter
@@ -357,7 +357,7 @@ export function MemberRecordView({
         tools={
           <Link
             href={`/${firmSlug}/ipm/cartes`}
-            className="flex h-8 items-center rounded-control border border-line px-2.5 text-[13px] hover:bg-sub"
+            className="flex h-8 items-center rounded-[7px] border border-line px-2.5 text-[13px] hover:bg-sub"
           >
             Toutes les cartes
           </Link>
@@ -402,7 +402,7 @@ export function MemberRecordView({
             <button
               type="button"
               onClick={() => setContributing(true)}
-              className="flex h-8 items-center gap-1.5 rounded-control border border-line px-2.5 text-[13px] hover:bg-sub"
+              className="flex h-8 items-center gap-1.5 rounded-[7px] border border-line px-2.5 text-[13px] hover:bg-sub"
             >
               <HugeiconsIcon icon={PlusSignIcon} size={13} aria-hidden />
               Nouvelle période

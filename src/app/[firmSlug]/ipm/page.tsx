@@ -108,25 +108,25 @@ export default async function IpmPage({ params }: PageProps<"/[firmSlug]/ipm">) 
               <div className="flex flex-wrap gap-2 text-[13px]">
                 <Link
                   href={membersHref(firmSlug)}
-                  className="rounded-control border border-line px-2.5 py-1 hover:bg-sub"
+                  className="rounded-[7px] border border-line px-2.5 py-1 hover:bg-sub"
                 >
                   Participants
                 </Link>
                 <Link
                   href={`/${firmSlug}/ipm/employeurs`}
-                  className="rounded-control border border-line px-2.5 py-1 hover:bg-sub"
+                  className="rounded-[7px] border border-line px-2.5 py-1 hover:bg-sub"
                 >
                   {formatNumber(employers.length)} employeurs
                 </Link>
                 <Link
                   href={`/${firmSlug}/ipm/formules`}
-                  className="rounded-control border border-line px-2.5 py-1 hover:bg-sub"
+                  className="rounded-[7px] border border-line px-2.5 py-1 hover:bg-sub"
                 >
                   {formatNumber(plans.length)} formules
                 </Link>
                 <Link
                   href={`/${firmSlug}/ipm/referentiel`}
-                  className="rounded-control border border-line px-2.5 py-1 hover:bg-sub"
+                  className="rounded-[7px] border border-line px-2.5 py-1 hover:bg-sub"
                 >
                   {formatNumber(activeCategories.length)} catégories
                 </Link>

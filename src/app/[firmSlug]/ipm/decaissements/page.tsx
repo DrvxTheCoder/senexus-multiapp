@@ -41,7 +41,7 @@ export default async function DisbursementsPage({
         actions={
           <Link
             href={`/${firmSlug}/ipm/decaissements/export?from=${year}-01-01&to=${year}-12-31`}
-            className="flex h-8 items-center rounded-control border border-line px-2.5 text-[13px] hover:bg-sub"
+            className="flex h-8 items-center rounded-[7px] border border-line px-2.5 text-[13px] hover:bg-sub"
           >
             Export comptable
           </Link>

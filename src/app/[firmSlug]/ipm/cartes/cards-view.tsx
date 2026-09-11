@@ -164,7 +164,7 @@ export function CardsView({
                           onClick={() =>
                             void run({ firmSlug, memberId: card.memberId })
                           }
-                          className="flex items-center gap-1 rounded-control border border-line px-2 py-1 text-[12.5px] hover:bg-sub disabled:opacity-50"
+                          className="flex items-center gap-1 rounded-[7px] border border-line px-2 py-1 text-[12.5px] hover:bg-sub disabled:opacity-50"
                         >
                           <HugeiconsIcon icon={Refresh01Icon} size={12} aria-hidden />
                           {card.state === "MISSING" ? "Générer" : "Regénérer"}
@@ -231,20 +231,20 @@ function CardPreview({
           <div className="flex items-center gap-2 text-[12.5px]">
             <a
               href={`${base}/recto?format=tiff`}
-              className="rounded-control border border-line px-2 py-1 hover:bg-sub"
+              className="rounded-[7px] border border-line px-2 py-1 hover:bg-sub"
             >
               Recto CMYK
             </a>
             <a
               href={`${base}/verso?format=tiff`}
-              className="rounded-control border border-line px-2 py-1 hover:bg-sub"
+              className="rounded-[7px] border border-line px-2 py-1 hover:bg-sub"
             >
               Verso CMYK
             </a>
             <button
               type="button"
               onClick={onClose}
-              className="rounded-control border border-line px-2 py-1 hover:bg-sub"
+              className="rounded-[7px] border border-line px-2 py-1 hover:bg-sub"
             >
               Fermer
             </button>

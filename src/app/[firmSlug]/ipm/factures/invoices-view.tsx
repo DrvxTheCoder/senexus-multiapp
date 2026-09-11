@@ -146,7 +146,7 @@ export function InvoicesView({
                           })
                         }
                         aria-label={`Statut de ${invoice.number}`}
-                        className="h-7 rounded-control border border-line bg-surface px-1.5 text-[12.5px]"
+                        className="h-7 rounded-[7px] border border-line bg-surface px-1.5 text-[12.5px]"
                       >
                         {Object.entries(STATUS_LABELS).map(([value, label]) => (
                           <option key={value} value={value}>

@@ -243,7 +243,7 @@ function AddButton({
     <button
       type="button"
       onClick={onClick}
-      className="flex h-8 items-center gap-1.5 rounded-control border border-line px-2.5 text-[13px] hover:bg-sub"
+      className="flex h-8 items-center gap-1.5 rounded-[7px] border border-line px-2.5 text-[13px] hover:bg-sub"
     >
       <HugeiconsIcon icon={PlusSignIcon} size={13} aria-hidden />
       {children}

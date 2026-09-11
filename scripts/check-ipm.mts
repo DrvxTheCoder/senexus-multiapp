@@ -22,6 +22,9 @@
  *   pnpm dev          (or: pnpm build && pnpm start)
  *   pnpm check:ipm
  */
+import { readdirSync, readFileSync, statSync } from "node:fs"
+import { join } from "node:path"
+
 import { PrismaClient } from "@prisma/client"
 import sharp from "sharp"
 import { hash } from "bcryptjs"
@@ -100,6 +103,66 @@ async function get(session: Session | null, path: string): Promise<Response> {
     headers: session ? { Cookie: session.cookie } : {},
     redirect: "manual",
   })
+}
+
+/* -------------------------------------------------------------------------- */
+/* Server actions                                                             */
+
+/**
+ * Server-action ids, read out of the client build.
+ *
+ * This section exists because of a bug it would have caught on day one:
+ * `ipm-ledger.ts` and `ipm-disbursements.ts` exported Zod schemas alongside
+ * their actions, and a `"use server"` module may only export async functions.
+ * That throws **at module load**, so every action in both files was dead —
+ * while this harness reported 129 green checks, because it only ever fetched
+ * pages and queried the database. A write layer nothing invokes is a write
+ * layer nothing tests.
+ */
+function collectChunks(dir: string, out: string[] = []): string[] {
+  for (const entry of readdirSync(dir)) {
+    const path = join(dir, entry)
+    if (statSync(path).isDirectory()) collectChunks(path, out)
+    else if (path.endsWith(".js")) out.push(path)
+  }
+  return out
+}
+
+function actionIds(): Map<string, string> {
+  const ids = new Map<string, string>()
+  const pattern =
+    /createServerReference\)\("([a-f0-9]+)"[^)]*?,\s*"([A-Za-z0-9_$]+)"\)/g
+
+  for (const file of collectChunks(".next/static/chunks")) {
+    for (const match of readFileSync(file, "utf8").matchAll(pattern)) {
+      ids.set(match[2], match[1])
+    }
+  }
+
+  if (ids.size === 0) {
+    throw new Error(
+      "No server actions found in .next/static — run `pnpm build` before check:ipm."
+    )
+  }
+  return ids
+}
+
+async function invokeAction(
+  session: Session,
+  path: string,
+  id: string,
+  args: unknown[]
+): Promise<{ status: number; body: string }> {
+  const response = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    headers: {
+      Cookie: session.cookie,
+      "Next-Action": id,
+      "Content-Type": "text/plain;charset=UTF-8",
+    },
+    body: JSON.stringify(args),
+  })
+  return { status: response.status, body: await response.text() }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -668,6 +731,104 @@ async function main() {
     "critical alerts surface rather than being averaged away",
     unopened === 0 || criticalAlerts,
     criticalAlerts ? "present" : "none rendered"
+  )
+
+  console.log("\nLe write layer répond")
+  const ids = actionIds()
+
+  /**
+   * Every IPM action, invoked for real.
+   *
+   * The assertion is deliberately weak on *outcome* and strict on *failure
+   * mode*: a refused mutation must come back as an `ActionResult` with
+   * `ok:false`, never as a 500. A 500 means the module did not load, the
+   * handler threw where it should have refused, or an id no longer exists —
+   * all of which are invisible to a page-only harness.
+   *
+   * Arguments are deliberately invalid where a write would be destructive:
+   * what is under test is that the action *runs and refuses*, not that it
+   * mutates the seeded fixtures.
+   */
+  const IPM_ACTIONS: {
+    name: string
+    path: string
+    args: unknown[]
+    /** True when this input should be accepted rather than refused. */
+    expectOk?: boolean
+  }[] = [
+    { name: "previewVoucher", path: "bons/nouveau", args: [{ firmSlug: IPM_SLUG, type: "PHARMACY", memberId: "nope", providerId: "nope", serviceTypeId: "nope", issueDate: "2026-09-01", lines: [{ label: "x", quantity: 1, unitPrice: "1000" }] }] },
+    { name: "issueVoucher", path: "bons", args: [{ firmSlug: IPM_SLUG, type: "PHARMACY", memberId: "nope", providerId: "nope", serviceTypeId: "nope", issueDate: "2026-09-01", lines: [{ label: "x", quantity: 1, unitPrice: "1000" }] }] },
+    { name: "settleVoucher", path: "bons", args: [{ firmSlug: IPM_SLUG, voucherId: "nope", settledOn: "2026-09-01" }] },
+    { name: "cancelVoucher", path: "bons", args: [{ firmSlug: IPM_SLUG, voucherId: "nope", reason: "test" }] },
+    { name: "createProvider", path: "prestataires", args: [{ firmSlug: IPM_SLUG, name: "" }] },
+    { name: "updateProvider", path: "prestataires", args: [{ firmSlug: IPM_SLUG, providerId: "nope", name: "x" }] },
+    { name: "createAgreement", path: "prestataires", args: [{ firmSlug: IPM_SLUG, providerId: "nope", reference: "x", startDate: "2026-01-01" }] },
+    { name: "openLedger", path: "cotisations", args: [{ firmSlug: IPM_SLUG, memberId: "nope", amount: 0, asOf: "2026-09-01" }] },
+    { name: "adjustLedger", path: "cotisations", args: [{ firmSlug: IPM_SLUG, memberId: "nope", amount: 100, asOf: "2026-09-01", note: "test" }] },
+    // Month 13 is refused by the schema, so the probe can never close a real
+    // period as a side effect of being run.
+    { name: "closeMonth", path: "cotisations", args: [{ firmSlug: IPM_SLUG, year: 2026, month: 13 }] },
+    { name: "recomputeBalances", path: "cotisations", args: [{ firmSlug: IPM_SLUG }], expectOk: true },
+    { name: "setInvoiceStatus", path: "factures", args: [{ firmSlug: IPM_SLUG, invoiceId: "nope", status: "PAID" }] },
+    { name: "postVoucherConsumption", path: "cotisations", args: [{ firmSlug: IPM_SLUG, voucherId: "nope" }] },
+    { name: "resetLedgerOnReaffiliation", path: "cotisations", args: [{ firmSlug: IPM_SLUG, memberId: "nope", asOf: "2026-09-01" }] },
+    { name: "recordProviderInvoice", path: "decaissements", args: [{ firmSlug: IPM_SLUG, providerId: "nope", number: "x", receivedDate: "2026-09-01", periodFrom: "2026-08-01", periodTo: "2026-08-31", totalAmount: "1000" }] },
+    { name: "checkProviderInvoice", path: "decaissements", args: [{ firmSlug: IPM_SLUG, invoiceId: "nope", decision: "CHECKED" }] },
+    { name: "recordReimbursement", path: "decaissements", args: [{ firmSlug: IPM_SLUG, memberId: "nope", categoryId: "nope", submittedDate: "2026-09-01", totalAmount: "1000", appliedRate: 80 }] },
+    { name: "reviewReimbursement", path: "decaissements", args: [{ firmSlug: IPM_SLUG, reimbursementId: "nope", decision: "APPROVED" }] },
+    { name: "createDisbursement", path: "decaissements", args: [{ firmSlug: IPM_SLUG, journalCode: "B1", date: "2026-09-01", payeeType: "PROVIDER", payeeName: "x", motif: "test", paymentMethod: "TRANSFER", providerInvoiceIds: [], reimbursementIds: [] }] },
+    { name: "visaDisbursement", path: "decaissements", args: [{ firmSlug: IPM_SLUG, disbursementId: "nope", visa: "DIRECTION" }] },
+    { name: "createEmployer", path: "employeurs", args: [{ firmSlug: IPM_SLUG, affiliationDate: "2026-01-01" }] },
+    { name: "createMember", path: "participants", args: [{ firmSlug: IPM_SLUG, employerId: "nope", person: { firstName: "A", lastName: "B" }, affiliationDate: "2026-01-01" }] },
+    { name: "createDependent", path: "participants", args: [{ firmSlug: IPM_SLUG, memberId: "nope", person: { firstName: "A", lastName: "B" }, relation: "CHILD", coverageStart: "2026-01-01" }] },
+    { name: "openContribution", path: "participants", args: [{ firmSlug: IPM_SLUG, memberId: "nope", monthlyAmount: "1000", validFrom: "2026-01-01" }] },
+    { name: "terminateMember", path: "participants", args: [{ firmSlug: IPM_SLUG, memberId: "nope", terminationDate: "2026-09-01" }] },
+    { name: "createPlan", path: "formules", args: [{ firmSlug: IPM_SLUG, code: "", name: "Test", monthlyPrice: "1000", validFrom: "2026-01-01" }] },
+    { name: "setPlanRate", path: "formules", args: [{ firmSlug: IPM_SLUG, planId: "nope", categoryId: "nope", rate: 80 }] },
+    { name: "setEmployerRate", path: "formules", args: [{ firmSlug: IPM_SLUG, employerId: "nope", categoryId: "nope", rate: 80 }] },
+    { name: "createCategory", path: "referentiel", args: [{ firmSlug: IPM_SLUG, code: "", label: "Test" }] },
+    { name: "createServiceType", path: "referentiel", args: [{ firmSlug: IPM_SLUG, categoryId: "nope", code: "999", label: "Test" }] },
+    { name: "generateCard", path: "cartes", args: [{ firmSlug: IPM_SLUG, memberId: "nope" }] },
+  ]
+
+  let missing = 0
+  let crashed = 0
+
+  for (const action of IPM_ACTIONS) {
+    const id = ids.get(action.name)
+    if (!id) {
+      check(`${action.name} is reachable from the client build`, false, "no action id")
+      missing += 1
+      continue
+    }
+
+    const result = await invokeAction(
+      ipm,
+      `/${IPM_SLUG}/ipm/${action.path}`,
+      id,
+      action.args
+    )
+
+    // A 500 is the failure mode this whole section exists to catch.
+    if (result.status >= 500) {
+      check(`${action.name} runs without crashing`, false, `HTTP ${result.status}`)
+      crashed += 1
+      continue
+    }
+
+    const refused = result.body.includes('"ok":false')
+    const accepted = result.body.includes('"ok":true')
+    check(
+      `${action.name} ${action.expectOk ? "accepts and returns a result" : "runs and refuses cleanly"}`,
+      action.expectOk ? accepted : refused || accepted,
+      `HTTP ${result.status}`
+    )
+  }
+
+  check(
+    "every IPM action is exported and callable",
+    missing === 0 && crashed === 0,
+    `${missing} missing, ${crashed} crashed`
   )
 
   console.log("\nThe IPM firm exposes nothing else")

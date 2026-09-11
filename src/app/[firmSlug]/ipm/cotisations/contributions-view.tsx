@@ -100,7 +100,7 @@ export function ContributionsView({
                 value={month}
                 onChange={(event) => setMonth(Number(event.target.value))}
                 aria-label="Mois à clôturer"
-                className="h-8 rounded-control border border-line bg-surface px-2 text-[13px]"
+                className="h-8 rounded-[7px] border border-line bg-surface px-2 text-[13px]"
               >
                 {MONTHS.map((label, index) => (
                   <option key={label} value={index + 1}>
@@ -113,13 +113,13 @@ export function ContributionsView({
                 value={year}
                 onChange={(event) => setYear(Number(event.target.value))}
                 aria-label="Exercice à clôturer"
-                className="h-8 w-20 rounded-control border border-line bg-surface px-2 text-[13px] tabular-nums"
+                className="h-8 w-20 rounded-[7px] border border-line bg-surface px-2 text-[13px] tabular-nums"
               />
               <button
                 type="button"
                 disabled={close.pending}
                 onClick={() => void close.run({ firmSlug, year, month })}
-                className="h-8 rounded-control bg-brand px-2.5 text-[13px] font-medium text-on-brand hover:opacity-90 disabled:opacity-50"
+                className="h-8 rounded-[7px] bg-brand px-2.5 text-[13px] font-medium text-brand-contrast hover:opacity-90 disabled:opacity-50"
               >
                 Clôturer le mois
               </button>
@@ -127,7 +127,7 @@ export function ContributionsView({
                 type="button"
                 disabled={recompute.pending}
                 onClick={() => void recompute.run({ firmSlug })}
-                className="flex h-8 items-center gap-1.5 rounded-control border border-line px-2.5 text-[13px] hover:bg-sub disabled:opacity-50"
+                className="flex h-8 items-center gap-1.5 rounded-[7px] border border-line px-2.5 text-[13px] hover:bg-sub disabled:opacity-50"
               >
                 <HugeiconsIcon icon={RefreshIcon} size={13} aria-hidden />
                 Recalculer les soldes
@@ -141,7 +141,7 @@ export function ContributionsView({
         }}
       >
         {summary.incoherentLedgers > 0 ? (
-          <div className="flex items-start gap-2 rounded-control bg-alert/10 px-3 py-2 text-[13px] text-alert">
+          <div className="flex items-start gap-2 rounded-[7px] bg-alert/10 px-3 py-2 text-[13px] text-alert">
             <HugeiconsIcon icon={Alert02Icon} size={15} aria-hidden />
             <span>
               {formatNumber(summary.incoherentLedgers)} registre
@@ -218,7 +218,7 @@ export function ContributionsView({
                           }
                           placeholder="0"
                           aria-label={`Solde d'ouverture de ${member.name}`}
-                          className="h-7 w-28 rounded-control border border-line bg-surface px-2 text-[12.5px] tabular-nums"
+                          className="h-7 w-28 rounded-[7px] border border-line bg-surface px-2 text-[12.5px] tabular-nums"
                         />
                         <button
                           type="button"
@@ -231,7 +231,7 @@ export function ContributionsView({
                               asOf: new Date().toISOString().slice(0, 10),
                             })
                           }
-                          className="rounded-control border border-line px-2 py-1 text-[12.5px] hover:bg-sub disabled:opacity-40"
+                          className="rounded-[7px] border border-line px-2 py-1 text-[12.5px] hover:bg-sub disabled:opacity-40"
                         >
                           Ouvrir
                         </button>

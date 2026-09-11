@@ -45,8 +45,8 @@ If you already know the exact item name, skip `search`. Everything else is situa
 
 ## Error playbook
 
-- **401** - the MCP requires a signed-in ReUI account. The client prompts "Sign in with ReUI" (OAuth) on first use; a free account is created if needed. For headless/CI, pass a personal token (`reui_pat_...`, created at https://reui.io/account/mcp) as `Authorization: Bearer`.
-- **403 / locked result** - a valid account but the plan does not cover the item: premium blocks need Pro, Motion Icons need Ultimate. Point to https://reui.io/pricing (upgrade). Free accounts still get all components + examples.
+- **401** - the MCP requires a signed-in ReUI account. The client prompts "Sign in with ReUI" (OAuth) on first use; a free account is created if needed. For headless/CI, pass a personal token (`reui_pat_...`, created at https://reui.io/account/mcp?ref=skill) as `Authorization: Bearer`.
+- **403 / locked result** - a valid account but the plan does not cover the item: premium blocks need Pro, Motion Icons need Ultimate. Point to https://reui.io/pricing?ref=skill (upgrade). Free accounts still get all components + examples.
 - **429** - rate limited (120 requests/min per IP); back off, honor `Retry-After`.
 - **not found** (`found: false`) - use the returned `suggestions`, or `search`; check `whats_new` if you suspect a stale name. Never run a fabricated install command.
 
@@ -55,4 +55,4 @@ If you already know the exact item name, skip `search`. Everything else is situa
 - No ReUI MCP: `npx shadcn@latest search @reui -q "..."` then `add` (generic, no scoring / inline API).
 - The shadcn project's own MCP also works over the `@reui` registry: https://ui.shadcn.com/docs/mcp.
 
-Per-agent MCP setup: https://reui.io/docs/mcp
+Per-agent MCP setup: https://reui.io/docs/mcp?ref=skill

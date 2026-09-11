@@ -1,10 +1,16 @@
 import type { Metadata } from "next"
-import Link from "next/link"
+import { Suspense } from "react"
 
 import { VouchersView } from "@/app/[firmSlug]/ipm/bons/vouchers-view"
+import { Panel } from "@/components/panel"
+import { TableSkeleton } from "@/components/primitives"
 import { TopBar } from "@/components/shell/top-bar"
+import {
+  loadVoucherSearchParams,
+  toVoucherQuery,
+} from "@/lib/queries/ipm/voucher-params"
 import { requireFirmPage } from "@/server/auth/firm-page"
-import { listVouchers, voucherSummary } from "@/server/queries/ipm/vouchers"
+import { getVoucher, listVouchers, voucherSummary } from "@/server/queries/ipm/vouchers"
 import { roleAtLeast } from "@/types/auth"
 
 export const metadata: Metadata = { title: "Bons" }
@@ -17,22 +23,6 @@ export default async function VouchersPage({
   const ctx = await requireFirmPage(firmSlug, { module: "ipm" })
   const raw = await searchParams
 
-  const first = (value: string | string[] | undefined) =>
-    Array.isArray(value) ? value[0] : value
-
-  const page = Number(first(raw.page) ?? 1) || 1
-  const status = first(raw.status)
-
-  const [vouchers, summary] = await Promise.all([
-    listVouchers(ctx, {
-      search: first(raw.q) || undefined,
-      status: status ? [status] : undefined,
-      page,
-      perPage: 25,
-    }),
-    voucherSummary(ctx),
-  ])
-
   return (
     <>
       <TopBar
@@ -42,16 +32,6 @@ export default async function VouchersPage({
           { label: "IPM", href: `/${firmSlug}/ipm` },
           { label: "Bons" },
         ]}
-        actions={
-          roleAtLeast(ctx.role, "MANAGER") ? (
-            <Link
-              href={`/${firmSlug}/ipm/bons/nouveau`}
-              className="flex h-8 items-center rounded-control bg-brand px-2.5 text-[13px] font-medium text-on-brand hover:opacity-90"
-            >
-              Émettre un bon
-            </Link>
-          ) : null
-        }
       />
 
       <div className="flex-1 overflow-y-auto">
@@ -62,14 +42,86 @@ export default async function VouchersPage({
             </h1>
           </div>
 
-          <VouchersView
-            firmSlug={firmSlug}
-            page={vouchers}
-            summary={summary}
-            canWrite={roleAtLeast(ctx.role, "MANAGER")}
-          />
+          <Suspense fallback={<VouchersSkeleton />}>
+            <VouchersPanel firmSlug={firmSlug} raw={raw} />
+          </Suspense>
         </div>
       </div>
     </>
+  )
+}
+
+async function VouchersPanel({
+  firmSlug,
+  raw,
+}: {
+  firmSlug: string
+  raw: Awaited<PageProps<"/[firmSlug]/ipm/bons">["searchParams"]>
+}) {
+  const ctx = await requireFirmPage(firmSlug, { module: "ipm" })
+  const parsed = loadVoucherSearchParams(raw)
+  const query = toVoucherQuery(parsed)
+
+  const [page, summary] = await Promise.all([
+    listVouchers(ctx, query),
+    voucherSummary(ctx),
+  ])
+
+  // The drawer is part of the URL, so its contents are fetched on the server
+  // like everything else — opening one is a navigation, not a client fetch.
+  const open = parsed.open ? await getVoucher(ctx, parsed.open) : null
+
+  return (
+    <VouchersView
+      firmSlug={firmSlug}
+      page={page}
+      summary={summary}
+      open={
+        open
+          ? {
+              id: open.id,
+              number: open.number,
+              type: open.type,
+              status: open.status,
+              issueDate: open.issueDate,
+              expiryDate: open.expiryDate,
+              beneficiaryName: open.beneficiaryName,
+              memberId: open.member.id,
+              memberMatricule: open.member.matricule,
+              providerName: open.provider.name,
+              categoryLabel: open.category.label,
+              serviceTypeLabel: open.serviceType.label,
+              totalAmount: Number(open.totalAmount),
+              insurerShare: Number(open.insurerShare),
+              memberShare: Number(open.memberShare),
+              appliedRate: Number(open.appliedRate),
+              rateSource: open.rateSource,
+              settledAt: open.settledAt,
+              cancelledAt: open.cancelledAt,
+              cancelReason: open.cancelReason,
+              issuedByName: open.issuedBy?.name ?? open.issuedBy?.email ?? null,
+              settledByName:
+                open.settledBy?.name ?? open.settledBy?.email ?? null,
+              lines: open.lines.map((line) => ({
+                id: line.id,
+                label: line.label,
+                quantity: Number(line.quantity),
+                unitPrice: Number(line.unitPrice),
+                amount: Number(line.amount),
+              })),
+            }
+          : null
+      }
+      canWrite={roleAtLeast(ctx.role, "MANAGER")}
+    />
+  )
+}
+
+function VouchersSkeleton() {
+  return (
+    <Panel title="Bons émis" padded={false}>
+      <div className="h-[49px] border-b border-line" />
+      <TableSkeleton rows={10} columns={[18, 22, 20, 12, 12, 10, 10]} />
+    </Panel>
   )
 }

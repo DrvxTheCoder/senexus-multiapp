@@ -99,7 +99,7 @@ export function EmployersView({
             <button
               type="button"
               onClick={() => setEditing("new")}
-              className="flex h-8 items-center gap-1.5 rounded-control bg-brand px-2.5 text-[13px] font-medium text-on-brand hover:opacity-90"
+              className="flex h-8 items-center gap-1.5 rounded-[7px] bg-brand px-2.5 text-[13px] font-medium text-brand-contrast hover:opacity-90"
             >
               <HugeiconsIcon icon={PlusSignIcon} size={13} aria-hidden />
               Affilier une société

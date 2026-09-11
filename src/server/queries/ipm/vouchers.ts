@@ -7,7 +7,12 @@ import type { FirmContext } from "@/server/auth/require-firm-access"
 import { beneficiaryTypeFor } from "@/server/domain/ipm/coverage"
 import type { IssuanceFacts } from "@/server/domain/ipm/issuance"
 import { tryResolveRate, type RateRow } from "@/server/domain/ipm/rates"
-import type { Paged } from "@/server/queries/types"
+import {
+  VOUCHER_STATUS_LABELS,
+  VOUCHER_TYPE_LABELS,
+  type VoucherQuery,
+} from "@/lib/queries/ipm/voucher-query"
+import type { Facets, Paged } from "@/server/queries/types"
 
 /**
  * Bons — the list, and the facts an issuance decision needs.
@@ -301,6 +306,7 @@ export type VoucherRow = {
   issueDate: Date
   expiryDate: Date
   beneficiaryName: string
+  memberId: string
   memberMatricule: string
   providerName: string
   categoryLabel: string
@@ -308,49 +314,153 @@ export type VoucherRow = {
   insurerShare: number
   memberShare: number
   appliedRate: number
+  /** True when the bon is past its expiry and still in circulation. */
+  lapsed: boolean
 }
 
-export type VoucherFilters = {
-  search?: string
-  status?: string[]
-  type?: string[]
-  providerId?: string
-  memberId?: string
-  page: number
-  perPage: number
+function where(q: VoucherQuery, ctx: FirmContext): Prisma.IpmVoucherWhereInput {
+  const clauses: Prisma.IpmVoucherWhereInput = { firmId: ctx.firmId }
+
+  if (q.search) {
+    const contains = { contains: q.search, mode: "insensitive" as const }
+    clauses.OR = [
+      { number: contains },
+      { beneficiaryName: contains },
+      { member: { matricule: contains } },
+      // The WebLamps form too, so a number read off an old document finds it.
+      { member: { legacyCode: contains } },
+      { provider: { name: contains } },
+    ]
+  }
+
+  if (q.status?.length) clauses.status = { in: q.status }
+  if (q.type?.length) clauses.type = { in: q.type }
+  if (q.providerId?.length) clauses.providerId = { in: q.providerId }
+  if (q.categoryId?.length) clauses.categoryId = { in: q.categoryId }
+  if (q.memberId) clauses.memberId = q.memberId
+
+  if (q.from || q.to) {
+    clauses.issueDate = {
+      ...(q.from ? { gte: new Date(`${q.from}T00:00:00.000Z`) } : {}),
+      ...(q.to ? { lte: new Date(`${q.to}T23:59:59.999Z`) } : {}),
+    }
+  }
+
+  return clauses
+}
+
+function orderBy(
+  sort: VoucherQuery["sort"]
+): Prisma.IpmVoucherOrderByWithRelationInput[] {
+  const columns: Record<
+    string,
+    (d: "asc" | "desc") => Prisma.IpmVoucherOrderByWithRelationInput
+  > = {
+    number: (d) => ({ number: d }),
+    issueDate: (d) => ({ issueDate: d }),
+    beneficiary: (d) => ({ beneficiaryName: d }),
+    provider: (d) => ({ provider: { name: d } }),
+    totalAmount: (d) => ({ totalAmount: d }),
+    insurerShare: (d) => ({ insurerShare: d }),
+    status: (d) => ({ status: d }),
+  }
+
+  const clauses = sort
+    .filter((entry) => entry.id in columns)
+    .map((entry) => columns[entry.id](entry.desc ? "desc" : "asc"))
+
+  // Most recent first: a bons list is read from the top by recency.
+  if (clauses.length === 0) return [{ issueDate: "desc" }, { number: "desc" }]
+  return [...clauses, { number: "desc" }]
+}
+
+/**
+ * Facet counts exclude their own filter, so a chip still reports how many rows
+ * it would bring back rather than the count of what is already selected.
+ */
+async function voucherFacets(
+  ctx: FirmContext,
+  q: VoucherQuery
+): Promise<Facets> {
+  const { status: _s, type: _t, providerId: _p, categoryId: _c, ...rest } = q
+
+  const [byStatus, byType, byProvider, byCategory, providers, categories] =
+    await Promise.all([
+      db.ipmVoucher.groupBy({
+        by: ["status"],
+        where: where({ ...rest, type: q.type, providerId: q.providerId, categoryId: q.categoryId } as VoucherQuery, ctx),
+        _count: { _all: true },
+      }),
+      db.ipmVoucher.groupBy({
+        by: ["type"],
+        where: where({ ...rest, status: q.status, providerId: q.providerId, categoryId: q.categoryId } as VoucherQuery, ctx),
+        _count: { _all: true },
+      }),
+      db.ipmVoucher.groupBy({
+        by: ["providerId"],
+        where: where({ ...rest, status: q.status, type: q.type, categoryId: q.categoryId } as VoucherQuery, ctx),
+        _count: { _all: true },
+      }),
+      db.ipmVoucher.groupBy({
+        by: ["categoryId"],
+        where: where({ ...rest, status: q.status, type: q.type, providerId: q.providerId } as VoucherQuery, ctx),
+        _count: { _all: true },
+      }),
+      db.ipmProvider.findMany({
+        where: { firmId: ctx.firmId },
+        select: { id: true, name: true },
+      }),
+      db.ipmServiceCategory.findMany({
+        where: { firmId: ctx.firmId },
+        select: { id: true, label: true },
+      }),
+    ])
+
+  const providerName = new Map(providers.map((p) => [p.id, p.name]))
+  const categoryLabel = new Map(categories.map((c) => [c.id, c.label]))
+
+  return {
+    status: byStatus.map((bucket) => ({
+      value: bucket.status,
+      label: VOUCHER_STATUS_LABELS[bucket.status] ?? bucket.status,
+      count: bucket._count._all,
+    })),
+    type: byType.map((bucket) => ({
+      value: bucket.type,
+      label: VOUCHER_TYPE_LABELS[bucket.type] ?? bucket.type,
+      count: bucket._count._all,
+    })),
+    provider: byProvider
+      .map((bucket) => ({
+        value: bucket.providerId,
+        label: providerName.get(bucket.providerId) ?? "—",
+        count: bucket._count._all,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label, "fr")),
+    category: byCategory
+      .map((bucket) => ({
+        value: bucket.categoryId,
+        label: categoryLabel.get(bucket.categoryId) ?? "—",
+        count: bucket._count._all,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label, "fr")),
+  }
 }
 
 export async function listVouchers(
   ctx: FirmContext,
-  filters: VoucherFilters
+  q: VoucherQuery
 ): Promise<Paged<VoucherRow>> {
-  const where: Prisma.IpmVoucherWhereInput = { firmId: ctx.firmId }
+  const clauses = where(q, ctx)
+  const now = new Date()
 
-  if (filters.search) {
-    const contains = { contains: filters.search, mode: "insensitive" as const }
-    where.OR = [
-      { number: contains },
-      { beneficiaryName: contains },
-      { member: { matricule: contains } },
-      { member: { legacyCode: contains } },
-    ]
-  }
-  if (filters.status?.length) {
-    where.status = { in: filters.status as Prisma.EnumIpmVoucherStatusFilter["in"] }
-  }
-  if (filters.type?.length) {
-    where.type = { in: filters.type as Prisma.EnumIpmVoucherTypeFilter["in"] }
-  }
-  if (filters.providerId) where.providerId = filters.providerId
-  if (filters.memberId) where.memberId = filters.memberId
-
-  const [total, rows, byStatus] = await Promise.all([
-    db.ipmVoucher.count({ where }),
+  const [total, rows, facets] = await Promise.all([
+    db.ipmVoucher.count({ where: clauses }),
     db.ipmVoucher.findMany({
-      where,
-      orderBy: [{ issueDate: "desc" }, { number: "desc" }],
-      skip: (filters.page - 1) * filters.perPage,
-      take: filters.perPage,
+      where: clauses,
+      orderBy: orderBy(q.sort),
+      skip: (q.page - 1) * q.perPage,
+      take: q.perPage,
       select: {
         id: true,
         number: true,
@@ -359,6 +469,7 @@ export async function listVouchers(
         issueDate: true,
         expiryDate: true,
         beneficiaryName: true,
+        memberId: true,
         totalAmount: true,
         insurerShare: true,
         memberShare: true,
@@ -368,11 +479,7 @@ export async function listVouchers(
         category: { select: { label: true } },
       },
     }),
-    db.ipmVoucher.groupBy({
-      by: ["status"],
-      where: { firmId: ctx.firmId },
-      _count: { _all: true },
-    }),
+    voucherFacets(ctx, q),
   ])
 
   return {
@@ -384,6 +491,7 @@ export async function listVouchers(
       issueDate: row.issueDate,
       expiryDate: row.expiryDate,
       beneficiaryName: row.beneficiaryName,
+      memberId: row.memberId,
       memberMatricule: row.member.matricule,
       providerName: row.provider.name,
       categoryLabel: row.category.label,
@@ -391,18 +499,17 @@ export async function listVouchers(
       insurerShare: Number(row.insurerShare),
       memberShare: Number(row.memberShare),
       appliedRate: Number(row.appliedRate),
+      // Derived, never stored: a bon does not lapse by being written to, it
+      // lapses by a date passing.
+      lapsed:
+        row.expiryDate < now &&
+        ["ISSUED", "PRESENTED"].includes(row.status),
     })),
     total,
-    page: filters.page,
-    perPage: filters.perPage,
-    pageCount: Math.max(1, Math.ceil(total / filters.perPage)),
-    facets: {
-      status: byStatus.map((bucket) => ({
-        value: bucket.status,
-        label: bucket.status,
-        count: bucket._count._all,
-      })),
-    },
+    page: q.page,
+    perPage: q.perPage,
+    pageCount: Math.max(1, Math.ceil(total / q.perPage)),
+    facets,
   }
 }
 
