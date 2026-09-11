@@ -31,5 +31,23 @@
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts"
   ],
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules",
+    /**
+     * Next's own generated self-check, which is not ours to type-check.
+     *
+     * `next dev` writes `.next/dev/types/` incrementally, and an interrupted
+     * start leaves `routes.d.ts` holding `type AppRoutes = never` and an empty
+     * `ParamMap` while `validator.ts` still imports the previous shape. Both
+     * `tsc --noEmit` and `next build` then fail on a stale artifact — with an
+     * error that points at a generated file and says nothing about the source,
+     * which is a bad half hour for whoever hits it.
+     *
+     * Nothing imports this file, so excluding it costs nothing: `PageProps`
+     * and `LayoutProps` come from `routes.d.ts`, which `next-env.d.ts` pulls
+     * in by name and which stays in the programme. `next build` validates page
+     * and layout exports through its own `.next/types` pass regardless.
+     */
+    ".next/dev/types/validator.ts"
+  ]
 }
