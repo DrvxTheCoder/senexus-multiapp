@@ -333,12 +333,17 @@ async function main() {
         `status ${image.status}, ${bytes.length} bytes`
       )
 
-      // 54 × 85.6 mm at 300 ppi, and the density written into the file — resvg
-      // emits none, and without it a printer places the card at 225 mm.
+      // The artwork's own aspect ratio at 300 ppi, and the density written
+      // into the file — resvg emits none, and without it a printer places the
+      // card at roughly three times its size.
+      //
+      // 638 × 974 is the artboard's 161.57 × 246.61 scaled to a 54 mm trim.
+      // The *height* follows the artwork, not ISO ID-1: the two differ, and
+      // the real trim is still unconfirmed with the printer.
       const meta = await sharp(bytes).metadata()
       check(
-        `${face} is 638×1011 at 300 ppi`,
-        meta.width === 638 && meta.height === 1011 && meta.density === 300,
+        `${face} is 638×974 at 300 ppi`,
+        meta.width === 638 && meta.height === 974 && meta.density === 300,
         `${meta.width}×${meta.height} @ ${meta.density}`
       )
 
@@ -350,7 +355,8 @@ async function main() {
       )
 
       // §11 Q8: a real CMYK file for the printer. PNG cannot hold CMYK, so
-      // this is a TIFF — and it must come back with 5 channels, not 4.
+      // this is a TIFF, and it must come back in the cmyk colourspace (four
+      // channels) rather than an sRGB file merely named for the printer.
       const print = await get(
         ipm,
         `/${IPM_SLUG}/api/ipm/cards/${sample.id}/${face}?format=tiff`

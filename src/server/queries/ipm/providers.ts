@@ -1,7 +1,10 @@
 import "server-only"
 
+import type { Prisma } from "@prisma/client"
+
 import { db } from "@/lib/db"
 import type { FirmContext } from "@/server/auth/require-firm-access"
+import { searchWhere } from "@/server/queries/search-where"
 
 /**
  * Prestataires.
@@ -152,21 +155,17 @@ export async function memberOptions(
     dependents: { id: string; name: string; relation: string }[]
   }[]
 > {
-  const contains = { contains: search, mode: "insensitive" as const }
+  const searchClause = searchWhere<Prisma.MemberWhereInput>(search, (contains) => [
+    { matricule: contains },
+    { legacyCode: contains },
+    { person: { lastName: contains } },
+    { person: { firstName: contains } },
+  ])
 
   const rows = await db.member.findMany({
     where: {
       firmId: ctx.firmId,
-      ...(search
-        ? {
-            OR: [
-              { matricule: contains },
-              { legacyCode: contains },
-              { person: { lastName: contains } },
-              { person: { firstName: contains } },
-            ],
-          }
-        : {}),
+      ...(searchClause ?? {}),
     },
     orderBy: { matricule: "asc" },
     take: 25,

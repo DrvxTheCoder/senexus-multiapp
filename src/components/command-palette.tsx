@@ -18,6 +18,7 @@ import { Avatar, ClientDot } from "@/components/primitives"
 import { clientDotVar } from "@/lib/client-color"
 import { commandSearch } from "@/server/actions/search"
 import { visibleNavItems } from "@/components/shell/nav-config"
+import { searchTerms } from "@/server/queries/search-terms"
 import type { SearchHit } from "@/server/queries/search"
 import { cn } from "@/lib/utils"
 
@@ -128,10 +129,15 @@ export function CommandPalette() {
 
   /* ---- navigation entries, filtered client-side (they are a fixed list) -- */
   const navHits: NavHit[] = React.useMemo(() => {
-    const trimmed = term.trim().toLowerCase()
+    // Same rule as the server-side search: every word has to match, so
+    // "gestion paie" finds "Gestion de la paie" instead of nothing.
+    const words = searchTerms(term.toLowerCase())
     return visibleNavItems(firm.modules)
-      .filter((item) => !trimmed || item.label.toLowerCase().includes(trimmed))
-      .slice(0, trimmed ? 4 : 8)
+      .filter((item) => {
+        const label = item.label.toLowerCase()
+        return words.every((word) => label.includes(word))
+      })
+      .slice(0, words.length ? 4 : 8)
       .map((item) => ({
         id: item.href,
         label: item.label,

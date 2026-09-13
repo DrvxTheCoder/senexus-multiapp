@@ -138,7 +138,7 @@ export function Panel({
       )}
     >
       {hasHeader ? (
-        <header className="flex items-start gap-3.5 px-[15px] py-3">
+        <header className="flex items-center gap-3.5 px-3.75 py-3">
           <div className="min-w-0">
             {title ? (
               <Heading className="text-[13px] font-semibold tracking-[-0.006em] text-ink">

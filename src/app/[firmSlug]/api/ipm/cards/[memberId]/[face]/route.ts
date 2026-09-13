@@ -1,6 +1,12 @@
 import { requireFirmAccess, requireModule } from "@/server/auth/require-firm-access"
-import { renderCardPng, renderCardPrintTiff } from "@/server/cards/render-card"
-import { PRINT_PPI, SCREEN_PPI } from "@/server/domain/ipm/card"
+import { buildCardData } from "@/server/cards/card-data"
+import {
+  PREVIEW_WIDTH,
+  PRINT_WIDTH,
+  qrFits,
+  renderCardPng,
+  renderCardPrintTiff,
+} from "@/server/cards/render-card"
 import {
   issueToken,
   verificationSecret,
@@ -23,9 +29,10 @@ export const dynamic = "force-dynamic"
  * file to fall out of step with the data, and no cache to invalidate when an
  * ayant droit is added — what comes back is always the card as it is now.
  *
- * `?format=tiff` returns the CMYK file for the printer; everything else
- * returns sRGB PNG. See render-card.ts for why those are the two, and why
- * "CMYK PNG" is not a thing that can exist.
+ * `?format=tiff` returns the CMYK file for the printer, `?preview=1` a
+ * half-size PNG for the screen; everything else is a 300 ppi PNG. See
+ * render-card.ts for why those are the options, and why "CMYK PNG" is not a
+ * thing that can exist.
  */
 export async function GET(
   request: Request,
@@ -53,19 +60,40 @@ export async function GET(
     const wantsPrint = url.searchParams.get("format") === "tiff"
     const preview = url.searchParams.get("preview") === "1"
 
-    // The QR is only meaningful on the recto, and only when it can carry an
-    // absolute URL — a relative one would not resolve from a phone camera.
-    const verificationUrl =
-      face === "recto"
-        ? `${url.origin}/v/${issueToken({ kind: "member", id: memberId }, verificationSecret())}`
-        : undefined
+    /**
+     * The QR, on the recto only.
+     *
+     * The artwork's box is 29 modules at roughly 14 mm, and a signed
+     * verification token is far too long to encode in it — ~87 characters
+     * needs 37 modules, which does not scan at that size. So the code is
+     * printed only when it actually fits, and omitted otherwise: an
+     * unscannable QR on an identity document is worse than none, because it
+     * looks like it works.
+     *
+     * Leaving the block empty is safe — the box is drawn by the generated
+     * matrix, not by the artwork, so nothing is left hanging.
+     */
+    let verificationUrl: string | null = null
+    if (face === "recto") {
+      const candidate = `${url.origin}/v/${issueToken({ kind: "member", id: memberId }, verificationSecret())}`
+      if (qrFits(candidate)) {
+        verificationUrl = candidate
+      } else {
+        console.warn(
+          "Card QR omitted: verification URL exceeds the artwork's 29-module box",
+          { memberId, length: candidate.length }
+        )
+      }
+    }
+
+    // Photos are always embedded, preview included. The preview exists to show
+    // what will print, and a preview that silently omits the faces answers the
+    // one question the operator is actually asking — "is the right photo on
+    // this card?" — with a confident no.
+    const data = await buildCardData(card.inputs, { verificationUrl })
 
     if (wantsPrint) {
-      const tiff = await renderCardPrintTiff(face, card.inputs, {
-        ppi: PRINT_PPI,
-        bleed: true,
-        verificationUrl,
-      })
+      const tiff = await renderCardPrintTiff(face, data, { width: PRINT_WIDTH })
       return new Response(new Uint8Array(tiff), {
         headers: {
           "Content-Type": "image/tiff",
@@ -75,9 +103,8 @@ export async function GET(
       })
     }
 
-    const png = await renderCardPng(face, card.inputs, {
-      ppi: preview ? SCREEN_PPI : PRINT_PPI,
-      verificationUrl,
+    const png = await renderCardPng(face, data, {
+      width: preview ? PREVIEW_WIDTH : PRINT_WIDTH,
     })
 
     return new Response(new Uint8Array(png), {
@@ -89,7 +116,9 @@ export async function GET(
       },
     })
   } catch (error) {
-    if (!isAccessError(error)) console.error("Card render failed", error)
+    // Never the card's contents: a card error must not put a name, a
+    // matricule or a photo data URI into a log or an error report.
+    if (!isAccessError(error)) console.error("Card render failed", { memberId })
     return new Response(null, { status: statusForError(error) })
   }
 }

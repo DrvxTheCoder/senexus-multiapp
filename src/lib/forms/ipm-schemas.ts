@@ -221,6 +221,41 @@ export const updateDependentSchema = z.object({
 })
 
 /* ==========================================================================
+ * Photos
+ * ========================================================================== */
+
+/**
+ * Who the photo belongs to.
+ *
+ * A participant and an ayant droit are different tables with different ids, so
+ * the subject is named explicitly rather than inferred from which id happens
+ * to be present — an ambiguous payload is how a photo ends up on the wrong
+ * person's card.
+ */
+export const PHOTO_SUBJECTS = ["member", "dependent"] as const
+
+/**
+ * The metadata half of a photo upload.
+ *
+ * The file itself travels as `FormData` and is validated server-side against
+ * the storage layer's own MIME and size rules: a `File` cannot be described by
+ * a Zod schema that also has to run in the browser, and a client-side size
+ * check is a courtesy, never the guard.
+ */
+export const uploadPhotoSchema = z.object({
+  ...firmScoped,
+  subject: z.enum(PHOTO_SUBJECTS),
+  /** The member's or the dependant's id, per `subject`. */
+  subjectId: z.string().min(1),
+})
+
+/** Clearing a photo. Same addressing, no file. */
+export const removePhotoSchema = uploadPhotoSchema
+
+export type UploadPhotoInput = z.infer<typeof uploadPhotoSchema>
+export type PhotoSubject = (typeof PHOTO_SUBJECTS)[number]
+
+/* ==========================================================================
  * Cotisations
  * ========================================================================== */
 
