@@ -208,7 +208,7 @@ async function resolvePerson(
     lastName?: string
     birthDate?: string
     birthPlace?: string
-    gender?: "MALE" | "FEMALE" | "OTHER"
+    gender?: "MALE" | "FEMALE" | "OTHER" | ""
     nationalId?: string
     phone?: string
     email?: string
@@ -242,7 +242,7 @@ async function resolvePerson(
       lastName: person.lastName!.trim(),
       birthDate: toOptionalDate(person.birthDate),
       birthPlace: orNull(person.birthPlace),
-      gender: person.gender ?? null,
+      gender: person.gender || null,
       nationalId,
       phone: orNull(person.phone),
       email: orNull(person.email),
@@ -410,7 +410,7 @@ export const updateMember = firmAction({
         lastName: input.person.lastName.trim(),
         birthDate: toOptionalDate(input.person.birthDate),
         birthPlace: orNull(input.person.birthPlace),
-        gender: input.person.gender ?? null,
+        gender: input.person.gender || null,
         nationalId: orNull(input.person.nationalId),
         phone: orNull(input.person.phone),
         email: orNull(input.person.email),
@@ -562,7 +562,7 @@ export const updateDependent = firmAction({
         firstName: input.person.firstName.trim(),
         lastName: input.person.lastName.trim(),
         birthDate: toOptionalDate(input.person.birthDate),
-        gender: input.person.gender ?? null,
+        gender: input.person.gender || null,
       },
     })
 

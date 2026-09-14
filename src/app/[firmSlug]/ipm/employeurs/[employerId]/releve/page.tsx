@@ -71,19 +71,26 @@ export default async function StatementPage({
 
       <div className="flex-1 overflow-y-auto">
         <div className="p-4.5">
-          <div className="mb-3.5">
-            <h1 className="text-[21px] leading-tight font-semibold tracking-[-0.022em]">
-              Relevé — {statement.employerName}
-            </h1>
-            <p className="mt-px text-[13px] text-ink-3">
-              De {MONTHS[statement.from.month - 1]} {statement.from.year} à{" "}
-              {MONTHS[statement.to.month - 1]} {statement.to.year}
-            </p>
+          <div className="mb-3.5 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h1 className="text-[21px] leading-tight font-semibold tracking-[-0.022em]">
+                Relevé — {statement.employerName}
+              </h1>
+              <p className="mt-px text-[13px] text-ink-3">
+                De {MONTHS[statement.from.month - 1]} {statement.from.year} à{" "}
+                {MONTHS[statement.to.month - 1]} {statement.to.year}
+              </p>
+            </div>
+            <StatementPeriod
+              from={statement.from}
+              to={statement.to}
+              basePath={`/${firmSlug}/ipm/employeurs/${employerId}/releve`}
+            />
           </div>
 
           <Panel
             title="Cotisations et consommation"
-            description="Le solde est cumulatif depuis l&apos;ouverture du registre ; les cotisations et la consommation portent sur la période."
+            description="Le solde est cumulatif depuis l’ouverture du registre ; les cotisations et la consommation portent sur la période."
             padded={false}
             stats={[
               {

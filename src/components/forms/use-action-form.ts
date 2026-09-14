@@ -51,53 +51,70 @@ export function useActionForm<TValues extends FieldValues, TOut>(
 
   const speaks = options.toast !== false
 
-  const submit = form.handleSubmit((values) => {
-    setState(null)
-    const toastId =
-      speaks && options.loading ? notify.loading(options.loading) : undefined
+  const submit = form.handleSubmit(
+    (values) => {
+      setState(null)
+      const toastId =
+        speaks && options.loading ? notify.loading(options.loading) : undefined
 
-    startTransition(async () => {
-      let result: ActionResult<TOut>
-      try {
-        result = await action(values)
-      } catch {
-        // A crash or a dropped round trip, not a refused mutation. The server
-        // has already logged whatever it was.
-        const message = "Une erreur inattendue est survenue. Réessayez."
-        setState({ message, tone: "error" })
-        if (speaks) notify.error(message, { id: toastId })
-        return
-      }
-
-      if (result.ok) {
-        if (options.success) {
-          setState({ message: options.success, tone: "success" })
+      startTransition(async () => {
+        let result: ActionResult<TOut>
+        try {
+          result = await action(values)
+        } catch {
+          // A crash or a dropped round trip, not a refused mutation. The server
+          // has already logged whatever it was.
+          const message = "Une erreur inattendue est survenue. Réessayez."
+          setState({ message, tone: "error" })
+          if (speaks) notify.error(message, { id: toastId })
+          return
         }
-        if (speaks) notify.success(options.success ?? SAVED, { id: toastId })
-        options.onSuccess?.(result.data)
-        return
-      }
 
-      let attributed = false
-      for (const [field, messages] of Object.entries(result.fieldErrors ?? {})) {
-        const first = messages[0]
-        if (!first) continue
-        form.setError(field as Path<TValues>, { type: "server", message: first })
-        attributed = true
-      }
+        if (result.ok) {
+          if (options.success) {
+            setState({ message: options.success, tone: "success" })
+          }
+          if (speaks) notify.success(options.success ?? SAVED, { id: toastId })
+          options.onSuccess?.(result.data)
+          return
+        }
 
-      setState({ message: result.message, tone: "error" })
+        let attributed = false
+        for (const [field, messages] of Object.entries(result.fieldErrors ?? {})) {
+          const first = messages[0]
+          if (!first) continue
+          form.setError(field as Path<TValues>, { type: "server", message: first })
+          attributed = true
+        }
 
-      // A field error is already visible on the field it belongs to; toasting
-      // it as well would say the same thing twice, in two places. The id guard
-      // matters: `dismiss()` with no argument clears *every* toast on screen,
-      // including ones this form never raised.
-      if (speaks) {
-        if (!attributed) notify.error(result.message, { id: toastId })
-        else if (toastId !== undefined) notify.dismiss(toastId)
-      }
-    })
-  })
+        setState({ message: result.message, tone: "error" })
+
+        // A field error is already visible on the field it belongs to; toasting
+        // it as well would say the same thing twice, in two places. The id guard
+        // matters: `dismiss()` with no argument clears *every* toast on screen,
+        // including ones this form never raised.
+        if (speaks) {
+          if (!attributed) notify.error(result.message, { id: toastId })
+          else if (toastId !== undefined) notify.dismiss(toastId)
+        }
+      })
+    },
+    // Without this, a client-side validation failure returns from
+    // `handleSubmit` having called nothing and said nothing: the action never
+    // runs, no banner appears, and the save button reads as broken. That is
+    // exactly how it presents when the offending field is one the user never
+    // touched — a default seeded from a record that the schema refuses.
+    (errors) => {
+      const count = Object.keys(errors).length
+      setState({
+        message:
+          count === 1
+            ? "Un champ est invalide. Corrigez-le avant d'enregistrer."
+            : `${count} champs sont invalides. Corrigez-les avant d'enregistrer.`,
+        tone: "error",
+      })
+    }
+  )
 
   return {
     submit,

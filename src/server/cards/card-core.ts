@@ -186,17 +186,31 @@ export const QR = {
   colour: "#028f9d",
 } as const
 
-/** The nine ayant-droit boxes on the back, at the artwork's coordinates. */
+/**
+ * The nine ayant-droit boxes on the back, at the artwork's coordinates, **in
+ * reading order** — left to right, top to bottom.
+ *
+ * The order is the contract: `renderBack` fills box *n* with dependant *n*,
+ * so this array is what decides where the fourth ayant droit lands. The
+ * artwork's own document order is not reading order — Illustrator emits the
+ * rectangles in whatever order they were drawn — and transcribing it verbatim
+ * put the fourth dependant in the middle of the second row with the first
+ * cell left empty, which is what the printed proof showed.
+ *
+ * Row 2 and row 3 differ by hundredths of a unit between columns (105.64 vs
+ * 105.67) because each rectangle was placed by hand; those are the artwork's
+ * own values and are kept rather than regularised.
+ */
 export const DEPENDENT_BOXES = [
   { x: 15.93, y: 53.94, tx: 25.63, ty: 97.84 },
   { x: 61.49, y: 54.13, tx: 71.47, ty: 98.03 },
   { x: 107.05, y: 54.13, tx: 117.03, ty: 98.03 },
-  { x: 61.49, y: 105.67, tx: 71.19, ty: 149.57 },
   { x: 15.93, y: 105.64, tx: 25.91, ty: 149.6 },
+  { x: 61.49, y: 105.67, tx: 71.19, ty: 149.57 },
   { x: 107.05, y: 105.67, tx: 116.75, ty: 149.57 },
+  { x: 15.93, y: 157.18, tx: 25.91, ty: 201.14 },
   { x: 61.49, y: 157.21, tx: 71.19, ty: 201.12 },
   { x: 107.05, y: 157.21, tx: 116.75, ty: 201.12 },
-  { x: 15.93, y: 157.18, tx: 25.91, ty: 201.14 },
 ] as const
 
 const BOX = { size: 39.73, radius: 3.1, stroke: "#028f9d", strokeWidth: 0.5 } as const

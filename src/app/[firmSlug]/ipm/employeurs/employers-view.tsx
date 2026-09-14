@@ -6,8 +6,15 @@ import { useRouter } from "next/navigation"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { HugeiconsIcon } from "@hugeicons/react"
-import { Edit02Icon, PlusSignIcon } from "@hugeicons/core-free-icons"
+import {
+  Edit02Icon,
+  InvoiceIcon,
+  PlusSignIcon,
+  Search01Icon,
+} from "@hugeicons/core-free-icons"
+import type { ColumnDef } from "@tanstack/react-table"
 
+import { DataTable } from "@/components/data-table"
 import {
   DateControl,
   FieldGrid,
@@ -18,6 +25,7 @@ import { FormMessage, SubmitButton } from "@/components/forms/form-field"
 import { useActionForm } from "@/components/forms/use-action-form"
 import { Panel } from "@/components/panel"
 import { EmptyState, StatusPill, TwoFacts } from "@/components/primitives"
+import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
@@ -73,11 +81,136 @@ export function EmployersView({
   canWrite: boolean
 }) {
   const [editing, setEditing] = React.useState<EmployerRow | null | "new">(null)
+  const [search, setSearch] = React.useState("")
+
+  const needle = search.trim().toLowerCase()
+  const rows = React.useMemo(
+    () =>
+      needle === ""
+        ? employers
+        : employers.filter(
+            (employer) =>
+              employer.name.toLowerCase().includes(needle) ||
+              (employer.ninea?.toLowerCase().includes(needle) ?? false) ||
+              (employer.accountCode?.toLowerCase().includes(needle) ?? false) ||
+              (employer.legacyEmployerCode?.toLowerCase().includes(needle) ??
+                false)
+          ),
+    [employers, needle]
+  )
 
   const totalMembers = employers.reduce((sum, row) => sum + row.memberCount, 0)
   const withoutPlan = employers.filter(
     (row) => row.planId === null && !row.hasOwnRates
   ).length
+
+  const columns = React.useMemo<ColumnDef<EmployerRow, unknown>[]>(
+    () => [
+      {
+        id: "name",
+        header: "Société",
+        cell: ({ row }) => (
+          <TwoFacts
+            primary={row.original.name}
+            secondary={
+              row.original.accountCode ?? row.original.ninea ?? undefined
+            }
+          />
+        ),
+      },
+      {
+        id: "pricing",
+        header: "Tarification",
+        cell: ({ row }) =>
+          row.original.hasOwnRates ? (
+            <span title="Une dérogation employeur prime sur la formule">
+              Barème propre
+            </span>
+          ) : row.original.planCode ? (
+            <span className="text-ink-2">{row.original.planName}</span>
+          ) : (
+            // Neither a formule nor a dérogation: nothing can be settled for
+            // these participants at all.
+            <StatusPill tone="alert">Aucun barème</StatusPill>
+          ),
+      },
+      {
+        id: "members",
+        header: "Participants",
+        cell: ({ row }) =>
+          row.original.memberCount === 0 ? (
+            <span className="text-ink-3">—</span>
+          ) : (
+            <Link
+              href={membersHref(firmSlug, { employerId: [row.original.id] })}
+              className="num text-brand hover:underline"
+            >
+              {formatNumber(row.original.activeMemberCount)}
+              <span className="text-ink-3">
+                {" "}
+                / {formatNumber(row.original.memberCount)}
+              </span>
+            </Link>
+          ),
+      },
+      {
+        id: "majority",
+        header: "Majorité",
+        cell: ({ row }) => (
+          <span className="num text-ink-3">{row.original.ageMajority} ans</span>
+        ),
+      },
+      {
+        id: "affiliation",
+        header: "Affiliation",
+        cell: ({ row }) => (
+          <span className="num text-ink-3">
+            {formatDate(row.original.affiliationDate)}
+          </span>
+        ),
+      },
+      {
+        id: "status",
+        header: "Statut",
+        cell: ({ row }) => (
+          <StatusPill tone={STATUS_TONES[row.original.status] ?? "muted"}>
+            {STATUS_LABELS[row.original.status] ?? row.original.status}
+          </StatusPill>
+        ),
+      },
+      {
+        id: "actions",
+        header: "",
+        cell: ({ row }) => (
+          <div className="flex items-center justify-end gap-1">
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              aria-label={`Relevé de ${row.original.name}`}
+              render={
+                <Link
+                  href={`/${firmSlug}/ipm/employeurs/${row.original.id}/releve`}
+                />
+              }
+            >
+              <HugeiconsIcon icon={InvoiceIcon} size={14} />
+            </Button>
+            {canWrite ? (
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                onClick={() => setEditing(row.original)}
+                aria-label={`Modifier ${row.original.name}`}
+              >
+                <HugeiconsIcon icon={Edit02Icon} size={14} />
+              </Button>
+            ) : null}
+          </div>
+        ),
+      },
+    ],
+    [canWrite, firmSlug]
+  )
 
   return (
     <>
@@ -96,105 +229,54 @@ export function EmployersView({
         ]}
         tools={
           canWrite ? (
-            <button
-              type="button"
-              onClick={() => setEditing("new")}
-              className="flex h-8 items-center gap-1.5 rounded-[7px] bg-brand px-2.5 text-[13px] font-medium text-brand-contrast hover:opacity-90"
-            >
+            <Button size="sm" onClick={() => setEditing("new")}>
               <HugeiconsIcon icon={PlusSignIcon} size={13} aria-hidden />
               Affilier une société
-            </button>
+            </Button>
           ) : null
         }
       >
-        {employers.length === 0 ? (
-          <EmptyState
-            title="Aucun employeur affilié"
-            description="Affiliez une société pour pouvoir y rattacher des participants."
-          />
-        ) : (
-          <table className="w-full text-[13px]">
-            <thead>
-              <tr className="border-y border-line bg-sub text-left text-[11.5px] text-ink-3">
-                <th className="px-[15px] py-2 font-medium">Société</th>
-                <th className="px-[15px] py-2 font-medium">Tarification</th>
-                <th className="px-[15px] py-2 font-medium">Participants</th>
-                <th className="px-[15px] py-2 font-medium">Majorité</th>
-                <th className="px-[15px] py-2 font-medium">Affiliation</th>
-                <th className="px-[15px] py-2 font-medium">Statut</th>
-                {canWrite ? <th className="px-[15px] py-2" /> : null}
-              </tr>
-            </thead>
-            <tbody>
-              {employers.map((employer) => (
-                <tr key={employer.id} className="border-b border-line">
-                  <td className="px-[15px] py-2.5">
-                    <TwoFacts
-                      primary={employer.name}
-                      secondary={
-                        employer.accountCode ?? employer.ninea ?? undefined
-                      }
-                    />
-                  </td>
-                  <td className="px-[15px] py-2.5">
-                    {employer.hasOwnRates ? (
-                      <span title="Une dérogation employeur prime sur la formule">
-                        Barème propre
-                      </span>
-                    ) : employer.planCode ? (
-                      employer.planName
-                    ) : (
-                      // Neither a formule nor a dérogation: nothing can be
-                      // settled for these participants at all.
-                      <span className="text-alert">Aucun barème</span>
-                    )}
-                  </td>
-                  <td className="px-[15px] py-2.5 tabular-nums">
-                    {employer.memberCount === 0 ? (
-                      <span className="text-ink-3">—</span>
-                    ) : (
-                      <Link
-                        href={membersHref(firmSlug, {
-                          employerId: [employer.id],
-                        })}
-                        className="text-brand hover:underline"
-                      >
-                        {formatNumber(employer.activeMemberCount)}
-                        <span className="text-ink-3">
-                          {" "}
-                          / {formatNumber(employer.memberCount)}
-                        </span>
-                      </Link>
-                    )}
-                  </td>
-                  <td className="px-[15px] py-2.5 tabular-nums text-ink-3">
-                    {employer.ageMajority} ans
-                  </td>
-                  <td className="px-[15px] py-2.5 tabular-nums text-ink-3">
-                    {formatDate(employer.affiliationDate)}
-                  </td>
-                  <td className="px-[15px] py-2.5">
-                    <StatusPill tone={STATUS_TONES[employer.status] ?? "muted"}>
-                      {STATUS_LABELS[employer.status] ?? employer.status}
-                    </StatusPill>
-                  </td>
-                  {canWrite ? (
-                    <td className="px-[15px] py-2.5 text-right">
-                      <button
-                        type="button"
-                        onClick={() => setEditing(employer)}
-                        className="text-ink-3 hover:text-ink"
-                        aria-label={`Modifier ${employer.name}`}
-                      >
-                        <HugeiconsIcon icon={Edit02Icon} size={14} />
-                      </button>
-                    </td>
-                  ) : null}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        {employers.length > 8 ? (
+          <div className="flex flex-wrap items-center gap-1.5 border-b border-line px-[15px] py-2.5">
+            <div className="flex h-[29px] w-[222px] items-center gap-2 rounded-[7px] border border-line px-2.5">
+              <HugeiconsIcon
+                icon={Search01Icon}
+                size={13}
+                className="text-ink-3"
+                aria-hidden
+              />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Société, NINEA, compte"
+                aria-label="Rechercher un employeur"
+                className="w-full border-none bg-transparent text-[12.5px] outline-none placeholder:text-ink-3"
+              />
+            </div>
+          </div>
+        ) : null}
+
+        <DataTable
+          data={rows}
+          columns={columns}
+          getRowId={(row) => row.id}
+          sorting={[]}
+          onSortingChange={() => {}}
+          label="Employeurs affiliés"
+          empty={
+            employers.length === 0 ? (
+              <EmptyState
+                title="Aucun employeur affilié"
+                description="Affiliez une société pour pouvoir y rattacher des participants."
+              />
+            ) : (
+              <EmptyState
+                title="Aucun employeur ne correspond"
+                description="Essayez une autre raison sociale, un NINEA ou un compte."
+              />
+            )
+          }
+        />
       </Panel>
 
       {editing !== null ? (

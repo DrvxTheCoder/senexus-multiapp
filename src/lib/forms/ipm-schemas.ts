@@ -21,6 +21,23 @@ const optionalText = (max = 200) =>
   z.string().trim().max(max).or(z.literal("")).optional()
 
 /**
+ * Sexe, which every form can legitimately leave unset.
+ *
+ * The empty string is accepted, not merely `undefined`: a `<select>` with no
+ * selection stores `""`, and the edit dialogs seed their defaults from a
+ * record where the field is null. Without this, opening "Modifier" on anyone
+ * whose sexe was never recorded made the form fail client validation on a
+ * field the user had not touched, and — because `handleSubmit` does not call
+ * the action when validation fails — the save button did nothing at all.
+ *
+ * The actions normalise `""` back to null before it reaches the enum column.
+ */
+const genderField = z
+  .enum(["MALE", "FEMALE", "OTHER"])
+  .or(z.literal(""))
+  .optional()
+
+/**
  * A taux, entered as a percentage and stored as a fraction.
  *
  * The conversion happens here rather than in the action, so every caller —
@@ -84,7 +101,7 @@ export const personInputSchema = z
     lastName: z.string().trim().min(1, "Nom requis.").max(80).optional(),
     birthDate: optionalDateField,
     birthPlace: optionalText(120),
-    gender: z.enum(["MALE", "FEMALE", "OTHER"]).optional(),
+    gender: genderField,
     nationalId: optionalText(40),
     phone: optionalText(40),
     email: z.string().trim().email("Adresse e-mail invalide.").or(z.literal("")).optional(),
@@ -170,7 +187,7 @@ export const updateMemberSchema = z.object({
     lastName: z.string().trim().min(1, "Nom requis.").max(80),
     birthDate: optionalDateField,
     birthPlace: optionalText(120),
-    gender: z.enum(["MALE", "FEMALE", "OTHER"]).optional(),
+    gender: genderField,
     nationalId: optionalText(40),
     phone: optionalText(40),
     email: z.string().trim().email("Adresse e-mail invalide.").or(z.literal("")).optional(),
@@ -216,7 +233,7 @@ export const updateDependentSchema = z.object({
     firstName: z.string().trim().min(1, "Prénom requis.").max(80),
     lastName: z.string().trim().min(1, "Nom requis.").max(80),
     birthDate: optionalDateField,
-    gender: z.enum(["MALE", "FEMALE", "OTHER"]).optional(),
+    gender: genderField,
   }),
 })
 

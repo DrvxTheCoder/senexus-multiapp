@@ -183,6 +183,29 @@ describe("the ayant-droit grid", () => {
     expect(DEPENDENT_BOXES).toHaveLength(9)
   })
 
+  it("orders the boxes left to right, top to bottom", () => {
+    // The order is what decides where the fourth ayant droit lands. The
+    // artwork's own document order is not reading order, and transcribing it
+    // verbatim put the fourth dependant in the middle of the second row with
+    // the first cell left empty.
+    const rows = [53.94, 105.64, 157.18]
+    DEPENDENT_BOXES.forEach((box, index) => {
+      expect(box.y).toBeCloseTo(rows[Math.floor(index / 3)]!, 0)
+      expect(box.x).toBeCloseTo([15.93, 61.49, 107.05][index % 3]!, 1)
+    })
+  })
+
+  it("fills the boxes in order, so the fourth dependant starts the second row", () => {
+    const svg = renderBack(templates.back, {
+      ...FULL,
+      dependents: Array.from({ length: 4 }, (_, index) => dependent(`D${index}`)),
+    })
+    const fourth = DEPENDENT_BOXES[3]!
+    const caption = svg.match(/<text[^>]*>D3 DIOP<\/text>/)?.[0]
+    expect(caption).toBeDefined()
+    expect(caption).toContain(`y="${fourth.ty}"`)
+  })
+
   it("renders three filled boxes and six empty outlined ones", () => {
     const svg = renderBack(templates.back, FULL)
 

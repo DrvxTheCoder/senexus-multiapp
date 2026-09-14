@@ -358,7 +358,10 @@ export function MemberRecordView({
                           setDependent({
                             id: entry.id,
                             relation: entry.relation,
-                            marriageDate: "",
+                            // Seeded from the record, not blanked: the action
+                            // writes both fields back, so an empty default
+                            // saves over a real marriage date or sexe.
+                            marriageDate: dateInput(entry.marriageDate),
                             coverageStart: dateInput(entry.coverageStart),
                             coverageEnd: dateInput(entry.coverageEnd),
                             status: entry.status,
@@ -366,7 +369,7 @@ export function MemberRecordView({
                               firstName: entry.firstName,
                               lastName: entry.lastName,
                               birthDate: dateInput(entry.birthDate),
-                              gender: "",
+                              gender: entry.gender ?? "",
                             },
                           })
                         }

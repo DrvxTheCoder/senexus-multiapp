@@ -36,6 +36,14 @@ export type DependentEntry = {
   relation: string
   rank: number
   birthDate: Date | null
+  /**
+   * Both are carried only so the edit dialog can seed its form with them.
+   * The fiche prints neither — but `updateDependent` writes both back, so a
+   * form that could not read them saved an empty value over whatever was
+   * there.
+   */
+  gender: string | null
+  marriageDate: Date | null
   status: string
   coverageStart: Date
   coverageEnd: Date | null
@@ -202,6 +210,7 @@ export async function getMemberRecord(
           relation: true,
           rank: true,
           status: true,
+          marriageDate: true,
           coverageStart: true,
           coverageEnd: true,
           person: {
@@ -209,6 +218,7 @@ export async function getMemberRecord(
               firstName: true,
               lastName: true,
               birthDate: true,
+              gender: true,
               photoUrl: true,
             },
           },
@@ -333,6 +343,8 @@ export async function getMemberRecord(
       relation: dependent.relation,
       rank: dependent.rank,
       birthDate: dependent.person.birthDate,
+      gender: dependent.person.gender,
+      marriageDate: dependent.marriageDate,
       status: dependent.status,
       coverageStart: dependent.coverageStart,
       coverageEnd: dependent.coverageEnd,
