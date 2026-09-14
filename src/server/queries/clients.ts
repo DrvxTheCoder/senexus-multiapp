@@ -5,6 +5,7 @@ import { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
 import { type ClientQuery } from "@/lib/queries/client-query"
 import type { FirmContext } from "@/server/auth/require-firm-access"
+import { searchPredicate } from "@/server/queries/search-sql"
 import type { Facets, Paged } from "@/server/queries/types"
 
 export {
@@ -39,12 +40,11 @@ function buildPredicates(q: ClientQuery, ctx: FirmContext): Predicates {
   }
 
   if (q.search) {
-    const term = `%${q.search}%`
-    predicates.search = Prisma.sql`(
-      cl."name" ILIKE ${term}
-      OR cl."industry" ILIKE ${term}
-      OR cl."contactName" ILIKE ${term}
-    )`
+    predicates.search = searchPredicate(q.search, [
+      Prisma.sql`cl."name"`,
+      Prisma.sql`cl."industry"`,
+      Prisma.sql`cl."contactName"`,
+    ])
   }
 
   if (q.status?.length) {

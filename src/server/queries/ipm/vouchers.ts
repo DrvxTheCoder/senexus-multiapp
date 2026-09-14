@@ -4,6 +4,7 @@ import type { Prisma } from "@prisma/client"
 
 import { db } from "@/lib/db"
 import type { FirmContext } from "@/server/auth/require-firm-access"
+import { searchWhere } from "@/server/queries/search-where"
 import { beneficiaryTypeFor } from "@/server/domain/ipm/coverage"
 import type { IssuanceFacts } from "@/server/domain/ipm/issuance"
 import { tryResolveRate, type RateRow } from "@/server/domain/ipm/rates"
@@ -322,15 +323,15 @@ function where(q: VoucherQuery, ctx: FirmContext): Prisma.IpmVoucherWhereInput {
   const clauses: Prisma.IpmVoucherWhereInput = { firmId: ctx.firmId }
 
   if (q.search) {
-    const contains = { contains: q.search, mode: "insensitive" as const }
-    clauses.OR = [
+    const search = searchWhere<Prisma.IpmVoucherWhereInput>(q.search, (contains) => [
       { number: contains },
       { beneficiaryName: contains },
       { member: { matricule: contains } },
       // The WebLamps form too, so a number read off an old document finds it.
       { member: { legacyCode: contains } },
       { provider: { name: contains } },
-    ]
+    ])
+    if (search) clauses.AND = search.AND
   }
 
   if (q.status?.length) clauses.status = { in: q.status }

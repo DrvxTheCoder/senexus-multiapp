@@ -12,7 +12,20 @@ import { createHash } from "node:crypto"
  * Geometry — plan §6
  * ========================================================================== */
 
-/** ISO/IEC 7810 ID-1, portrait. */
+/**
+ * ISO/IEC 7810 ID-1, portrait.
+ *
+ * **No longer used by the renderer, and not the artwork's proportions.** The
+ * production artwork is 161.57 × 246.61 units — a ratio of 0.655, where ID-1
+ * is 0.631 — so a card rendered to these dimensions would be distorted.
+ *
+ * The renderer works in the artwork's own units and writes files by pixel
+ * width (see ARTBOARD in `server/cards/card-core.ts`). These constants are
+ * kept because the physical trim size is still unconfirmed with the print
+ * shop: they record what was previously assumed, so the conversation starts
+ * from something concrete. Nothing should render against them until that
+ * question is settled.
+ */
 export const CARD_WIDTH_MM = 54
 export const CARD_HEIGHT_MM = 85.6
 export const BLEED_MM = 3

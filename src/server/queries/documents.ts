@@ -6,6 +6,7 @@ import { z } from "zod"
 import { db } from "@/lib/db"
 import { paginationSchema, sortSpecSchema } from "@/lib/queries/query-primitives"
 import type { FirmContext } from "@/server/auth/require-firm-access"
+import { searchPredicate } from "@/server/queries/search-sql"
 import type { Facets, Paged } from "@/server/queries/types"
 
 export const DOCUMENT_TYPES = [
@@ -58,13 +59,12 @@ function buildPredicates(q: DocumentQuery, ctx: FirmContext): Predicates {
   }
 
   if (q.search) {
-    const term = `%${q.search}%`
-    predicates.search = Prisma.sql`(
-      d."fileName" ILIKE ${term}
-      OR e."firstName" ILIKE ${term}
-      OR e."lastName" ILIKE ${term}
-      OR e."matricule" ILIKE ${term}
-    )`
+    predicates.search = searchPredicate(q.search, [
+      Prisma.sql`d."fileName"`,
+      Prisma.sql`e."firstName"`,
+      Prisma.sql`e."lastName"`,
+      Prisma.sql`e."matricule"`,
+    ])
   }
 
   if (q.type?.length) {

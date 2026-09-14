@@ -1,537 +1,265 @@
 import "server-only"
 
-import { readFile } from "node:fs/promises"
+import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 
 import QRCode from "qrcode"
-import satori from "satori"
 import sharp from "sharp"
 import { Resvg } from "@resvg/resvg-js"
 
 import {
-  geometry,
-  layoutVerso,
-  PRINT_PPI,
-  type CardInputs,
-} from "@/server/domain/ipm/card"
-import { formatRate } from "@/server/domain/ipm/rates"
-import { RELATION_LABELS } from "@/server/domain/ipm/coverage"
+  ARTBOARD_RATIO,
+  CARD_FONT_FAMILY,
+  QR,
+  renderBack,
+  renderFront,
+  type CardData,
+} from "@/server/cards/card-core"
 
 /**
- * Rendu des cartes — plan §6.
+ * Rendu des cartes — the artwork, filled in.
  *
- * Satori (JSX-shaped objects → SVG), then resvg-js (SVG → PNG). No Chromium:
- * the VPS does not have one and adding a headless browser to render a
- * business card is a disproportionate dependency.
+ * The pipeline is **SVG template → string substitution → resvg**. There is no
+ * layout engine in it, and that is the point: the two files under `templates/`
+ * are the production artwork, and every coordinate in them is a design
+ * decision that this module has no licence to recompute. It fills slots.
  *
- * Fonts are embedded explicitly, because Satori has no system fonts and
- * renders blank boxes rather than failing if you forget. The face is the
- * application's own IBM Plex Sans, so a printed card and the screen it was
- * generated from look like one product.
+ * This replaced a Satori renderer that built the card from JSX-shaped objects.
+ * That approach cannot express the approved artwork — the curved teal panel,
+ * the clipped photo circle, the kerned legal paragraph — so the layout it drew
+ * was necessarily a different card from the one the institution signed off.
  *
- * ## Colour, and the answer to §11 Q8
+ * ## Colour
  *
- * resvg writes **RGB**. PNG has no CMYK at all — it is not a resvg limitation
- * but the file format — so "CMYK at 300 ppi as a PNG" cannot exist. What this
- * module does instead:
- *
- *   - `png()` returns sRGB at the requested ppi, with the density actually
- *     written into the file. resvg emits no pHYs chunk, so without that step
- *     a printer reads 72 dpi and places a 54 mm card at 225 mm;
- *   - `printTiff()` returns a real CMYK TIFF at 300 ppi for the printer.
+ * resvg writes RGB, and PNG has no CMYK at all — that is the file format, not
+ * a resvg limitation, so "CMYK at 300 ppi as a PNG" cannot exist. `png()`
+ * returns sRGB with the density written in; `printTiff()` returns a real CMYK
+ * TIFF for the printer.
  *
  * `sharp.withMetadata()` must not be used on the CMYK path: it re-tags the
  * image as sRGB and converts it back, silently undoing the conversion. The
- * density goes through `tiff({ xres, yres })` instead, which keeps both.
+ * density goes through `tiff({ xres, yres })`, which keeps both.
  */
+
+/* ==========================================================================
+ * Templates and fonts
+ * ========================================================================== */
 
 /**
- * The two faces live under `public/`, read at runtime rather than imported.
+ * Read from disk at call time, not imported.
  *
- * Importing them from `node_modules/@fontsource` is the obvious move and it
- * breaks the build: the bundler tries to make a module out of every `.woff` in
- * that package — nine weights it has no loader for — and a `require.resolve`
- * is enough to trigger it. Reading a path keeps the font out of the module
- * graph entirely, and `public/` is the one directory guaranteed to be present
- * at runtime.
+ * `readFileSync` at module scope would run during the Next.js build, where the
+ * working directory is not the server's; resolving per call against
+ * `process.cwd()` keeps it correct in a production build as well as in dev.
+ * The result is cached, so it is one read per process either way.
  */
-function fontPath(weight: 400 | 600): string {
-  return join(
-    process.cwd(),
-    "public",
-    "fonts",
-    `ibm-plex-sans-latin-${weight}-normal.woff`
-  )
+const templates = new Map<string, string>()
+
+function template(name: "card-front" | "card-back"): string {
+  let cached = templates.get(name)
+  if (!cached) {
+    cached = readFileSync(
+      join(process.cwd(), "src", "server", "cards", "templates", `${name}.svg`),
+      "utf8"
+    )
+    templates.set(name, cached)
+  }
+  return cached
 }
 
-let fontsPromise: Promise<
-  { name: string; data: Buffer; weight: 400 | 600; style: "normal" }[]
-> | null = null
+/**
+ * The card's typeface.
+ *
+ * The artwork calls Tahoma Bold and Arial Bold. Neither is redistributable,
+ * neither is on the container, and resvg substitutes a face silently — which
+ * shifts every metric on the card and stays invisible until the cards are
+ * printed. So the card is set in Montserrat, the closest freely-licensed match
+ * to the reference card's geometric bold, and `card-core` fits the
+ * variable-length strings to their boxes to absorb the difference in metrics.
+ *
+ * Both 400 and 700 are bundled: every text class in the artwork is weight 700,
+ * and with no bold face to resolve resvg quietly substitutes a lighter one.
+ *
+ * **These must be TTF, not the WOFF the app serves to browsers.** resvg reads
+ * raw SFNT only: handed a WOFF it neither converts nor complains, and renders
+ * the card with no text at all. `scripts/build-card-fonts.mjs` unpacks the
+ * WOFFs into `public/fonts/card/`, and the check below turns a missing file
+ * into a loud failure rather than a blank card.
+ *
+ * `loadSystemFonts` is off deliberately: on a machine that happens to have
+ * Tahoma the card would render differently from the container, which is the
+ * failure this is meant to prevent.
+ */
+let fontFilesCache: string[] | null = null
 
-function fonts() {
-  fontsPromise ??= Promise.all([
-    readFile(fontPath(400)),
-    readFile(fontPath(600)),
-  ]).then(([regular, semibold]) => [
-    { name: "Plex", data: regular, weight: 400 as const, style: "normal" as const },
-    { name: "Plex", data: semibold, weight: 600 as const, style: "normal" as const },
-  ])
-  return fontsPromise
+function fontFiles(): string[] {
+  if (fontFilesCache) return fontFilesCache
+
+  const dir = join(process.cwd(), "public", "fonts", "card")
+  const files = [
+    join(dir, "CardSans-Regular.ttf"),
+    join(dir, "CardSans-Bold.ttf"),
+  ]
+
+  const missing = files.filter((file) => !existsSync(file))
+  if (missing.length) {
+    throw new Error(
+      `Card fonts are missing: ${missing.join(", ")}. ` +
+        `Run \`node scripts/build-card-fonts.mjs\`. Rendering without them ` +
+        `produces a card with no text on it.`
+    )
+  }
+
+  fontFilesCache = files
+  return files
 }
 
-/* -------------------------------------------------------------------------- */
-/* Layout primitives                                                          */
+/* ==========================================================================
+ * QR
+ * ========================================================================== */
 
-type Node = {
-  type: string
-  props: Record<string, unknown> & { children?: unknown }
+/**
+ * The verification URL as a module matrix.
+ *
+ * The artwork's QR box is 29 modules on a 1.3804 pitch — about 14 mm printed —
+ * and a denser symbol does not scan reliably at that size. `qrRects` refuses
+ * anything larger rather than printing an unscannable code, so the URL handed
+ * in has to stay short: roughly 39 characters at error-correction level M.
+ *
+ * That is a real constraint on the caller, not a detail. A signed token of the
+ * kind `verification-token.ts` issues is ~87 characters and needs 37 modules,
+ * so it cannot go on this artwork; the card carries a short opaque reference
+ * and the page behind it does the lookup.
+ */
+export function qrMatrix(url: string): boolean[][] {
+  const symbol = QRCode.create(url, { errorCorrectionLevel: "M" })
+  const size = symbol.modules.size
+  const data = symbol.modules.data
+
+  const matrix: boolean[][] = []
+  for (let row = 0; row < size; row += 1) {
+    const line: boolean[] = []
+    for (let column = 0; column < size; column += 1) {
+      line.push(Boolean(data[row * size + column]))
+    }
+    matrix.push(line)
+  }
+  return matrix
 }
 
-const el = (
-  type: string,
-  style: Record<string, unknown>,
-  children?: unknown,
-  extra: Record<string, unknown> = {}
-): Node => ({ type, props: { style, children, ...extra } })
+/** True when `url` fits the artwork's box. Lets a caller check before rendering. */
+export function qrFits(url: string): boolean {
+  try {
+    return QRCode.create(url, { errorCorrectionLevel: "M" }).modules.size <= QR.modules
+  } catch {
+    return false
+  }
+}
 
-const INK = "#0f1b19"
-const PAPER = "#ffffff"
-const BRAND = "#0b5d53"
-const MUTED = "#5d6b68"
-
-/* -------------------------------------------------------------------------- */
+/* ==========================================================================
+ * Faces
+ * ========================================================================== */
 
 export type CardFace = "recto" | "verso"
 
 export type RenderOptions = {
-  ppi?: number
-  bleed?: boolean
-  /** Absolute URL the QR resolves to. Recto only. */
-  verificationUrl?: string
+  /** Rendered width in pixels. Height follows the artwork's aspect ratio. */
+  width?: number
 }
 
 /**
- * One face, as SVG.
+ * The trim width the printed file is tagged for, in millimetres.
  *
- * Scaling is done by deriving every size from the geometry rather than by
- * rendering at 300 ppi and downsampling — text stays crisp at 150 ppi for the
- * on-screen preview instead of going soft.
- */
-async function faceSvg(
-  face: CardFace,
-  inputs: CardInputs,
-  options: RenderOptions
-): Promise<string> {
-  const ppi = options.ppi ?? PRINT_PPI
-  const box = geometry(ppi, options.bleed)
-  const scale = ppi / PRINT_PPI
-  const px = (atPrint: number) => Math.round(atPrint * scale)
-
-  const children =
-    face === "recto"
-      ? await rectoChildren(inputs, px, options)
-      : versoChildren(inputs, px)
-
-  return satori(
-    el(
-      "div",
-      {
-        width: box.width,
-        height: box.height,
-        display: "flex",
-        flexDirection: "column",
-        backgroundColor: PAPER,
-        color: INK,
-        fontFamily: "Plex",
-        // The bleed is drawn in the brand colour so the trim cuts through
-        // artwork rather than through white.
-        padding: box.bleed,
-        // Only when there is bleed to fill. Satori parses every key it is
-        // given, and a key present with `undefined` throws rather than being
-        // treated as absent.
-        ...(box.bleed
-          ? { backgroundImage: `linear-gradient(${BRAND}, ${BRAND})` }
-          : {}),
-      },
-      el(
-        "div",
-        {
-          display: "flex",
-          flexDirection: "column",
-          width: box.width - box.bleed * 2,
-          height: box.height - box.bleed * 2,
-          backgroundColor: PAPER,
-        },
-        children
-      )
-    ) as unknown as React.ReactNode,
-    { width: box.width, height: box.height, fonts: await fonts() }
-  )
-}
-
-/** `1990-04-02` → `02/04/1990`. A card is read by people, not by a parser. */
-function frenchDate(iso: string | null): string | null {
-  if (!iso) return null
-  const [year, month, day] = iso.split("-")
-  return year && month && day ? `${day}/${month}/${year}` : iso
-}
-
-/**
- * The holder's photo, as a data URI.
+ * **An assumption, and the only place it is made.** The artwork's 161.57 user
+ * units are not millimetres, so nothing in the file says how wide the card is;
+ * until the print shop confirms the trim, a density has to come from somewhere
+ * or the PNG claims 72 dpi and prints at three times its size.
  *
- * Fetched here rather than handed to Satori as a URL, for two reasons: the
- * renderer must not hang on a slow file host while somebody waits for a card,
- * and a failed fetch has to degrade to the placeholder instead of throwing.
- * A card with an empty photo frame is still a usable card; an exception is not.
+ * 54 mm is the width of every card in this family — ID-1 and the 54 × 84 that
+ * was guessed elsewhere agree on it, and they differ only in height. So it is
+ * the safest of the available assumptions, and it is stated rather than buried
+ * in an expression.
  */
-async function photoDataUri(url: string | null): Promise<string | null> {
-  if (!url) return null
-  try {
-    const response = await fetch(url, {
-      signal: AbortSignal.timeout(3_000),
-      headers: process.env.ZIPLINE_TOKEN
-        ? { Authorization: process.env.ZIPLINE_TOKEN }
-        : {},
-    })
-    if (!response.ok) return null
-    const type = response.headers.get("content-type") ?? "image/jpeg"
-    if (!type.startsWith("image/")) return null
-    const bytes = Buffer.from(await response.arrayBuffer())
-    return `data:${type};base64,${bytes.toString("base64")}`
-  } catch {
-    return null
-  }
+export const ASSUMED_TRIM_WIDTH_MM = 54
+
+/** 300 ppi at the assumed trim width: 54 mm → 638 px. */
+export const PRINT_WIDTH = Math.round((ASSUMED_TRIM_WIDTH_MM / 25.4) * 300)
+
+/** 150 ppi, for the on-screen preview. */
+export const PREVIEW_WIDTH = Math.round(PRINT_WIDTH / 2)
+
+/** The ppi a file of `width` pixels carries, at the assumed trim. */
+function densityFor(width: number): number {
+  return Math.round(width / (ASSUMED_TRIM_WIDTH_MM / 25.4))
 }
 
-async function rectoChildren(
-  inputs: CardInputs,
-  px: (n: number) => number,
-  options: RenderOptions
-): Promise<unknown[]> {
-  const qr = options.verificationUrl
-    ? await QRCode.toDataURL(options.verificationUrl, {
-        margin: 0,
-        width: px(150),
-        errorCorrectionLevel: "M",
-        color: { dark: INK, light: "#ffffff" },
-      })
-    : null
+export function faceSvg(face: CardFace, data: CardData): string {
+  if (face === "verso") return renderBack(template("card-back"), data)
 
-  const printedRates = inputs.rates.filter((rate) => rate.rate !== null)
-  const photo = await photoDataUri(inputs.photoUrl)
+  const matrix =
+    data.verificationUrl ? qrMatrix(data.verificationUrl) : null
+  return renderFront(template("card-front"), data, matrix)
+}
 
-  // The photo sits between the identity block and the QR, which is the band
-  // that would otherwise be empty. When there is none, the frame is drawn and
-  // labelled rather than collapsed: a card with a visibly missing photo tells
-  // the counter to ask for one, where a tidy layout hides the gap.
-  const photoBlock = el(
-    "div",
-    {
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      width: px(180),
-      height: px(220),
-      marginTop: px(22),
-      borderRadius: px(6),
-      border: `${Math.max(1, px(2))}px solid #e4e8e7`,
-      backgroundColor: "#f7f9f8",
-      overflow: "hidden",
+/* ==========================================================================
+ * Output
+ * ========================================================================== */
+
+function rasterise(svg: string, width: number): Buffer {
+  return new Resvg(svg, {
+    fitTo: { mode: "width", value: width },
+    font: {
+      fontFiles: fontFiles(),
+      loadSystemFonts: false,
+      defaultFontFamily: CARD_FONT_FAMILY,
     },
-    photo
-      ? [el("img", {}, undefined, { src: photo, width: px(180), height: px(220) })]
-      : [el("div", { fontSize: px(15), color: MUTED }, "Photo à fournir")]
-  )
-
-  return [
-    // Bandeau
-    el(
-      "div",
-      {
-        display: "flex",
-        flexDirection: "column",
-        backgroundColor: BRAND,
-        color: PAPER,
-        padding: `${px(26)}px ${px(28)}px`,
-      },
-      [
-        el("div", { fontSize: px(30), fontWeight: 600, letterSpacing: px(1) }, "IPM TAWFEIKH"),
-        el(
-          "div",
-          { fontSize: px(17), marginTop: px(4), opacity: 0.85 },
-          "CARTE TIERS PAYANT"
-        ),
-      ]
-    ),
-
-    // Identité
-    el(
-      "div",
-      {
-        display: "flex",
-        flexDirection: "column",
-        padding: `${px(24)}px ${px(28)}px`,
-        flexGrow: 1,
-      },
-      [
-        el(
-          "div",
-          { fontSize: px(30), fontWeight: 600, lineHeight: 1.1 },
-          `${inputs.lastName.toUpperCase()} ${inputs.firstName}`
-        ),
-        el(
-          "div",
-          { fontSize: px(20), marginTop: px(10), color: MUTED },
-          inputs.birthDate
-            ? `Né(e) le ${frenchDate(inputs.birthDate)}${inputs.birthPlace ? ` à ${inputs.birthPlace}` : ""}`
-            : "Date de naissance non renseignée",
-        ),
-        el(
-          "div",
-          {
-            fontSize: px(38),
-            fontWeight: 600,
-            marginTop: px(18),
-            letterSpacing: px(2),
-          },
-          `N° ${inputs.matricule}`
-        ),
-        el(
-          "div",
-          { fontSize: px(19), marginTop: px(6), color: MUTED },
-          inputs.employerName
-        ),
-
-        // Taux. A category with no barème is simply absent rather than
-        // printed as 0 % — a card must not assert a rate nobody chose.
-        el(
-          "div",
-          {
-            display: "flex",
-            flexDirection: "column",
-            marginTop: px(20),
-            gap: px(4),
-          },
-          printedRates.length
-            ? printedRates.map((rate) =>
-                el(
-                  "div",
-                  {
-                    display: "flex",
-                    justifyContent: "space-between",
-                    fontSize: px(18),
-                  },
-                  [
-                    el("span", { color: MUTED }, rate.category),
-                    el("span", { fontWeight: 600 }, formatRate(rate.rate!)),
-                  ]
-                )
-              )
-            : [el("div", { fontSize: px(18), color: MUTED }, inputs.planLabel)]
-        ),
-
-        photoBlock,
-      ]
-    ),
-
-    // QR
-    el(
-      "div",
-      {
-        display: "flex",
-        alignItems: "center",
-        gap: px(18),
-        padding: `${px(18)}px ${px(28)}px`,
-        borderTop: `${Math.max(1, px(2))}px solid #e4e8e7`,
-      },
-      qr
-        ? [
-            el("img", {}, undefined, {
-              src: qr,
-              width: px(120),
-              height: px(120),
-            }),
-            el(
-              "div",
-              {
-                display: "flex",
-                flexDirection: "column",
-                fontSize: px(15),
-                color: MUTED,
-                flexGrow: 1,
-              },
-              [
-                el("span", { fontWeight: 600, color: INK }, "Vérifier la validité"),
-                el("span", { marginTop: px(3) }, "Scannez ce code au comptoir."),
-              ]
-            ),
-          ]
-        : [el("div", { fontSize: px(15), color: MUTED }, inputs.planLabel)]
-    ),
-  ]
-}
-
-function versoChildren(inputs: CardInputs, px: (n: number) => number): unknown[] {
-  const { shown, notice } = layoutVerso(inputs.dependents)
-
-  return [
-    el(
-      "div",
-      {
-        display: "flex",
-        flexDirection: "column",
-        padding: `${px(24)}px ${px(26)}px ${px(12)}px`,
-      },
-      [
-        el("div", { fontSize: px(22), fontWeight: 600 }, "Ayants droit"),
-        el(
-          "div",
-          { fontSize: px(15), color: MUTED, marginTop: px(3) },
-          `${inputs.lastName.toUpperCase()} ${inputs.firstName} — ${inputs.matricule}`
-        ),
-      ]
-    ),
-
-    el(
-      "div",
-      {
-        display: "flex",
-        flexWrap: "wrap",
-        padding: `0 ${px(26)}px`,
-        flexGrow: 1,
-        alignContent: "flex-start",
-      },
-      shown.length
-        ? shown.map((dependent) =>
-            el(
-              "div",
-              {
-                display: "flex",
-                flexDirection: "column",
-                width: "33%",
-                paddingRight: px(6),
-                marginBottom: px(14),
-              },
-              [
-                el(
-                  "div",
-                  { fontSize: px(15), fontWeight: 600, lineHeight: 1.15 },
-                  dependent.firstName
-                ),
-                el(
-                  "div",
-                  { fontSize: px(13), color: MUTED, marginTop: px(2) },
-                  RELATION_LABELS[
-                    dependent.relation as keyof typeof RELATION_LABELS
-                  ] ?? dependent.relation
-                ),
-                el(
-                  "div",
-                  { fontSize: px(12), color: MUTED, marginTop: px(1) },
-                  dependent.matricule
-                ),
-              ]
-            )
-          )
-        : [
-            el(
-              "div",
-              { fontSize: px(16), color: MUTED },
-              "Aucun ayant droit enregistré."
-            ),
-          ]
-    ),
-
-    // The overflow notice. Printed, never omitted — a card showing nine of
-    // twelve without saying so is the failure the rule exists to prevent.
-    notice
-      ? el(
-          "div",
-          {
-            fontSize: px(14),
-            fontWeight: 600,
-            color: BRAND,
-            padding: `0 ${px(26)}px ${px(10)}px`,
-          },
-          notice
-        )
-      : el("div", { display: "flex" }, ""),
-
-    el(
-      "div",
-      {
-        display: "flex",
-        flexDirection: "column",
-        backgroundColor: "#f3f6f5",
-        padding: `${px(14)}px ${px(26)}px`,
-        fontSize: px(13),
-        color: MUTED,
-        gap: px(2),
-      },
-      [
-        el(
-          "div",
-          {},
-          "Cette carte est la propriété de l'IPM Tawfeikh et doit être restituée."
-        ),
-        el("div", { fontWeight: 600, color: INK }, "IPM Tawfeikh — Dakar"),
-      ]
-    ),
-  ]
-}
-
-/* -------------------------------------------------------------------------- */
-/* Output                                                                     */
-
-/** sRGB PNG with the density written in, so a printer places it at 54 mm. */
-export async function renderCardPng(
-  face: CardFace,
-  inputs: CardInputs,
-  options: RenderOptions = {}
-): Promise<Buffer> {
-  const ppi = options.ppi ?? PRINT_PPI
-  const box = geometry(ppi, options.bleed)
-  const svg = await faceSvg(face, inputs, options)
-
-  const raw = new Resvg(svg, {
-    fitTo: { mode: "width", value: box.width },
   })
     .render()
     .asPng()
+}
 
-  // resvg emits no pHYs chunk. Without this the file claims 72 dpi and a
-  // 54 mm card is placed at 225 mm.
-  return sharp(raw).withMetadata({ density: ppi }).png().toBuffer()
+/** Height for a given width, from the artwork's own ratio. */
+export function heightFor(width: number): number {
+  return Math.round(width * ARTBOARD_RATIO)
+}
+
+/** sRGB PNG with the pixel density written in. */
+export async function renderCardPng(
+  face: CardFace,
+  data: CardData,
+  options: RenderOptions = {}
+): Promise<Buffer> {
+  const width = options.width ?? PRINT_WIDTH
+  const raw = rasterise(faceSvg(face, data), width)
+
+  // resvg emits no pHYs chunk. Without a density the file claims 72 dpi and a
+  // card is placed at roughly three times its size.
+  return sharp(raw).withMetadata({ density: densityFor(width) }).png().toBuffer()
 }
 
 /**
- * A real CMYK TIFF at 300 ppi, for the printer (§11 Q8).
+ * A real CMYK TIFF for the printer.
  *
- * TIFF rather than PNG because PNG has no CMYK, and rather than JPEG because
- * a card is flat colour and type, where JPEG artefacts show. The density goes
- * through `xres`/`yres`: `withMetadata()` would convert the image back to
- * sRGB and quietly undo the conversion.
+ * TIFF rather than PNG because PNG has no CMYK, and rather than JPEG because a
+ * card is flat colour and type, where JPEG artefacts show.
+ *
+ * No bleed is added. The trim size is unconfirmed, so a bleed box here would
+ * be a guess printed onto plastic; the file is the artboard exactly as drawn,
+ * and bleed is added once the print shop states the trim.
  */
 export async function renderCardPrintTiff(
   face: CardFace,
-  inputs: CardInputs,
+  data: CardData,
   options: RenderOptions = {}
 ): Promise<Buffer> {
-  const ppi = options.ppi ?? PRINT_PPI
-  const box = geometry(ppi, options.bleed ?? true)
-  const svg = await faceSvg(face, inputs, { ...options, bleed: options.bleed ?? true })
-
-  const raw = new Resvg(svg, {
-    fitTo: { mode: "width", value: box.width },
-  })
-    .render()
-    .asPng()
-
-  const perInch = ppi / 25.4
+  const width = options.width ?? PRINT_WIDTH
+  const raw = rasterise(faceSvg(face, data), width)
+  // TIFF resolution is per *millimetre* here, where PNG's is per inch.
+  const perMm = densityFor(width) / 25.4
 
   return sharp(raw)
     .flatten({ background: "#ffffff" })
     .toColourspace("cmyk")
-    .tiff({ compression: "lzw", xres: perInch, yres: perInch })
+    .tiff({ compression: "lzw", xres: perMm, yres: perMm })
     .toBuffer()
 }

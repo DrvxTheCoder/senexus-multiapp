@@ -17,6 +17,11 @@ import {
   type DependentDefaults,
   type MemberDefaults,
 } from "@/app/[firmSlug]/ipm/participants/member-dialogs"
+import {
+  CardDownloads,
+  CardFaces,
+} from "@/app/[firmSlug]/ipm/cartes/card-faces"
+import { PersonPhoto } from "@/app/[firmSlug]/ipm/participants/person-photo"
 import { Panel } from "@/components/panel"
 import { Avatar, EmptyState, StatusPill, TwoFacts } from "@/components/primitives"
 import { formatCurrency, formatDate, initials } from "@/lib/format"
@@ -96,7 +101,7 @@ export function MemberRecordView({
               initials={initials(record.person.firstName, record.person.lastName)}
               size={30}
             />
-            <span>
+            <span className="font-extrabold text-lg">
               {record.person.lastName.toUpperCase()} {record.person.firstName}
             </span>
             <StatusPill
@@ -156,6 +161,23 @@ export function MemberRecordView({
           ) : null
         }
       >
+        {/* The photo sits with the identity it belongs to, and is shown in the
+            card's own circular crop so what is approved here is what prints. */}
+        <div className="mb-4 flex flex-wrap items-start gap-5 border-b border-line pb-4">
+          <PersonPhoto
+            firmSlug={firmSlug}
+            subject="member"
+            subjectId={record.id}
+            photoUrl={record.person.photoUrl}
+            name={`${record.person.firstName} ${record.person.lastName}`}
+            canWrite={canWrite}
+          />
+          {/* <p className="max-w-sm text-[12.5px] text-ink-3">
+            Cette photo est imprimée sur la carte. La remplacer marque la carte
+            « à regénérer ».
+          </p> */}
+        </div>
+
         <dl className="grid grid-cols-2 gap-x-6 gap-y-2.5 text-[13px] sm:grid-cols-3">
           <Fact label="Employeur">
             <Link
@@ -240,11 +262,13 @@ export function MemberRecordView({
         </table>
       </Panel>
 
-      {/* ---- ayants droit ------------------------------------------------ */}
-      <Panel
+      
+      <div className="flex flex-row gap-3.5 w-full">
+        {/* ---- ayants droit ------------------------------------------------ */}
+        <Panel
         titleAs="h2"
         title="Ayants droit"
-        description={`Un enfant est couvert jusqu'à ${record.employer.ageMajority} ans chez cet employeur.`}
+        // description={`Un enfant est couvert jusqu'à ${record.employer.ageMajority} ans chez cet employeur.`}
         padded={false}
         tools={
           canWrite ? (
@@ -258,6 +282,7 @@ export function MemberRecordView({
             </button>
           ) : null
         }
+        className="flex-2 h-full"
       >
         {record.dependents.length === 0 ? (
           <EmptyState
@@ -265,15 +290,16 @@ export function MemberRecordView({
             description="La cotisation couvre le participant et sa famille ; ajoutez-la ici."
           />
         ) : (
-          <table className="w-full text-[13px]">
+          <table className="w-full text-[13px] h-full">
             <thead>
               <tr className="border-y border-line bg-sub text-left text-[11.5px] text-ink-3">
-                <th className="px-[15px] py-2 font-medium">Rang</th>
-                <th className="px-[15px] py-2 font-medium">Nom</th>
-                <th className="px-[15px] py-2 font-medium">Lien</th>
-                <th className="px-[15px] py-2 font-medium">Naissance</th>
-                <th className="px-[15px] py-2 font-medium">Couverture</th>
-                {canWrite ? <th className="px-[15px] py-2" /> : null}
+                <th className="px-3.75 py-2 font-medium">Rang</th>
+                <th className="px-3.75 py-2 font-medium">Photo</th>
+                <th className="px-3.75 py-2 font-medium">Nom</th>
+                <th className="px-3.75 py-2 font-medium">Lien</th>
+                <th className="px-3.75 py-2 font-medium">Naissance</th>
+                <th className="px-3.75 py-2 font-medium">Couverture</th>
+                {canWrite ? <th className="px-3.75 py-2" /> : null}
               </tr>
             </thead>
             <tbody>
@@ -281,6 +307,19 @@ export function MemberRecordView({
                 <tr key={entry.id} className="border-b border-line">
                   <td className="px-[15px] py-2.5 tabular-nums text-ink-3">
                     {entry.rank}
+                  </td>
+                  <td className="px-[15px] py-2.5">
+                    {/* Each ayant droit gets their own box on the back of the
+                        card, so each needs their own photo. */}
+                    <PersonPhoto
+                      firmSlug={firmSlug}
+                      subject="dependent"
+                      subjectId={entry.id}
+                      photoUrl={entry.photoUrl}
+                      name={`${entry.firstName} ${entry.lastName}`}
+                      size={40}
+                      canWrite={canWrite}
+                    />
                   </td>
                   <td className="px-[15px] py-2.5">
                     <TwoFacts
@@ -345,51 +384,65 @@ export function MemberRecordView({
         )}
       </Panel>
 
-      {/* ---- carte -------------------------------------------------------- */}
-      <Panel
-        titleAs="h2"
-        title="Carte de tiers payant"
-        description={
-          record.card.state === "STALE"
-            ? "Le contenu imprimé a changé depuis la dernière génération."
-            : "54 × 85,6 mm, 300 ppi. Recto et verso."
-        }
-        tools={
-          <Link
-            href={`/${firmSlug}/ipm/cartes`}
-            className="flex h-8 items-center rounded-[7px] border border-line px-2.5 text-[13px] hover:bg-sub"
-          >
-            Toutes les cartes
-          </Link>
-        }
-      >
-        <div className="flex flex-wrap items-center gap-3 text-[13px]">
-          <StatusPill
-            tone={
-              record.card.state === "CURRENT"
-                ? "ok"
-                : record.card.state === "STALE"
-                  ? "alert"
-                  : record.card.state === "MISSING"
-                    ? "signal"
-                    : "muted"
-            }
-          >
-            {CARD_STATE_LABELS[record.card.state]}
-          </StatusPill>
-          {record.card.version ? (
-            <span className="text-ink-3">
-              v{record.card.version} · {formatDate(record.card.generatedAt)}
-            </span>
-          ) : null}
-          {record.dependents.filter((entry) => entry.status === "ACTIVE").length >
-          9 ? (
-            <span className="text-[12.5px] text-signal">
-              Le verso affiche 9 ayants droit et mentionne le reste.
-            </span>
-          ) : null}
-        </div>
-      </Panel>
+        {/* ---- carte -------------------------------------------------------- */}
+        <Panel
+          titleAs="h2"
+          title="Carte de tiers payant"
+          description={
+            record.card.state === "STALE"
+              ? "Le contenu imprimé a changé depuis la dernière génération."
+              : "Aperçu à 150 ppi ; fichiers d'impression en CMJN 300 ppi."
+          }
+          tools={
+            <div className="flex items-center gap-2">
+              <CardDownloads firmSlug={firmSlug} memberId={record.id} />
+              {/* <Link
+                href={`/${firmSlug}/ipm/cartes`}
+                className="flex h-8 items-center rounded-[7px] border border-line px-2.5 text-[13px] hover:bg-sub"
+              >
+                Toutes les cartes
+              </Link> */}
+            </div>
+          }
+        >
+          <div className="flex flex-wrap items-center gap-3 text-[13px]">
+            <StatusPill
+              tone={
+                record.card.state === "CURRENT"
+                  ? "ok"
+                  : record.card.state === "STALE"
+                    ? "alert"
+                    : record.card.state === "MISSING"
+                      ? "signal"
+                      : "muted"
+              }
+            >
+              {CARD_STATE_LABELS[record.card.state]}
+            </StatusPill>
+            {record.card.version ? (
+              <span className="text-ink-3">
+                v{record.card.version} · {formatDate(record.card.generatedAt)}
+              </span>
+            ) : null}
+            {record.dependents.filter((entry) => entry.status === "ACTIVE").length >
+            9 ? (
+              <span className="text-[12.5px] text-signal">
+                Le verso affiche 9 ayants droit et mentionne le reste.
+              </span>
+            ) : null}
+          </div>
+
+          {/* The card itself, on the record it belongs to. The photo above and
+              the ayants droit below are what it prints, so seeing all three on
+              one screen is how an operator checks a card before printing it. */}
+          <CardFaces
+            firmSlug={firmSlug}
+            memberId={record.id}
+            version={record.card.hash}
+            className="mt-3.5 flex flex-wrap gap-4"
+          />
+        </Panel>
+      </div>
 
       {/* ---- cotisations ------------------------------------------------- */}
       <Panel

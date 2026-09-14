@@ -9,6 +9,7 @@ import {
 } from "@/lib/queries/employee-query"
 import type { FirmContext } from "@/server/auth/require-firm-access"
 import { clientScopeSql } from "@/server/queries/scope"
+import { searchPredicate } from "@/server/queries/search-sql"
 import {
   INTERIM_CEILING_DAYS,
   INTERIM_WARNING_DAYS,
@@ -52,14 +53,15 @@ function buildPredicates(q: EmployeeQuery, ctx: FirmContext): Predicates {
   if (scope) predicates.scope = scope
 
   if (q.search) {
-    const term = `%${q.search}%`
-    predicates.search = Prisma.sql`(
-      e."firstName" ILIKE ${term}
-      OR e."lastName" ILIKE ${term}
-      OR e."matricule" ILIKE ${term}
-      OR e."jobTitle" ILIKE ${term}
-      OR e."email" ILIKE ${term}
-    )`
+    // AND across the words typed, OR across these columns, so "Fatou Diop"
+    // matches a row whose name is split over two of them.
+    predicates.search = searchPredicate(q.search, [
+      Prisma.sql`e."firstName"`,
+      Prisma.sql`e."lastName"`,
+      Prisma.sql`e."matricule"`,
+      Prisma.sql`e."jobTitle"`,
+      Prisma.sql`e."email"`,
+    ])
   }
 
   if (q.status?.length) {

@@ -238,6 +238,8 @@ export type CardRow = {
   employerName: string
   dependentCount: number
   state: CardState
+  /** Digest of the printed content; the preview uses it as a cache key. */
+  hash: string
   version: number
   generatedAt: Date | null
 }
@@ -271,6 +273,7 @@ export async function listCards(ctx: FirmContext): Promise<CardRow[]> {
         employerName: member.employer.organization.name,
         dependentCount: member.dependents.length,
         state: cardState(member.card, hash),
+        hash,
         version: member.card?.version ?? 0,
         generatedAt: member.card?.generatedAt ?? null,
       }

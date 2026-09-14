@@ -1,7 +1,10 @@
 import "server-only"
 
+import type { Prisma } from "@prisma/client"
+
 import { db } from "@/lib/db"
 import type { FirmContext } from "@/server/auth/require-firm-access"
+import { searchWhere } from "@/server/queries/search-where"
 
 /**
  * §5.2 — the search behind the command palette.
@@ -40,12 +43,14 @@ export async function searchFirm(
           where: {
             firmId: ctx.firmId,
             ...(scoped ? { assignedClientId: { in: scoped } } : {}),
-            OR: [
-              { matricule: { contains: trimmed, mode: "insensitive" } },
-              { firstName: { contains: trimmed, mode: "insensitive" } },
-              { lastName: { contains: trimmed, mode: "insensitive" } },
-              { jobTitle: { contains: trimmed, mode: "insensitive" } },
-            ],
+            // AND across the words typed, OR across these fields, so
+            // "Fatou Diop" matches a name split over two columns.
+            ...(searchWhere<Prisma.EmployeeWhereInput>(trimmed, (contains) => [
+              { matricule: contains },
+              { firstName: contains },
+              { lastName: contains },
+              { jobTitle: contains },
+            ]) ?? {}),
           },
           take: perKind,
           orderBy: [{ status: "asc" }, { lastName: "asc" }],
@@ -65,10 +70,10 @@ export async function searchFirm(
           where: {
             firmId: ctx.firmId,
             ...(scoped ? { id: { in: scoped } } : {}),
-            OR: [
-              { name: { contains: trimmed, mode: "insensitive" } },
-              { industry: { contains: trimmed, mode: "insensitive" } },
-            ],
+            ...(searchWhere<Prisma.ClientWhereInput>(trimmed, (contains) => [
+              { name: contains },
+              { industry: contains },
+            ]) ?? {}),
           },
           take: perKind,
           orderBy: { name: "asc" },
@@ -86,10 +91,10 @@ export async function searchFirm(
           where: {
             firmId: ctx.firmId,
             ...(scoped ? { clientId: { in: scoped } } : {}),
-            OR: [
-              { position: { contains: trimmed, mode: "insensitive" } },
-              { employee: { matricule: { contains: trimmed, mode: "insensitive" } } },
-            ],
+            ...(searchWhere<Prisma.ContractWhereInput>(trimmed, (contains) => [
+              { position: contains },
+              { employee: { matricule: contains } },
+            ]) ?? {}),
             status: "ACTIVE",
           },
           take: perKind,

@@ -100,8 +100,20 @@ export type MemberRecord = {
   /** Non-empty only when the cotisation history is broken. Shown, not hidden. */
   contributionOverlaps: number
   rates: ResolvedCategoryRate[]
-  /** The card's state, computed from what it would print. */
-  card: { state: CardState; version: number; generatedAt: Date | null }
+  /**
+   * The card's state, computed from what it would print.
+   *
+   * `hash` is the digest of the printed content. The preview uses it as a
+   * cache key: a replaced photo changes what the card prints without changing
+   * `version`, so keying on the version alone would leave the operator looking
+   * at the old face.
+   */
+  card: {
+    state: CardState
+    hash: string
+    version: number
+    generatedAt: Date | null
+  }
 }
 
 function toRateRows(
@@ -363,6 +375,8 @@ export async function getMemberRecord(
       })),
   }
 
+  const cardHash = cardInputsHash(cardInputs)
+
   const currentEntry =
     contributions.find((entry) => entry.current) ??
     // A record opened as of a past date shows what applied then, not today's.
@@ -403,7 +417,8 @@ export async function getMemberRecord(
     // Computed from the same digest the cards screen uses, so the record and
     // that list cannot disagree about whether a card is out of date.
     card: {
-      state: cardState(member.card, cardInputsHash(cardInputs)),
+      state: cardState(member.card, cardHash),
+      hash: cardHash,
       version: member.card?.version ?? 0,
       generatedAt: member.card?.generatedAt ?? null,
     },

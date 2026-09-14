@@ -7,6 +7,10 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import { Refresh01Icon, ViewIcon } from "@hugeicons/core-free-icons"
 
 import { useAction } from "@/components/forms/use-action"
+import {
+  CardDownloads,
+  CardFaces,
+} from "@/app/[firmSlug]/ipm/cartes/card-faces"
 import { Panel } from "@/components/panel"
 import { EmptyState, SegmentedControl, StatusPill, TwoFacts } from "@/components/primitives"
 import { formatDate, formatNumber } from "@/lib/format"
@@ -207,8 +211,6 @@ function CardPreview({
   card: CardRow
   onClose: () => void
 }) {
-  const base = `/${firmSlug}/api/ipm/cards/${card.memberId}`
-
   return (
     <div
       className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-6"
@@ -229,18 +231,7 @@ function CardPreview({
             <p className="text-[11.5px] text-ink-3">{card.matricule}</p>
           </div>
           <div className="flex items-center gap-2 text-[12.5px]">
-            <a
-              href={`${base}/recto?format=tiff`}
-              className="rounded-[7px] border border-line px-2 py-1 hover:bg-sub"
-            >
-              Recto CMYK
-            </a>
-            <a
-              href={`${base}/verso?format=tiff`}
-              className="rounded-[7px] border border-line px-2 py-1 hover:bg-sub"
-            >
-              Verso CMYK
-            </a>
+            <CardDownloads firmSlug={firmSlug} memberId={card.memberId} />
             <button
               type="button"
               onClick={onClose}
@@ -251,24 +242,16 @@ function CardPreview({
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-4">
-          {(["recto", "verso"] as const).map((face) => (
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img
-              key={face}
-              src={`${base}/${face}?preview=1`}
-              alt={`Carte ${face}`}
-              width={319}
-              height={506}
-              className="rounded border border-line"
-            />
-          ))}
-        </div>
+        <CardFaces
+          firmSlug={firmSlug}
+          memberId={card.memberId}
+          version={card.hash}
+        />
 
         <p className="mt-3 max-w-[680px] text-[11.5px] text-ink-3">
-          Aperçu à 150 ppi. Les fichiers d&apos;impression sont en CMJN 300 ppi
-          avec 3 mm de fond perdu ; le PNG reste en RVB, le format PNG ne
-          pouvant pas contenir de CMJN.
+          Aperçu à 150 ppi. Les fichiers d&apos;impression sont en CMJN 300 ppi ;
+          le PNG reste en RVB, le format PNG ne pouvant pas contenir de CMJN. La
+          taille de coupe reste à confirmer avec l&apos;imprimeur.
         </p>
       </div>
     </div>

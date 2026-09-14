@@ -5,6 +5,7 @@ import type { Prisma } from "@prisma/client"
 import { db } from "@/lib/db"
 import type { MemberQuery } from "@/lib/queries/ipm/member-query"
 import type { FirmContext } from "@/server/auth/require-firm-access"
+import { searchWhere } from "@/server/queries/search-where"
 import type { Facets, Paged } from "@/server/queries/types"
 
 export {
@@ -31,8 +32,9 @@ function where(q: MemberQuery, ctx: FirmContext): Prisma.MemberWhereInput {
   const clauses: Prisma.MemberWhereInput = { firmId: ctx.firmId }
 
   if (q.search) {
-    const contains = { contains: q.search, mode: "insensitive" as const }
-    clauses.OR = [
+    // AND across the words typed, OR across these fields, so "Fatou Diop"
+    // matches a participant whose name is split over two of them.
+    const search = searchWhere<Prisma.MemberWhereInput>(q.search, (contains) => [
       { matricule: contains },
       // The WebLamps form too: Rokhaya reads `001-00185-21` off an old card
       // and expects to find the participant (§11 Q1).
@@ -40,7 +42,8 @@ function where(q: MemberQuery, ctx: FirmContext): Prisma.MemberWhereInput {
       { person: { lastName: contains } },
       { person: { firstName: contains } },
       { person: { nationalId: contains } },
-    ]
+    ])
+    if (search) clauses.AND = search.AND
   }
 
   if (q.status?.length) clauses.status = { in: q.status }
