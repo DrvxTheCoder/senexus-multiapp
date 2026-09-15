@@ -31,6 +31,7 @@ import { hash } from "bcryptjs"
 
 import { FLYER_PLANS } from "@/server/domain/ipm/referentiel"
 import {
+  firmCode,
   issueToken,
   verificationSecret,
 } from "@/server/domain/ipm/verification-token"
@@ -284,7 +285,7 @@ async function main() {
   // A participant record, fetched by a real id rather than a guessed one.
   const sample = await db.member.findFirst({
     where: { firm: { slug: IPM_SLUG } },
-    select: { id: true, matricule: true },
+    select: { id: true, firmId: true, matricule: true },
   })
   if (!sample) {
     check("a seeded participant exists to open", false)
@@ -972,7 +973,14 @@ async function main() {
   console.log("\nLa page publique de vérification")
   if (sample) {
     const secret = verificationSecret()
-    const token = issueToken({ kind: "member", id: sample.id }, secret)
+    const token = issueToken(
+      {
+        kind: "member",
+        firmCode: firmCode(sample.firmId),
+        matricule: sample.matricule,
+      },
+      secret
+    )
 
     // Public by design: a pharmacist at a counter has no account.
     const page = await get(null, `/v/${token}`)

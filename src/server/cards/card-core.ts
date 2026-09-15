@@ -170,19 +170,40 @@ const CENTRE = ARTBOARD.width / 2
 const MATRICULE = { labelSize: 5, valueSize: 5, gap: 1.6 } as const
 
 /**
- * The QR block, read off the artwork's own rect grid: 29 columns from
- * x=60.42 to x=99.07, 29 rows from y=177.78, on a 1.3804 pitch.
+ * The QR block.
  *
- * 29 modules is already close to the point where a 14 mm printed box stops
- * scanning reliably, which is why `qrMatrix` refuses a payload that needs a
- * larger symbol rather than silently printing one nobody can read.
+ * **The pitch is the thing that matters, not the module count.** What decides
+ * whether a printed code scans is the physical size of one module, and at the
+ * assumed 54 mm trim this 1.3804 pitch is about 0.46 mm — comfortably above
+ * the point where a counter scanner starts to struggle. That figure is the
+ * artwork's and is not ours to shrink.
+ *
+ * The artwork drew the grid 29 modules square, from x=60.42, y=177.78. That
+ * held 34 bytes at error correction M, and the verification URL is around 60
+ * — so `qrFits` rejected every card ever rendered and the block came out
+ * empty. The box is therefore 33 modules, grown **at the artwork's own pitch**
+ * rather than by packing more modules into the same square: the code occupies
+ * 45.55 units instead of 40.03, and each module prints exactly the size the
+ * design intended.
+ *
+ * The extra 5.52 units come out of whitespace that was already there. Grown
+ * about the old centre, the block spans y=175.02 to y=220.57, which clears the
+ * matricule line above it (baseline 170.53, descenders to ~171.6) and the
+ * coverage line below it (baseline 226.69, ascenders from ~223.7). It is also
+ * re-centred on the artboard's own axis, which is where every other variable
+ * line on this face is centred; the artwork's 29-module box sat 0.35 units off
+ * it, and at the old size nothing revealed that.
+ *
+ * `qrRects` still refuses a symbol larger than this rather than silently
+ * printing one nobody can read — see `qrMatrix` for what that costs the
+ * caller.
  */
 export const QR = {
-  originX: 60.42,
-  originY: 177.78,
+  originX: 58.01,
+  originY: 175.02,
   module: 1.3804,
-  /** The artwork's own module count. A symbol larger than this will not fit. */
-  modules: 29,
+  /** The largest symbol the box holds. A payload needing more will not fit. */
+  modules: 33,
   colour: "#028f9d",
 } as const
 

@@ -252,26 +252,38 @@ describe("the ayant-droit grid", () => {
 })
 
 describe("the QR block", () => {
-  it("draws on the artwork's own origin and pitch", () => {
-    const svg = qrRects(matrix(29))
+  it("draws on the box's own origin and pitch", () => {
+    // A full-size symbol starts at the origin; anything smaller is centred,
+    // which is what the next test covers.
+    const svg = qrRects(matrix(QR.modules))
     // Coordinates are written to three decimals.
     expect(svg).toContain(`x="${QR.originX.toFixed(3)}"`)
     expect(svg).toContain(`y="${QR.originY.toFixed(3)}"`)
     expect(svg).toContain(`width="${QR.module.toFixed(4)}"`)
   })
 
-  it("refuses a symbol denser than the box can print", () => {
-    // 37 modules is what a signed verification token needs — it does not scan
-    // at 14 mm, so it must fail rather than print.
-    expect(() => qrRects(matrix(37))).toThrow(/29/)
+  it("keeps the artwork's pitch, which is what decides whether it scans", () => {
+    // The box grew from 29 modules to 33 by taking more room, not by packing
+    // the modules tighter. If this ever shrinks, printed cards stop scanning
+    // and nothing else in the suite would notice.
+    expect(QR.module).toBe(1.3804)
   })
 
-  it("accepts a symbol at exactly the artwork's capacity", () => {
-    expect(() => qrRects(matrix(29))).not.toThrow()
+  it("refuses a symbol denser than the box can print", () => {
+    // 37 modules is what the old cuid-based token needed. It does not scan at
+    // this size, so it must fail rather than print.
+    expect(() => qrRects(matrix(37))).toThrow(/33/)
+  })
+
+  it("accepts a symbol at exactly the box's capacity", () => {
+    expect(() => qrRects(matrix(33))).not.toThrow()
   })
 
   it("centres a smaller symbol inside the box", () => {
-    expect(() => qrRects(matrix(25))).not.toThrow()
+    const svg = qrRects(matrix(29))
+    // Two modules of slack on each side, at the artwork's pitch.
+    const offset = (QR.originX + 2 * QR.module).toFixed(3)
+    expect(svg).toContain(`x="${offset}"`)
   })
 
   it("is absent, not blank, when there is no verification URL", () => {
@@ -288,7 +300,7 @@ describe("xml escaping", () => {
 
 describe("snapshot", () => {
   it("front is stable for a fixed card", () => {
-    expect(renderFront(templates.front, FULL, matrix(29))).toMatchSnapshot()
+    expect(renderFront(templates.front, FULL, matrix(33))).toMatchSnapshot()
   })
 
   it("back is stable for a fixed card", () => {

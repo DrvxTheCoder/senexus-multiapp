@@ -121,15 +121,17 @@ function fontFiles(): string[] {
 /**
  * The verification URL as a module matrix.
  *
- * The artwork's QR box is 29 modules on a 1.3804 pitch — about 14 mm printed —
- * and a denser symbol does not scan reliably at that size. `qrRects` refuses
- * anything larger rather than printing an unscannable code, so the URL handed
- * in has to stay short: roughly 39 characters at error-correction level M.
+ * The card's QR box holds 33 modules on the artwork's 1.3804 pitch — about
+ * 15 mm printed, at 0.46 mm per module. `qrRects` refuses anything larger
+ * rather than printing a code nobody can scan, so the URL handed in has to
+ * stay short: **62 bytes at error-correction level M, origin included.**
  *
- * That is a real constraint on the caller, not a detail. A signed token of the
- * kind `verification-token.ts` issues is ~87 characters and needs 37 modules,
- * so it cannot go on this artwork; the card carries a short opaque reference
- * and the page behind it does the lookup.
+ * That is a real constraint on the caller, not a detail, and it is the reason
+ * `verification-token.ts` packs its fields the way it does. A production URL
+ * lands near 60 characters, which leaves very little room — so a longer
+ * domain, or a matricule with a long employer prefix, can still push a card
+ * over. `qrFits` is how a caller checks before rendering; the route logs and
+ * omits rather than printing an unreadable symbol.
  */
 export function qrMatrix(url: string): boolean[][] {
   const symbol = QRCode.create(url, { errorCorrectionLevel: "M" })

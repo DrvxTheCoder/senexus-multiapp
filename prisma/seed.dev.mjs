@@ -5,9 +5,9 @@
  * the tables and the dashboard aggregates can be built and measured against
  * realistic volume and realistic distributions.
  *
- * This never runs against a remote host: the guard below refuses anything that
- * is not localhost. It also only ever touches the firms it seeds: the two HR
- * filiales and IPM Tawfeikh.
+ * The guard below defaults to localhost. A remote target runs only when it is
+ * named in full through SEED_ALLOW_REMOTE. It also only ever touches the firms
+ * it seeds: the two HR filiales and IPM Tawfeikh.
  *
  * Shared identity (Person, Organization) is holding-scoped rather than
  * firm-scoped, so its wipe is by reachability — a row nothing points at — and
@@ -24,23 +24,74 @@ import { hash } from "bcryptjs"
 const db = new PrismaClient()
 
 // --------------------------------------------------------------------------
-// Guard: local only.
+// Guard: local by default, remote only when the exact target is named.
+//
+// Localhost runs need nothing. Any other host must be pinned, explicitly and
+// in full, via SEED_ALLOW_REMOTE (env) or --allow-remote=… (argv):
+//
+//   host[:port][/database]
+//
+// Every part given must match DATABASE_URL. Pinning the port and the database
+// name is what keeps this safe: switching .env back to the production line
+// makes the pin stop matching instead of silently wiping it.
+//
+//   $env:SEED_ALLOW_REMOTE="72.62.27.117:5434/senexusdbtest"; pnpm db:seed:dev
 // --------------------------------------------------------------------------
 const url = process.env.DATABASE_URL ?? ""
-const host = (() => {
+const target = (() => {
   try {
-    return new URL(url).hostname
+    const u = new URL(url)
+    return {
+      host: u.hostname,
+      port: u.port || "5432",
+      database: decodeURIComponent(u.pathname.replace(/^\//, "")),
+    }
   } catch {
-    return ""
+    return null
   }
 })()
 
-if (!["localhost", "127.0.0.1", "::1"].includes(host)) {
-  console.error(
-    `Refusing to seed: DATABASE_URL points at "${host || "an unparseable host"}".\n` +
-      "This script only runs against a local database."
-  )
+const LOCAL = ["localhost", "127.0.0.1", "::1"]
+
+if (!target) {
+  console.error("Refusing to seed: DATABASE_URL is missing or unparseable.")
   process.exit(1)
+}
+
+if (!LOCAL.includes(target.host)) {
+  const flag = process.argv.find((a) => a.startsWith("--allow-remote="))
+  const pin = (flag ? flag.slice("--allow-remote=".length) : process.env.SEED_ALLOW_REMOTE ?? "").trim()
+
+  if (!pin) {
+    console.error(
+      `Refusing to seed: DATABASE_URL points at "${target.host}".\n` +
+        "This script wipes and rewrites domain data, so a non-local target must be\n" +
+        "named explicitly. If that database really is the throwaway test one:\n\n" +
+        `  $env:SEED_ALLOW_REMOTE="${target.host}:${target.port}/${target.database}"; pnpm db:seed:dev\n`
+    )
+    process.exit(1)
+  }
+
+  // host[:port][/database] — every part supplied has to match.
+  const m = /^([^:/\s]+)(?::(\d+))?(?:\/(.+))?$/.exec(pin)
+  const mismatch =
+    !m ||
+    m[1] !== target.host ||
+    (m[2] !== undefined && m[2] !== target.port) ||
+    (m[3] !== undefined && m[3] !== target.database)
+
+  if (mismatch) {
+    console.error(
+      `Refusing to seed: SEED_ALLOW_REMOTE is "${pin}" but DATABASE_URL points at\n` +
+        `"${target.host}:${target.port}/${target.database}". They must match.`
+    )
+    process.exit(1)
+  }
+
+  console.warn(
+    `\n!! Seeding REMOTE database ${target.host}:${target.port}/${target.database}\n` +
+      "!! Domain data for the seeded firms will be deleted and rewritten.\n"
+  )
 }
 
 // --------------------------------------------------------------------------

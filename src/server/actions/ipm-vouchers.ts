@@ -21,6 +21,7 @@ import {
 import { lineTotal } from "@/server/domain/ipm/settlement"
 import { nextVoucherSequence } from "@/server/domain/ipm/sequence"
 import {
+  firmCode,
   issueToken,
   verificationSecret,
 } from "@/server/domain/ipm/verification-token"
@@ -353,7 +354,11 @@ export const issueVoucher = firmAction({
         appliedRate: context.facts.rate!,
         rateSource: context.rateSource ?? "PLAN",
         qrToken: issueToken(
-          { kind: "member", id: input.memberId },
+          {
+            kind: "member",
+            firmCode: firmCode(ctx.firmId),
+            matricule: context.memberMatricule,
+          },
           verificationSecret()
         ),
         issuedById: ctx.userId,
@@ -485,9 +490,16 @@ export const cancelVoucher = firmAction({
         status: "CANCELLED",
         cancelledAt: new Date(),
         cancelReason: input.reason,
-        // Rotated, so a photographed copy stops resolving.
+        // Rotated to an already-expired token, so a photographed copy stops
+        // resolving. The matricule is deliberately not the bearer's: this
+        // token exists to fail, and it should carry nothing if it leaks.
         qrToken: issueToken(
-          { kind: "member", id: voucher.id, expiresAt: 1 },
+          {
+            kind: "member",
+            firmCode: firmCode(ctx.firmId),
+            matricule: "00000",
+            expiresAt: 1,
+          },
           verificationSecret()
         ),
       },

@@ -8,6 +8,7 @@ import {
   renderCardPrintTiff,
 } from "@/server/cards/render-card"
 import {
+  firmCode,
   issueToken,
   verificationSecret,
 } from "@/server/domain/ipm/verification-token"
@@ -63,24 +64,35 @@ export async function GET(
     /**
      * The QR, on the recto only.
      *
-     * The artwork's box is 29 modules at roughly 14 mm, and a signed
-     * verification token is far too long to encode in it — ~87 characters
-     * needs 37 modules, which does not scan at that size. So the code is
-     * printed only when it actually fits, and omitted otherwise: an
-     * unscannable QR on an identity document is worse than none, because it
-     * looks like it works.
+     * The token is keyed on the firm and the matricule rather than on the
+     * member's row id, because the box is a 62-byte budget for the whole URL
+     * and a cuid alone is 25 of them — see `verification-token.ts`. The id is
+     * not in the QR at all; the page resolves the matricule behind it.
+     *
+     * The fit is still checked rather than assumed. A long enough origin or
+     * employer prefix can push a card over, and when it does the code is
+     * omitted: an unscannable QR on an identity document is worse than none,
+     * because it looks like it works.
      *
      * Leaving the block empty is safe — the box is drawn by the generated
      * matrix, not by the artwork, so nothing is left hanging.
      */
     let verificationUrl: string | null = null
     if (face === "recto") {
-      const candidate = `${url.origin}/v/${issueToken({ kind: "member", id: memberId }, verificationSecret())}`
+      const token = issueToken(
+        {
+          kind: "member",
+          firmCode: firmCode(ctx.firmId),
+          matricule: card.inputs.matricule,
+        },
+        verificationSecret()
+      )
+      const candidate = `${url.origin}/v/${token}`
       if (qrFits(candidate)) {
         verificationUrl = candidate
       } else {
         console.warn(
-          "Card QR omitted: verification URL exceeds the artwork's 29-module box",
+          "Card QR omitted: verification URL exceeds the card's 33-module box",
           { memberId, length: candidate.length }
         )
       }

@@ -9,6 +9,7 @@ import {
   type CardState,
 } from "@/server/domain/ipm/card"
 import { tryResolveRate, type RateRow } from "@/server/domain/ipm/rates"
+import { firmCode } from "@/server/domain/ipm/verification-token"
 
 /**
  * Cartes.
@@ -298,6 +299,75 @@ export type PublicVerification = {
   checkedAt: Date
 }
 
+/** Everything about an ayant droit that bears on whether they are covered. */
+const DEPENDENT_FOR_VERIFICATION = {
+  memberId: true,
+  status: true,
+  relation: true,
+  coverageStart: true,
+  coverageEnd: true,
+  person: { select: { firstName: true, lastName: true } },
+} as const
+
+type ResolvedBeneficiary = {
+  memberId: string
+  dependent: {
+    status: string
+    relation: string
+    coverageStart: Date
+    coverageEnd: Date | null
+    person: { firstName: string; lastName: string }
+  } | null
+}
+
+/**
+ * Turns a token's (firm code, matricule) back into a row.
+ *
+ * The QR carries a matricule rather than a cuid because the artwork's box has
+ * room for one and not the other, and a matricule is only unique within its
+ * firm — so the token also carries a 3-character firm code. That code is a
+ * *hash* of the firm id, which is what lets it exist without a column, and
+ * which is also why it cannot be a WHERE clause: the firms are enumerated and
+ * matched in memory. There are a handful of them, and this runs on a public
+ * page that is hit once per scan.
+ *
+ * Two firms whose ids collide on the code **and** that both use the matricule
+ * would be genuinely unresolvable, so that returns null rather than picking
+ * one. Answering confidently about the wrong person is the one outcome a
+ * verification page must not produce.
+ */
+async function resolveBeneficiary(
+  kind: "member" | "dependent",
+  code: string,
+  matricule: string
+): Promise<ResolvedBeneficiary | null> {
+  const firms = await db.firm.findMany({ select: { id: true } })
+  const candidates = firms.filter((firm) => firmCode(firm.id) === code)
+
+  const found: ResolvedBeneficiary[] = []
+  for (const firm of candidates) {
+    if (kind === "member") {
+      const member = await db.member.findUnique({
+        where: { firmId_matricule: { firmId: firm.id, matricule } },
+        select: { id: true },
+      })
+      if (member) found.push({ memberId: member.id, dependent: null })
+      continue
+    }
+
+    const dependent = await db.dependent.findUnique({
+      where: { firmId_matricule: { firmId: firm.id, matricule } },
+      select: DEPENDENT_FOR_VERIFICATION,
+    })
+    if (dependent) {
+      const { memberId, ...rest } = dependent
+      found.push({ memberId, dependent: rest })
+    }
+  }
+
+  return found.length === 1 ? found[0]! : null
+}
+
 /**
  * Resolves a verification token to what is safe to show a stranger.
  *
@@ -322,23 +392,15 @@ export type PublicVerification = {
  */
 export async function verifyBeneficiary(
   kind: "member" | "dependent",
-  id: string,
+  code: string,
+  matricule: string,
   now: Date = new Date()
 ): Promise<PublicVerification | null> {
-  const memberId =
-    kind === "member"
-      ? id
-      : ((
-          await db.dependent.findUnique({
-            where: { id },
-            select: { memberId: true },
-          })
-        )?.memberId ?? null)
-
-  if (!memberId) return null
+  const resolved = await resolveBeneficiary(kind, code, matricule)
+  if (!resolved) return null
 
   const member = (await db.member.findUnique({
-    where: { id: memberId },
+    where: { id: resolved.memberId },
     select: { ...MEMBER_FOR_CARD, firmId: true },
   })) as (MemberForCard & { firmId: string }) | null
 
@@ -347,19 +409,7 @@ export async function verifyBeneficiary(
   const { categories, planRatesByPlan } = await loadContext(db, member.firmId)
   const inputs = await buildInputs(member, categories, planRatesByPlan)
 
-  const dependent =
-    kind === "dependent"
-      ? await db.dependent.findUnique({
-          where: { id },
-          select: {
-            status: true,
-            relation: true,
-            coverageStart: true,
-            coverageEnd: true,
-            person: { select: { firstName: true, lastName: true } },
-          },
-        })
-      : null
+  const dependent = resolved.dependent
 
   let valid = member.status === "ACTIVE"
   let reason = valid ? null : "Participant non actif."

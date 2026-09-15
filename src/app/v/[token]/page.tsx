@@ -65,7 +65,8 @@ export default async function VerificationPage({
 
   const result = await verifyBeneficiary(
     verified.payload.kind,
-    verified.payload.id
+    verified.payload.firmCode,
+    verified.payload.matricule
   )
 
   if (!result) {
