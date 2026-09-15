@@ -22,20 +22,45 @@ import {
   CardFaces,
 } from "@/app/[firmSlug]/ipm/cartes/card-faces"
 import { PersonPhoto } from "@/app/[firmSlug]/ipm/participants/person-photo"
-import { Panel } from "@/components/panel"
-import { Avatar, EmptyState, StatusPill, TwoFacts } from "@/components/primitives"
-import { formatCurrency, formatDate, initials } from "@/lib/format"
+import { Panel, StatTiles, type StatTileProps } from "@/components/panel"
+import {
+  Avatar,
+  EmptyState,
+  StatusPill,
+  TwoFacts,
+  type PillTone,
+} from "@/components/primitives"
+import {
+  formatCurrency,
+  formatDate,
+  formatSeniority,
+  initials,
+} from "@/lib/format"
 import {
   MEMBER_STATUS_LABELS,
   MEMBER_STATUS_TONES,
 } from "@/lib/queries/ipm/member-query"
-import { CARD_STATE_LABELS } from "@/server/domain/ipm/card"
+import { CARD_STATE_LABELS, type CardState } from "@/server/domain/ipm/card"
 import { RELATION_LABELS } from "@/server/domain/ipm/coverage"
 import { formatRate } from "@/server/domain/ipm/rates"
 import type { MemberRecord } from "@/server/queries/ipm/member-record"
 
 const dateInput = (value: Date | null) =>
   value ? new Date(value).toISOString().slice(0, 10) : ""
+
+/** One mapping for the card's state — the tile above and the pill below. */
+const CARD_TONE: Record<CardState, PillTone> = {
+  CURRENT: "ok",
+  STALE: "alert",
+  MISSING: "signal",
+  REVOKED: "muted",
+}
+
+/** A tile has no "muted": a state nobody has to act on is just ink. */
+const cardTileTone = (state: CardState): StatTileProps["tone"] => {
+  const tone = CARD_TONE[state]
+  return tone === "ok" || tone === "signal" || tone === "alert" ? tone : "default"
+}
 
 /**
  * La fiche participant.
@@ -90,6 +115,10 @@ export function MemberRecordView({
   const activeDependents = record.dependents.filter(
     (entry) => entry.status === "ACTIVE"
   )
+  // Not the same figure: an ayant droit can be actif and still refused — a
+  // child past the age limit, a coverage window that has closed.
+  const coveredDependents = activeDependents.filter((entry) => entry.covered)
+    .length
 
   return (
     <div className="space-y-3.5">
@@ -122,20 +151,6 @@ export function MemberRecordView({
             ? `Matricule ${record.matricule} · WebLamps ${record.legacyCode}`
             : `Matricule ${record.matricule}`
         }
-        stats={[
-          {
-            label: "Cotisation en cours",
-            value: record.currentContribution
-              ? formatCurrency(record.currentContribution.monthlyAmount)
-              : "Aucune",
-            tone: record.currentContribution ? "default" : "alert",
-          },
-          { label: "Ayants droit couverts", value: activeDependents.length },
-          {
-            label: "Affilié le",
-            value: formatDate(record.affiliationDate),
-          },
-        ]}
         tools={
           canWrite ? (
             <div className="flex items-center gap-2">
@@ -172,10 +187,59 @@ export function MemberRecordView({
             name={`${record.person.firstName} ${record.person.lastName}`}
             canWrite={canWrite}
           />
-          {/* <p className="max-w-sm text-[12.5px] text-ink-3">
-            Cette photo est imprimée sur la carte. La remplacer marque la carte
-            « à regénérer ».
-          </p> */}
+          {/* The four figures someone opens this record to check, at the size
+              they are worth. Each carries what it is measured against on its
+              second line: a cotisation without its start date, or a count of
+              ayants droit without the total, is a number you have to scroll to
+              interpret. */}
+          <StatTiles
+            className="min-w-70 flex-1"
+            stats={[
+              {
+                label: "Cotisation mensuelle",
+                value: record.currentContribution
+                  ? formatCurrency(record.currentContribution.monthlyAmount)
+                  : "Aucune",
+                hint: record.currentContribution
+                  ? `Depuis le ${formatDate(record.currentContribution.validFrom)}`
+                  : "Aucune période ouverte",
+                tone: record.currentContribution ? "default" : "alert",
+              },
+              {
+                label: "Ayants droit couverts",
+                value: coveredDependents,
+                // Ochre when some ayant droit is registered but refused: the
+                // refusal has a reason, printed in the table below.
+                tone:
+                  coveredDependents < activeDependents.length
+                    ? "signal"
+                    : "default",
+                hint: activeDependents.length
+                  ? `sur ${activeDependents.length} actif${activeDependents.length > 1 ? "s" : ""}`
+                  : "Aucun enregistré",
+              },
+              record.terminationDate
+                ? {
+                    label: "Radié le",
+                    value: formatDate(record.terminationDate),
+                    hint: `Affilié le ${formatDate(record.affiliationDate)}`,
+                    tone: "alert" as const,
+                  }
+                : {
+                    label: "Affilié le",
+                    value: formatDate(record.affiliationDate),
+                    hint: formatSeniority(record.affiliationDate, record.asOf),
+                  },
+              {
+                label: "Carte de tiers payant",
+                value: CARD_STATE_LABELS[record.card.state],
+                tone: cardTileTone(record.card.state),
+                hint: record.card.version
+                  ? `v${record.card.version} · ${formatDate(record.card.generatedAt)}`
+                  : undefined,
+              },
+            ]}
+          />
         </div>
 
         <dl className="grid grid-cols-2 gap-x-6 gap-y-2.5 text-[13px] sm:grid-cols-3">
@@ -409,17 +473,7 @@ export function MemberRecordView({
           }
         >
           <div className="flex flex-wrap items-center gap-3 text-[13px]">
-            <StatusPill
-              tone={
-                record.card.state === "CURRENT"
-                  ? "ok"
-                  : record.card.state === "STALE"
-                    ? "alert"
-                    : record.card.state === "MISSING"
-                      ? "signal"
-                      : "muted"
-              }
-            >
+            <StatusPill tone={CARD_TONE[record.card.state]}>
               {CARD_STATE_LABELS[record.card.state]}
             </StatusPill>
             {record.card.version ? (

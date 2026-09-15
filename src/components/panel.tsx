@@ -84,6 +84,75 @@ export function PanelStats({ stats }: { stats: PanelStat[] }) {
   )
 }
 
+export type StatTileProps = {
+  /** Sentence case, no trailing colon. */
+  label: string
+  value: React.ReactNode
+  /**
+   * The second line: what the figure is measured against, or where it comes
+   * from — `sur 3 enregistrés`, `depuis le 01/02/2024`. A tile without one is
+   * a number nobody can act on.
+   */
+  hint?: React.ReactNode
+  tone?: PanelStat["tone"]
+}
+
+/**
+ * The same label/value pair as `PanelStats`, at the density a figure needs
+ * when it is the reason the screen was opened.
+ *
+ * `PanelStats` puts three figures in a header strip, which works when they are
+ * a glance and fails when they are the answer — at 12.5px beside a title they
+ * read as a caption. A record whose header has room shows them as tiles
+ * instead: one per figure, label above, value large enough to read across a
+ * desk, and the qualifier under it.
+ *
+ * No `num`: `tabular-nums` gives every digit the width of a zero, which is
+ * what makes a column of figures line up and what makes a single large one
+ * look loose. Tabular stays in the tables.
+ */
+export function StatTile({ label, value, hint, tone }: StatTileProps) {
+  return (
+    <div className="min-w-0 rounded-[9px] border border-line bg-sub px-3 py-2.5">
+      <dt className="truncate text-[11.5px] text-ink-3">{label}</dt>
+      <dd
+        className={cn(
+          "mt-1 truncate text-[19px] leading-none font-semibold tracking-[-0.02em]",
+          statToneClass[tone ?? "default"]
+        )}
+      >
+        {value}
+      </dd>
+      {hint ? (
+        <dd className="mt-1.5 truncate text-[11.5px] text-ink-3">{hint}</dd>
+      ) : null}
+    </div>
+  )
+}
+
+/** A row of them. Two columns on a phone, one per tile from `sm` up. */
+export function StatTiles({
+  stats,
+  className,
+}: {
+  stats: StatTileProps[]
+  className?: string
+}) {
+  return (
+    <dl
+      className={cn(
+        "grid grid-cols-2 gap-2.5",
+        stats.length === 3 ? "sm:grid-cols-3" : "sm:grid-cols-4",
+        className
+      )}
+    >
+      {stats.map((stat) => (
+        <StatTile key={stat.label} {...stat} />
+      ))}
+    </dl>
+  )
+}
+
 export type PanelProps = {
   title?: React.ReactNode
   /** One clause. Not a paragraph. */

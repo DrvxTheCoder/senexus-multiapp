@@ -79,6 +79,17 @@ export type MemberRecord = {
   jobTitle: string | null
   affiliationDate: Date
   terminationDate: Date | null
+  /**
+   * The date the whole record was computed against — today, unless the
+   * caller asked for a past one.
+   *
+   * Carried out because the fiche is a client component: a `new Date()` in
+   * its render is the server's day on the first paint and the browser's on
+   * the second, which is a hydration mismatch waiting for someone to open
+   * the page at midnight. Anything the fiche measures against "now" — the
+   * ancienneté, for one — measures against this instead.
+   */
+  asOf: Date
   person: {
     id: string
     firstName: string
@@ -405,6 +416,7 @@ export async function getMemberRecord(
     jobTitle: member.jobTitle,
     affiliationDate: member.affiliationDate,
     terminationDate: member.terminationDate,
+    asOf: on,
     person: member.person,
     employer: {
       id: member.employer.id,

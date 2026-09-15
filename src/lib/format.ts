@@ -1,4 +1,8 @@
-import { format as formatDateFns } from "date-fns"
+import {
+  differenceInCalendarDays,
+  differenceInMonths,
+  format as formatDateFns,
+} from "date-fns"
 import { fr } from "date-fns/locale"
 
 /**
@@ -65,6 +69,30 @@ export function formatDateProse(value: Date | string | null | undefined): string
 export function formatDays(value: number | null | undefined): string {
   if (value === null || value === undefined) return "—"
   return `${formatNumber(value)} j`
+}
+
+/**
+ * `3 ans 2 mois` — an ancienneté, between two dates.
+ *
+ * Calendar months, not a day count divided by thirty-something. Whichever
+ * divisor you pick, 365 days floors to 11 months, so someone affiliated a
+ * year ago to the day reads as `11 mois` next to the very date that proves
+ * otherwise. `differenceInMonths` counts the months that have actually
+ * turned over, which is what the reader is counting too.
+ */
+export function formatSeniority(from: Date, to: Date): string {
+  // Clamped: a date in the future is a data-entry slip, and a negative
+  // ancienneté is not the way to report it.
+  const days = Math.max(0, differenceInCalendarDays(to, from))
+  if (days < 31) return `${days} j d'ancienneté`
+
+  const months = Math.max(0, differenceInMonths(to, from))
+  if (months < 12) return `${months} mois d'ancienneté`
+
+  const years = Math.floor(months / 12)
+  const rest = months % 12
+  const label = `${years} an${years > 1 ? "s" : ""}`
+  return rest ? `${label} ${rest} mois` : `${label} d'ancienneté`
 }
 
 /** Whole-day difference, positive when `to` is after `from`. */

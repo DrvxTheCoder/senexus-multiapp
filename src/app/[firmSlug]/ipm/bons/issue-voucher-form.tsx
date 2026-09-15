@@ -10,6 +10,8 @@ import {
   PlusSignIcon,
 } from "@hugeicons/core-free-icons"
 
+import { ComboboxField } from "@/components/forms/combobox-field"
+import { DateField, SelectField } from "@/components/forms/controls"
 import { FormMessage, SubmitButton } from "@/components/forms/form-field"
 import { Panel } from "@/components/panel"
 import { StatusPill } from "@/components/primitives"
@@ -32,6 +34,11 @@ const TYPE_LABELS = {
   GUARANTEE: "Lettre de garantie (LGI)",
   HOSPITALIZATION: "Lettre d'hospitalisation (LHI)",
 } as const
+
+const TYPE_OPTIONS = Object.entries(TYPE_LABELS).map(([value, label]) => ({
+  value,
+  label,
+}))
 
 const today = () => new Date().toISOString().slice(0, 10)
 
@@ -170,90 +177,86 @@ export function IssueVoucherForm({
       <div className="space-y-3.5">
         <Panel titleAs="h2" title="Bénéficiaire et prestataire">
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Type de bon">
-              <select
-                value={type}
-                onChange={(event) =>
-                  setType(event.target.value as keyof typeof TYPE_LABELS)
-                }
-                className={selectClass}
-              >
-                {Object.entries(TYPE_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </Field>
+            <SelectField
+              id="voucher-type"
+              label="Type de bon"
+              value={type}
+              onChange={(next) => setType(next as keyof typeof TYPE_LABELS)}
+              options={TYPE_OPTIONS}
+            />
 
-            <Field label="Date d'émission">
-              <input
-                type="date"
-                value={issueDate}
-                onChange={(event) => setIssueDate(event.target.value)}
-                className={selectClass}
-              />
-            </Field>
+            <DateField
+              id="voucher-issue-date"
+              label="Date d'émission"
+              value={issueDate}
+              onChange={setIssueDate}
+            />
 
-            <Field label="Participant">
-              <select
-                value={memberId}
-                onChange={(event) => {
-                  setMemberId(event.target.value)
-                  setDependentId("")
-                }}
-                className={selectClass}
-              >
-                {members.map((entry) => (
-                  <option key={entry.id} value={entry.id}>
-                    {entry.matricule} — {entry.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
+            {/*
+              A register, not an enumeration: the participant list grows with
+              the institution, so this one is typed into rather than scrolled.
+              The matricule is searchable even though the name is what reads.
+            */}
+            <ComboboxField
+              id="voucher-member"
+              label="Participant"
+              value={memberId}
+              onChange={(next) => {
+                setMemberId(next)
+                // The dependents belong to the member who was selected; keeping
+                // the old one would point the bon at someone else's child.
+                setDependentId("")
+              }}
+              placeholder="Nom ou matricule"
+              emptyLabel="Aucun participant."
+              options={members.map((entry) => ({
+                value: entry.id,
+                label: entry.name,
+                hint: entry.matricule,
+              }))}
+            />
 
-            <Field label="Pour">
-              <select
-                value={dependentId}
-                onChange={(event) => setDependentId(event.target.value)}
-                className={selectClass}
-              >
-                <option value="">Le participant</option>
-                {member?.dependents.map((dependent) => (
-                  <option key={dependent.id} value={dependent.id}>
-                    {dependent.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
+            {/*
+              An empty value means the bon is for the participant themself, so
+              that reading is the placeholder and the clear button is how you
+              get back to it.
+            */}
+            <SelectField
+              id="voucher-dependent"
+              label="Pour"
+              value={dependentId}
+              onChange={setDependentId}
+              placeholder="Le participant"
+              disabled={(member?.dependents.length ?? 0) === 0}
+              options={(member?.dependents ?? []).map((dependent) => ({
+                value: dependent.id,
+                label: `${dependent.name} · ${dependent.relation}`,
+              }))}
+            />
 
-            <Field label="Prestataire">
-              <select
-                value={providerId}
-                onChange={(event) => setProviderId(event.target.value)}
-                className={selectClass}
-              >
-                {providers.map((provider) => (
-                  <option key={provider.id} value={provider.id}>
-                    {provider.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
+            <SelectField
+              id="voucher-provider"
+              label="Prestataire"
+              value={providerId}
+              onChange={setProviderId}
+              options={providers.map((provider) => ({
+                value: provider.id,
+                label: provider.specialtyLabel
+                  ? `${provider.name} · ${provider.specialtyLabel}`
+                  : provider.name,
+              }))}
+            />
 
-            <Field label="Prestation">
-              <select
-                value={serviceTypeId}
-                onChange={(event) => setServiceTypeId(event.target.value)}
-                className={selectClass}
-              >
-                {serviceTypes.map((serviceType) => (
-                  <option key={serviceType.id} value={serviceType.id}>
-                    {serviceType.categoryLabel} · {serviceType.label}
-                  </option>
-                ))}
-              </select>
-            </Field>
+            <SelectField
+              id="voucher-service-type"
+              label="Prestation"
+              value={serviceTypeId}
+              onChange={setServiceTypeId}
+              options={serviceTypes.map((serviceType) => ({
+                value: serviceType.id,
+                label: `${serviceType.categoryLabel} · ${serviceType.label}`,
+              }))}
+            />
           </div>
 
           {providers.length === 0 ? (
@@ -298,7 +301,7 @@ export function IssueVoucherForm({
                       )
                     }
                     placeholder="Paracétamol 1 g, boîte de 8"
-                    className={selectClass}
+                    className={lineInputClass}
                   />
                 </Field>
                 <Field label={index === 0 ? "Qté" : ""} className="w-20">
@@ -313,7 +316,7 @@ export function IssueVoucherForm({
                         )
                       )
                     }
-                    className={`${selectClass} tabular-nums`}
+                    className={`${lineInputClass} tabular-nums`}
                   />
                 </Field>
                 <Field label={index === 0 ? "Prix unitaire" : ""} className="w-36">
@@ -329,7 +332,7 @@ export function IssueVoucherForm({
                       )
                     }
                     placeholder="0"
-                    className={`${selectClass} tabular-nums`}
+                    className={`${lineInputClass} tabular-nums`}
                   />
                 </Field>
                 <button
@@ -477,7 +480,12 @@ export function IssueVoucherForm({
   )
 }
 
-const selectClass =
+/**
+ * The line-item inputs only. Everything above them now uses the shared
+ * controls; these stay bare because the lines are a compact grid whose labels
+ * appear on the first row alone, which `Field` does not model.
+ */
+const lineInputClass =
   "h-8 w-full rounded-[7px] border border-line bg-surface px-2 text-[13px] outline-none focus:border-brand"
 
 function Field({

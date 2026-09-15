@@ -54,6 +54,8 @@ export function DatePicker({
   disabled,
   invalid,
   describedBy,
+  placeholder = "Choisir une date",
+  className,
 }: {
   id: string
   /** ISO `yyyy-MM-dd`, or "" for empty. */
@@ -63,6 +65,13 @@ export function DatePicker({
   disabled?: boolean
   invalid?: boolean
   describedBy?: string
+  /** What the trigger reads when nothing is chosen. */
+  placeholder?: string
+  /**
+   * Merged last, so a filter toolbar can sit the picker beside 29px facet
+   * buttons without a second implementation of the calendar existing.
+   */
+  className?: string
 }) {
   const [open, setOpen] = React.useState(false)
   const selected = parseISO(value)
@@ -116,13 +125,14 @@ export function DatePicker({
             className={cn(
               selectTriggerClass,
               "w-full",
-              invalid && "border-alert"
+              invalid && "border-alert",
+              className
             )}
           />
         }
       >
         <span className={cn("truncate", !selected && "text-ink-3")}>
-          {selected ? format(selected, "d MMMM yyyy", { locale: fr }) : "Choisir une date"}
+          {selected ? format(selected, "d MMMM yyyy", { locale: fr }) : placeholder}
         </span>
         <HugeiconsIcon
           icon={Calendar04Icon}

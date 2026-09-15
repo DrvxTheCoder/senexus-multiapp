@@ -12,6 +12,7 @@ import {
 } from "@hugeicons/core-free-icons"
 
 import { CancelVoucherDialog } from "@/app/[firmSlug]/ipm/bons/voucher-dialogs"
+import { DatePicker } from "@/components/forms/date-picker"
 import { DataTable } from "@/components/data-table"
 import { FacetFilter } from "@/components/filters/facet-filter"
 import { FilterChips, type FilterChip } from "@/components/filters/filter-chips"
@@ -81,6 +82,13 @@ export type OpenVoucher = {
  * everything else and a colleague can be sent a link that opens on one
  * document.
  */
+/**
+ * The picker, sized for the filter row: auto width and the 29px height the
+ * facet buttons use, rather than the 36px full-width the forms want.
+ */
+const FILTER_PICKER =
+  "h-[29px]! w-auto min-w-[132px] gap-2 px-2 text-[12.5px] data-[size=default]:h-[29px]"
+
 export function VouchersView({
   firmSlug,
   page,
@@ -401,30 +409,31 @@ export function VouchersView({
             }
           />
 
+          {/*
+            The same picker the forms use, sized to sit beside the facet
+            buttons. A native date input here was the last place in the module
+            where the browser's own calendar showed up.
+          */}
           <div className="ml-auto flex items-center gap-1.5">
             <label className="text-[11.5px] text-ink-3" htmlFor="bons-from">
               Émis du
             </label>
-            <input
+            <DatePicker
               id="bons-from"
-              type="date"
               value={params.from ?? ""}
-              onChange={(event) =>
-                void setParams({ from: event.target.value || null, page: null })
-              }
-              className="h-[29px] rounded-[7px] border border-line bg-surface px-2 text-[12.5px] outline-none focus:border-brand"
+              onChange={(value) => void setParams({ from: value || null, page: null })}
+              placeholder="début"
+              className={FILTER_PICKER}
             />
             <label className="text-[11.5px] text-ink-3" htmlFor="bons-to">
               au
             </label>
-            <input
+            <DatePicker
               id="bons-to"
-              type="date"
               value={params.to ?? ""}
-              onChange={(event) =>
-                void setParams({ to: event.target.value || null, page: null })
-              }
-              className="h-[29px] rounded-[7px] border border-line bg-surface px-2 text-[12.5px] outline-none focus:border-brand"
+              onChange={(value) => void setParams({ to: value || null, page: null })}
+              placeholder="fin"
+              className={FILTER_PICKER}
             />
           </div>
         </div>

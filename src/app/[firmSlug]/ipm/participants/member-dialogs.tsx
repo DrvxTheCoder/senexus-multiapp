@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 
+import { ComboboxControl } from "@/components/forms/combobox-field"
 import {
   DateControl,
   FieldGrid,
@@ -230,16 +231,19 @@ export function MemberDialog({
           />
 
           <FieldGrid>
-            <SelectControl
+            {/* A register rather than an enumeration — searchable, see
+                `ComboboxField`. The plan code is matched on too. */}
+            <ComboboxControl
               form={form}
               name={"employerId" as never}
               label="Employeur"
               required
+              placeholder="Société ou code formule"
+              emptyLabel="Aucun employeur."
               options={employers.map((employer) => ({
                 value: employer.id,
-                label: employer.planCode
-                  ? `${employer.name} — ${employer.planCode}`
-                  : employer.name,
+                label: employer.name,
+                hint: employer.planCode ?? undefined,
               }))}
             />
             <TextControl form={form} name={"jobTitle" as never} label="Fonction" />

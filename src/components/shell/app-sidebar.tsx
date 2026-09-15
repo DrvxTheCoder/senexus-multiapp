@@ -13,7 +13,11 @@ import {
 
 import { FirmLogo } from "@/components/firm-logo"
 import { useFirm } from "@/components/firm-provider"
-import { visibleNavGroups, type NavGroup } from "@/components/shell/nav-config"
+import {
+  activeNavHref,
+  visibleNavGroups,
+  type NavGroup,
+} from "@/components/shell/nav-config"
 import { UserMenu } from "@/components/shell/user-menu"
 import { setSidebarCollapsed } from "@/server/preferences/actions"
 import { cn } from "@/lib/utils"
@@ -54,6 +58,8 @@ export function AppSidebar({
   const [, startTransition] = React.useTransition()
 
   const groups = visibleNavGroups(firm.modules)
+  // Resolved once for the whole sidebar so exactly one link can be lit.
+  const activeHref = activeNavHref(pathname, firm.slug, firm.modules)
 
   function toggle() {
     const next = !collapsed
@@ -148,7 +154,7 @@ export function AppSidebar({
             key={group.id}
             group={group}
             firmSlug={firm.slug}
-            pathname={pathname}
+            activeHref={activeHref}
             collapsed={collapsed}
           />
         ))}
@@ -168,19 +174,17 @@ export function AppSidebar({
 function NavGroupSection({
   group,
   firmSlug,
-  pathname,
+  activeHref,
   collapsed,
 }: {
   group: NavGroup
   firmSlug: string
-  pathname: string
+  activeHref: string | null
   collapsed: boolean
 }) {
   const hrefFor = (href: string) => `/${firmSlug}${href}`
-  const isActive = (href: string) =>
-    pathname === hrefFor(href) || pathname.startsWith(`${hrefFor(href)}/`)
 
-  const containsActive = group.items.some((item) => isActive(item.href))
+  const containsActive = group.items.some((item) => item.href === activeHref)
 
   // Groups start **open**. The legacy sidebar opened only the group holding the
   // current page, which meant that from the dashboard you could not see
@@ -198,7 +202,7 @@ function NavGroupSection({
   const items = (
     <ul className={cn("px-3", collapsed && "my-2")}>
       {group.items.map((item) => {
-        const active = isActive(item.href)
+        const active = item.href === activeHref
         return (
           <li key={item.href}>
             <Link
@@ -207,9 +211,18 @@ function NavGroupSection({
               title={collapsed ? item.label : undefined}
               data-on={active ? "1" : "0"}
               className={cn(
-                "flex items-center gap-2.5 rounded-[7px] px-3 py-1.5 text-[13.5px] text-ink-2 transition-colors",
+                "flex items-center gap-2.5 rounded-[7px] px-3 py-1.5 text-[13.5px] text-ink-2 transition-colors mt-0.5",
                 "hover:bg-sunken hover:text-ink",
-                "data-[on=1]:bg-surface data-[on=1]:font-medium data-[on=1]:text-ink data-[on=1]:shadow-[0_0_0_1px_var(--sx-line)]",
+                /*
+                  Brand tint, not `surface`. In the dark theme `surface` sits
+                  0.020 in lightness from the sidebar's `sub` while plain hover
+                  sits 0.072 away — so the selected link read as *less*
+                  selected than whichever one the pointer happened to be over.
+                  The tint is 0.119 away and carries chroma, which no amount of
+                  neutral grey does, and `bg-brand-tint`/`text-brand` is already
+                  this codebase's "this one" pairing.
+                */
+                "data-[on=1]:bg-brand-tint data-[on=1]:font-medium data-[on=1]:text-brand",
                 collapsed && "justify-center px-0",
                 !collapsed && group.collapsible && "pl-6"
               )}

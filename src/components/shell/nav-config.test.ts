@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   NAV_GROUPS,
+  activeNavHref,
   visibleNavGroups,
   visibleNavItems,
 } from "@/components/shell/nav-config"
@@ -94,5 +95,43 @@ describe("visibleNavItems", () => {
     for (const href of hrefs(["hr"])) {
       expect(hidden).not.toContain(href)
     }
+  })
+})
+
+describe("activeNavHref", () => {
+  const active = (pathname: string) =>
+    activeNavHref(pathname, "ipm-tawfeikh", ["ipm"])
+
+  it("lights the exact item for its own page", () => {
+    expect(active("/ipm-tawfeikh/ipm")).toBe("/ipm")
+    expect(active("/ipm-tawfeikh/ipm/participants")).toBe("/ipm/participants")
+  })
+
+  it("lights only the deepest item, never its parent as well", () => {
+    // The bug this guards: "Vue d'ensemble" (/ipm) and "Participants" both lit
+    // on the participants page, because both are prefixes of the pathname.
+    expect(active("/ipm-tawfeikh/ipm/participants")).not.toBe("/ipm")
+    expect(activeNavHref("/acme/settings/profile", "acme", [])).toBe(
+      "/settings/profile"
+    )
+  })
+
+  it("keeps a nested page on its section's item", () => {
+    expect(active("/ipm-tawfeikh/ipm/participants/01719")).toBe(
+      "/ipm/participants"
+    )
+  })
+
+  it("matches on path segments rather than string prefixes", () => {
+    expect(active("/ipm-tawfeikh/ipm-archive")).toBeNull()
+  })
+
+  it("lights nothing for a page outside the nav, or behind a gate", () => {
+    expect(active("/ipm-tawfeikh/nowhere")).toBeNull()
+    expect(activeNavHref("/acme/ipm/participants", "acme", ["hr"])).toBeNull()
+  })
+
+  it("scopes the match to the firm in the pathname", () => {
+    expect(activeNavHref("/other-firm/ipm", "ipm-tawfeikh", ["ipm"])).toBeNull()
   })
 })

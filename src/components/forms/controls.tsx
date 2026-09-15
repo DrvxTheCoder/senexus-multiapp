@@ -95,6 +95,58 @@ export function TextControl<T extends FieldValues>({
 }
 
 /**
+ * The date **widget**, controlled by a plain value and setter.
+ *
+ * Not every form in the application is a react-hook-form: the bon issuance
+ * screen is built around a live pre-flight and holds its own `useState`. It
+ * still deserves the same picker as everything else, so the widget lives here
+ * and `DateControl` below is a thin adapter onto it. One implementation, so the
+ * two cannot drift into looking different.
+ */
+export function DateField({
+  id,
+  label,
+  value,
+  onChange,
+  required,
+  hint,
+  error,
+  className,
+  disabled,
+}: {
+  id: string
+  label: string
+  /** ISO `yyyy-MM-dd`, or "" for empty. */
+  value: string
+  onChange: (value: string) => void
+  required?: boolean
+  hint?: string
+  error?: string
+  className?: string
+  disabled?: boolean
+}) {
+  return (
+    <Field
+      label={label}
+      htmlFor={id}
+      required={required}
+      hint={hint}
+      error={error}
+      className={className}
+    >
+      <DatePicker
+        id={id}
+        value={value}
+        onChange={onChange}
+        disabled={disabled}
+        invalid={Boolean(error)}
+        describedBy={error ? `${id}-error` : undefined}
+      />
+    </Field>
+  )
+}
+
+/**
  * A date field. The value stays an ISO `yyyy-MM-dd` string in the form, which
  * is what the zod schemas and the server actions read — only the *picker* is
  * new, so nothing downstream changed.
@@ -138,12 +190,109 @@ export function DateControl<T extends FieldValues>({
 }
 
 /**
- * A select. `placeholder` doubles as the contract: a field that has one accepts
- * the empty string, so it also gets a clear button; a field without one must be
+ * The select **widget**, controlled by a plain value and setter.
+ *
+ * `placeholder` doubles as the contract: a field that has one accepts the
+ * empty string, so it also gets a clear button; a field without one must be
  * answered, and cannot be cleared back to nothing.
  *
- * Controlled, so it goes through `Controller` rather than `register`.
+ * Like `DateField`, this exists so a form that is not a react-hook-form gets
+ * the same control as one that is. `SelectControl` below is the adapter.
  */
+export function SelectField({
+  id,
+  label,
+  value,
+  onChange,
+  onBlur,
+  options,
+  placeholder,
+  required,
+  hint,
+  error,
+  className,
+  disabled,
+}: {
+  id: string
+  label: string
+  value: string
+  onChange: (value: string) => void
+  /** Only react-hook-form needs this, for its touched state. */
+  onBlur?: () => void
+  options: readonly { value: string; label: string }[]
+  placeholder?: string
+  required?: boolean
+  hint?: string
+  error?: string
+  className?: string
+  disabled?: boolean
+}) {
+  const clearable = placeholder !== undefined
+  // Base UI treats `null` as "nothing selected"; callers store "".
+  const selected = value === "" ? null : value
+
+  return (
+    <Field
+      label={label}
+      htmlFor={id}
+      required={required}
+      hint={hint}
+      error={error}
+      className={className}
+    >
+      <Select
+        value={selected}
+        onValueChange={(next) => onChange(next ?? "")}
+        items={options}
+        disabled={disabled}
+      >
+        <SelectTrigger
+          {...fieldProps(id, error)}
+          onBlur={onBlur}
+          className={cn(
+            selectTriggerClass,
+            clearable && "[&>svg:last-child]:hidden!"
+          )}
+        >
+          <SelectValue placeholder={placeholder} />
+          {clearable && selected !== null ? (
+            <span
+              role="button"
+              tabIndex={-1}
+              aria-label={`Effacer ${label.toLowerCase()}`}
+              /* The trigger opens the popup on *pointer down*, before a click
+                 ever lands, so stopping the click alone clears the value and
+                 opens the menu anyway. Both are stopped. */
+              onPointerDown={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+              }}
+              onClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                onChange("")
+              }}
+              className="grid size-4 shrink-0 place-items-center rounded-sm text-ink-3 transition-colors hover:text-ink"
+            >
+              <HugeiconsIcon icon={MultiplicationSignIcon} size={13} strokeWidth={2} />
+            </span>
+          ) : null}
+        </SelectTrigger>
+        <SelectContent alignItemWithTrigger={false}>
+          <SelectGroup>
+            {options.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+    </Field>
+  )
+}
+
+/** The same select, bound to a react-hook-form field. */
 export function SelectControl<T extends FieldValues>({
   form,
   name,
@@ -159,74 +308,28 @@ export function SelectControl<T extends FieldValues>({
   placeholder?: string
 }) {
   const error = errorOf(form, name)
-  const clearable = placeholder !== undefined
 
   return (
-    <Field
-      label={label}
-      htmlFor={name}
-      required={required}
-      hint={hint}
-      error={error}
-      className={className}
-    >
-      <Controller
-        control={form.control}
-        name={name}
-        render={({ field }) => {
-          // Base UI treats `null` as "nothing selected"; the form stores "".
-          const value = field.value === "" || field.value == null ? null : field.value
-
-          return (
-            <Select
-              value={value}
-              onValueChange={(next) => field.onChange(next ?? "")}
-              items={options}
-              disabled={disabled}
-            >
-              <SelectTrigger
-                {...fieldProps(name, error)}
-                onBlur={field.onBlur}
-                className={cn(selectTriggerClass, clearable && "[&>svg:last-child]:hidden!")}
-              >
-                <SelectValue placeholder={placeholder} />
-                {clearable && value !== null ? (
-                  <span
-                    role="button"
-                    tabIndex={-1}
-                    aria-label={`Effacer ${label.toLowerCase()}`}
-                    /* The trigger opens the popup on *pointer down*, before a
-                       click ever lands, so stopping the click alone clears the
-                       value and opens the menu anyway. Both are stopped. */
-                    onPointerDown={(event) => {
-                      event.preventDefault()
-                      event.stopPropagation()
-                    }}
-                    onClick={(event) => {
-                      event.preventDefault()
-                      event.stopPropagation()
-                      field.onChange("")
-                    }}
-                    className="grid size-4 shrink-0 place-items-center rounded-sm text-ink-3 transition-colors hover:text-ink"
-                  >
-                    <HugeiconsIcon icon={MultiplicationSignIcon} size={13} strokeWidth={2} />
-                  </span>
-                ) : null}
-              </SelectTrigger>
-              <SelectContent alignItemWithTrigger={false}>
-                <SelectGroup>
-                  {options.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          )
-        }}
-      />
-    </Field>
+    <Controller
+      control={form.control}
+      name={name}
+      render={({ field }) => (
+        <SelectField
+          id={name}
+          label={label}
+          value={typeof field.value === "string" ? field.value : ""}
+          onChange={field.onChange}
+          onBlur={field.onBlur}
+          options={options}
+          placeholder={placeholder}
+          required={required}
+          hint={hint}
+          error={error}
+          className={className}
+          disabled={disabled}
+        />
+      )}
+    />
   )
 }
 

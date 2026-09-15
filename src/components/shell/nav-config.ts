@@ -147,3 +147,31 @@ export function visibleNavGroups(enabledModules: string[]): NavGroup[] {
 export function visibleNavItems(enabledModules: string[]): NavItem[] {
   return visibleNavGroups(enabledModules).flatMap((group) => group.items)
 }
+
+/**
+ * The item to light up for `pathname`, or `null` when the page belongs to no
+ * nav entry.
+ *
+ * Prefix matching alone lights up two links at once: `/ipm/participants` sits
+ * under "Vue d'ensemble" (`/ipm`) as much as under "Participants", and
+ * `/settings/profile` under "Paramètres" (`/settings`). The deepest match is
+ * the honest one — a parent entry is a page of its own, not a section header —
+ * so the longest matching href wins and every other entry stays dark.
+ */
+export function activeNavHref(
+  pathname: string,
+  firmSlug: string,
+  enabledModules: string[]
+): string | null {
+  const prefix = `/${firmSlug}`
+  let best: string | null = null
+
+  for (const item of visibleNavItems(enabledModules)) {
+    const full = `${prefix}${item.href}`
+    const matches = pathname === full || pathname.startsWith(`${full}/`)
+    if (!matches) continue
+    if (best === null || item.href.length > best.length) best = item.href
+  }
+
+  return best
+}

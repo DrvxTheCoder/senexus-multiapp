@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import Link from "next/link"
 import { notFound } from "next/navigation"
 
+import { StatementPeriod } from "@/app/[firmSlug]/ipm/employeurs/[employerId]/releve/statement-period"
 import { Panel } from "@/components/panel"
 import { EmptyState, StatusPill, TwoFacts } from "@/components/primitives"
 import { TopBar } from "@/components/shell/top-bar"
