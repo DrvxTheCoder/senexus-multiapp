@@ -19,7 +19,7 @@ import { join } from "node:path"
 import { PrismaClient } from "@prisma/client"
 import { hash } from "bcryptjs"
 
-const BASE = process.env.HARNESS_BASE_URL ?? "http://localhost:3000"
+const BASE = process.env.HARNESS_BASE_URL ?? "https://ipm-test.senexus-app.cloud"
 const PASSWORD = "harness-senexus-1"
 
 const db = new PrismaClient()

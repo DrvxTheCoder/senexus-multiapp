@@ -33,7 +33,7 @@ const { encodeReply } = createRequire(import.meta.url)(
   "next/dist/compiled/react-server-dom-webpack/client.edge"
 ) as { encodeReply: (value: unknown) => Promise<FormData | string> }
 
-const BASE = process.env.HARNESS_BASE_URL ?? "http://localhost:3000"
+const BASE = process.env.HARNESS_BASE_URL ?? "https://ipm-test.senexus-app.cloud"
 const EMAIL = process.env.HARNESS_EMAIL ?? "manager.dev@senexus.local"
 const PASSWORD = process.env.HARNESS_PASSWORD ?? "senexus-dev"
 const SOURCE = "connect-interim"

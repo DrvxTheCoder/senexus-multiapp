@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 
+import { QR_URL_MAX_BYTES } from "@/server/cards/render-card"
 import {
   DEFAULT_TOKEN_TTL_DAYS,
   firmCode,
@@ -11,6 +12,14 @@ const SECRET = "a-test-secret-that-is-not-the-real-one"
 const OTHER = "a-different-secret"
 const NOW = new Date("2026-09-11T10:00:00.000Z")
 const FIRM = firmCode("firm_1")
+
+/**
+ * Room the token must leave for the origin: `https://` plus a 20-character
+ * host. Stated as a length rather than a domain, so it holds whatever the
+ * deployment ends up being called — and so that shortening the host is
+ * visibly the lever when a card stops fitting.
+ */
+const MIN_ORIGIN_BUDGET = 28
 
 const member = (matricule = "01716") =>
   ({ kind: "member", firmCode: FIRM, matricule }) as const
@@ -71,12 +80,20 @@ describe("issueToken / verifyToken", () => {
     }
   })
 
-  it("stays inside the QR budget for a real URL", () => {
-    // The whole reason this format exists. `render-card.ts` refuses a payload
-    // over 62 bytes, and the origin is most of it.
+  it("leaves the origin room inside the QR budget", () => {
+    // The whole reason this format exists. The card refuses a URL over
+    // `QR_URL_MAX_BYTES`, and the origin is most of it — so what this file can
+    // assert is the half it owns: the token's own share. `card-qr.test.ts`
+    // checks the configured origin against the rest.
     const token = issueToken(member("01716-02"), SECRET, NOW)
-    const url = `https://vercel.senexus.app/v/${token}`
-    expect(url.length).toBeLessThanOrEqual(62)
+
+    // 7 fixed head + 8 matricule + 16 signature. Pinned, because every one of
+    // those widths was chosen against this budget.
+    expect(token.length).toBe(31)
+
+    expect(token.length + "/v/".length + MIN_ORIGIN_BUDGET).toBeLessThanOrEqual(
+      QR_URL_MAX_BYTES
+    )
   })
 })
 

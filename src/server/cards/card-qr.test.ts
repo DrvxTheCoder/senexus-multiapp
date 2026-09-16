@@ -1,18 +1,17 @@
 import { describe, expect, it } from "vitest"
 import sharp from "sharp"
 
+import { appOrigin } from "@/lib/app-url"
 import { ARTBOARD, QR, type CardData } from "@/server/cards/card-core"
 import {
   faceSvg,
   PRINT_WIDTH,
+  QR_URL_MAX_BYTES,
   qrFits,
   qrMatrix,
   renderCardPng,
 } from "@/server/cards/render-card"
-import {
-  firmCode,
-  issueToken,
-} from "@/server/domain/ipm/verification-token"
+import { firmCode, issueToken } from "@/server/domain/ipm/verification-token"
 
 /**
  * The QR, end to end — token to printed pixels.
@@ -27,19 +26,26 @@ import {
  * URL, and asserted about geometry rather than about output.
  *
  * So the assertions here are deliberately end-to-end: a real signed token, the
- * real origin, and the actual rasterised PNG read back pixel by pixel. A unit
- * test of `qrRects` cannot fail the way this shipped.
+ * **configured** origin, and the actual rasterised PNG read back pixel by
+ * pixel. A unit test of `qrRects` cannot fail the way this shipped.
+ *
+ * The origin is read from `AUTH_URL`/`NEXTAUTH_URL` rather than written here,
+ * and that is load-bearing rather than tidiness: the budget is measured in
+ * characters, so renaming the deployment is the realistic way this stops
+ * fitting. A test holding its own copy of the origin would keep passing while
+ * production printed blank squares — which is precisely how the original bug
+ * survived its own test suite.
  */
 
 const SECRET = "a-test-secret-that-is-not-the-real-one"
 
-/** The longest realistic URL: production origin, an ayant droit's matricule. */
+/** The card's own URL, exactly as the route builds it. */
 function verificationUrl(matricule = "01716-02"): string {
   const token = issueToken(
     { kind: "member", firmCode: firmCode("firm_1"), matricule },
     SECRET
   )
-  return `https://vercel.senexus.app/v/${token}`
+  return `${appOrigin()}/v/${token}`
 }
 
 function card(url: string): CardData {
@@ -55,6 +61,16 @@ function card(url: string): CardData {
     verificationUrl: url,
   }
 }
+
+describe("the origin comes from configuration", () => {
+  it("is an absolute origin with no path or trailing slash", () => {
+    expect(appOrigin()).toMatch(/^https?:\/\/[^/]+$/)
+  })
+
+  it("is what the card's URL is built on", () => {
+    expect(verificationUrl().startsWith(`${appOrigin()}/v/`)).toBe(true)
+  })
+})
 
 describe("the verification URL fits the card", () => {
   it("fits, for a participant and for an ayant droit", () => {
@@ -74,7 +90,17 @@ describe("the verification URL fits the card", () => {
   it("still refuses a URL that genuinely cannot fit", () => {
     // The guard must keep working — an unscannable QR on an identity document
     // is worse than none, because it looks like it works.
-    expect(qrFits(`https://vercel.senexus.app/v/${"x".repeat(120)}`)).toBe(false)
+    const overlong = `${appOrigin()}/v/${"x".repeat(QR_URL_MAX_BYTES)}`
+    expect(qrFits(overlong)).toBe(false)
+  })
+
+  it("keeps the configured origin inside the budget", () => {
+    // A property of the budget rather than of any one domain, so it holds
+    // whatever the deployment is called. If this fails, the origin is too long
+    // for the card, and the answer is a shorter hostname — not a denser symbol.
+    expect(verificationUrl("CI01716-02").length).toBeLessThanOrEqual(
+      QR_URL_MAX_BYTES
+    )
   })
 })
 

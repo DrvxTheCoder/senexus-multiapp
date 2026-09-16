@@ -119,19 +119,28 @@ function fontFiles(): string[] {
  * ========================================================================== */
 
 /**
+ * The whole verification URL must fit in this many bytes, origin included.
+ *
+ * 33 modules at error-correction level M in byte mode. It is stated as a
+ * constant because it is a budget the *caller* has to live inside, and the two
+ * things that spend it — the configured origin and the matricule — are both
+ * outside this module.
+ */
+export const QR_URL_MAX_BYTES = 62
+
+/**
  * The verification URL as a module matrix.
  *
  * The card's QR box holds 33 modules on the artwork's 1.3804 pitch — about
  * 15 mm printed, at 0.46 mm per module. `qrRects` refuses anything larger
  * rather than printing a code nobody can scan, so the URL handed in has to
- * stay short: **62 bytes at error-correction level M, origin included.**
+ * stay inside `QR_URL_MAX_BYTES`.
  *
  * That is a real constraint on the caller, not a detail, and it is the reason
- * `verification-token.ts` packs its fields the way it does. A production URL
- * lands near 60 characters, which leaves very little room — so a longer
- * domain, or a matricule with a long employer prefix, can still push a card
- * over. `qrFits` is how a caller checks before rendering; the route logs and
- * omits rather than printing an unreadable symbol.
+ * `verification-token.ts` packs its fields the way it does. A token runs about
+ * 28–31 characters, so the origin has roughly 30 to work in — which a long
+ * enough domain will exceed. `qrFits` is how a caller checks before rendering;
+ * the route logs and omits rather than printing an unreadable symbol.
  */
 export function qrMatrix(url: string): boolean[][] {
   const symbol = QRCode.create(url, { errorCorrectionLevel: "M" })

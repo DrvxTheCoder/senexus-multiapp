@@ -27,9 +27,10 @@ import { createHmac, timingSafeEqual } from "node:crypto"
  *
  * **The artwork's QR box is the budget, and it is a hard one.** The box holds
  * a 33-module symbol at a module pitch that still scans in print; at error
- * correction M that is 62 bytes for the *entire URL*, origin included. With
- * "https://vercel.senexus.app/v/" costing 29 of them, the token has about 33
- * characters to work in.
+ * correction M that is 62 bytes for the *entire URL*, origin included — see
+ * `QR_URL_MAX_BYTES`. The origin is whatever `AUTH_URL` is set to, and a
+ * scheme plus a modest host spends around 30 of those, so the token has
+ * roughly 30 characters to work in.
  *
  * The previous format spent 25 of those on a cuid and came to 86 characters,
  * which needs 37 modules. It never fit, so `qrFits` rejected it on every card

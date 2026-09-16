@@ -36,7 +36,7 @@ import {
   verificationSecret,
 } from "@/server/domain/ipm/verification-token"
 
-const BASE = process.env.HARNESS_BASE_URL ?? "http://localhost:3000"
+const BASE = process.env.HARNESS_BASE_URL ?? "https://ipm-test.senexus-app.cloud"
 const PASSWORD = "harness-senexus-1"
 
 const IPM_SLUG = "ipm-tawfeikh"

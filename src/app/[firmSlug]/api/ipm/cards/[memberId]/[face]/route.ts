@@ -1,3 +1,4 @@
+import { appOrigin } from "@/lib/app-url"
 import { requireFirmAccess, requireModule } from "@/server/auth/require-firm-access"
 import { buildCardData } from "@/server/cards/card-data"
 import {
@@ -69,6 +70,11 @@ export async function GET(
      * and a cuid alone is 25 of them — see `verification-token.ts`. The id is
      * not in the QR at all; the page resolves the matricule behind it.
      *
+     * The origin comes from `appOrigin()`, never from this request: a card
+     * rendered on a laptop would otherwise carry a QR pointing at
+     * `localhost`, and the card outlives the request by years. See
+     * `lib/app-url.ts`.
+     *
      * The fit is still checked rather than assumed. A long enough origin or
      * employer prefix can push a card over, and when it does the code is
      * omitted: an unscannable QR on an identity document is worse than none,
@@ -87,7 +93,7 @@ export async function GET(
         },
         verificationSecret()
       )
-      const candidate = `${url.origin}/v/${token}`
+      const candidate = `${appOrigin()}/v/${token}`
       if (qrFits(candidate)) {
         verificationUrl = candidate
       } else {
