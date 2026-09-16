@@ -262,26 +262,26 @@ describe("the QR block", () => {
     expect(svg).toContain(`width="${QR.module.toFixed(4)}"`)
   })
 
-  it("keeps the artwork's pitch, which is what decides whether it scans", () => {
-    // The box grew from 29 modules to 33 by taking more room, not by packing
-    // the modules tighter. If this ever shrinks, printed cards stop scanning
-    // and nothing else in the suite would notice.
-    expect(QR.module).toBe(1.3804)
+  it("keeps the pitch that decides whether it scans", () => {
+    // 1.29 units is 0.43 mm at the assumed 54 mm trim. Below roughly 0.4 mm a
+    // printed code stops scanning at a counter, and shrinking the pitch is the
+    // tempting way to fit a longer URL — so it is pinned. If a payload will
+    // not fit, the answer is a shorter hostname, not a denser symbol.
+    expect(QR.module).toBe(1.29)
   })
 
   it("refuses a symbol denser than the box can print", () => {
-    // 37 modules is what the old cuid-based token needed. It does not scan at
-    // this size, so it must fail rather than print.
-    expect(() => qrRects(matrix(37))).toThrow(/33/)
+    // 41 modules is the next QR size up, and it does not fit this face.
+    expect(() => qrRects(matrix(41))).toThrow(/37/)
   })
 
   it("accepts a symbol at exactly the box's capacity", () => {
-    expect(() => qrRects(matrix(33))).not.toThrow()
+    expect(() => qrRects(matrix(37))).not.toThrow()
   })
 
   it("centres a smaller symbol inside the box", () => {
-    const svg = qrRects(matrix(29))
-    // Two modules of slack on each side, at the artwork's pitch.
+    const svg = qrRects(matrix(33))
+    // Two modules of slack on each side, at the box's pitch.
     const offset = (QR.originX + 2 * QR.module).toFixed(3)
     expect(svg).toContain(`x="${offset}"`)
   })
@@ -300,7 +300,7 @@ describe("xml escaping", () => {
 
 describe("snapshot", () => {
   it("front is stable for a fixed card", () => {
-    expect(renderFront(templates.front, FULL, matrix(33))).toMatchSnapshot()
+    expect(renderFront(templates.front, FULL, matrix(37))).toMatchSnapshot()
   })
 
   it("back is stable for a fixed card", () => {

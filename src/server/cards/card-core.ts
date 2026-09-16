@@ -170,40 +170,58 @@ const CENTRE = ARTBOARD.width / 2
 const MATRICULE = { labelSize: 5, valueSize: 5, gap: 1.6 } as const
 
 /**
- * The QR block.
+ * The QR block — the largest symbol this face has room for, and why.
  *
- * **The pitch is the thing that matters, not the module count.** What decides
- * whether a printed code scans is the physical size of one module, and at the
- * assumed 54 mm trim this 1.3804 pitch is about 0.46 mm — comfortably above
- * the point where a counter scanner starts to struggle. That figure is the
- * artwork's and is not ours to shrink.
+ * ## The space
  *
- * The artwork drew the grid 29 modules square, from x=60.42, y=177.78. That
- * held 34 bytes at error correction M, and the verification URL is around 60
- * — so `qrFits` rejected every card ever rendered and the block came out
- * empty. The box is therefore 33 modules, grown **at the artwork's own pitch**
- * rather than by packing more modules into the same square: the code occupies
- * 45.55 units instead of 40.03, and each module prints exactly the size the
- * design intended.
+ * Between the matricule line and the coverage line there is a band of clear
+ * card **52.93 units tall**, from y=170.69 to y=223.61. That figure is
+ * measured off a rendered card rather than derived from font metrics, because
+ * the metrics of the substituted typeface are exactly the thing that cannot be
+ * assumed here. Horizontally there is no constraint worth speaking of: the
+ * artboard is 161.57 wide and nothing else occupies this band.
  *
- * The extra 5.52 units come out of whitespace that was already there. Grown
- * about the old centre, the block spans y=175.02 to y=220.57, which clears the
- * matricule line above it (baseline 170.53, descenders to ~171.6) and the
- * coverage line below it (baseline 226.69, ascenders from ~223.7). It is also
- * re-centred on the artboard's own axis, which is where every other variable
- * line on this face is centred; the artwork's 29-module box sat 0.35 units off
- * it, and at the old size nothing revealed that.
+ * So the vertical band is the whole budget, and everything below is that one
+ * number being spent.
  *
- * `qrRects` still refuses a symbol larger than this rather than silently
- * printing one nobody can read — see `qrMatrix` for what that costs the
- * caller.
+ * ## The spend
+ *
+ * A QR's capacity comes in discrete steps — 33 modules holds 62 bytes at error
+ * correction M, 37 holds 84 — and the URL has to fit whichever step is chosen.
+ * 37 modules is the largest the band takes, so it is what the card uses.
+ *
+ * The artwork drew 29 modules at a 1.3804 pitch. Two revisions were needed:
+ *
+ *   - **29 -> 37 modules.** At 29 the box held 34 bytes against a URL of
+ *     around 65, so `qrFits` rejected every card ever rendered and the block
+ *     came out empty. 33 was tried first and was still too small once the real
+ *     deployment hostname was known — `ipm-test.senexus-app.cloud` is 26
+ *     characters where the ceiling was about 21.
+ *   - **pitch 1.3804 -> 1.29.** 37 modules at the artwork's pitch is 51.07
+ *     units. That fits the band, but leaves 0.93 units of clear card on each
+ *     side — under one module. A QR needs a quiet zone around it to be located
+ *     at all, and that is not one. At 1.29 the symbol is 47.73 units and
+ *     leaves 2.60 on each side, a little over two modules.
+ *
+ * A module therefore prints at 0.43 mm rather than 0.46 mm at the assumed
+ * 54 mm trim. That is a real reduction and it is the number to watch — below
+ * roughly 0.4 mm a printed code stops scanning reliably at a counter — but it
+ * buys both the capacity and the quiet zone, and neither was optional.
+ *
+ * The block is centred on the artboard's own axis, which is where every other
+ * variable line on this face is centred; the artwork's original box sat 0.35
+ * units off it, and at that size nothing revealed the difference.
+ *
+ * `qrRects` refuses a symbol larger than this rather than silently printing
+ * one nobody can read — see `qrMatrix` and `QR_URL_MAX_BYTES` for what that
+ * costs the caller.
  */
 export const QR = {
-  originX: 58.01,
-  originY: 175.02,
-  module: 1.3804,
-  /** The largest symbol the box holds. A payload needing more will not fit. */
-  modules: 33,
+  originX: 56.92,
+  originY: 173.29,
+  module: 1.29,
+  /** The largest symbol the band holds. A payload needing more will not fit. */
+  modules: 37,
   colour: "#028f9d",
 } as const
 

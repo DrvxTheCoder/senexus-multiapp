@@ -153,19 +153,29 @@ describe("the QR survives rasterisation", () => {
   })
 
   it("prints modules large enough to scan", () => {
-    // 0.46 mm at the assumed 54 mm trim. This is the number that decides
+    // 0.43 mm at the assumed 54 mm trim. This is the number that decides
     // whether a card works at a pharmacy counter, and the temptation when a
-    // payload grows is to shrink it rather than shorten the payload.
+    // payload grows is to shrink it rather than to shorten the payload.
     const mmPerUnit = 54 / ARTBOARD.width
     expect(QR.module * mmPerUnit).toBeGreaterThan(0.4)
   })
 
-  it("keeps the block clear of the lines above and below it", () => {
-    // The box was grown into existing whitespace; these are the neighbours it
-    // was grown against. Matricule baseline 170.53, coverage baseline 226.69.
-    const top = QR.originY
-    const bottom = QR.originY + QR.modules * QR.module
-    expect(top).toBeGreaterThan(170.53 + 5 * 0.21) // descenders of the 5px line
-    expect(bottom).toBeLessThan(226.69 - 4 * 0.75) // ascenders of the 4px line
+  it("keeps a quiet zone inside the band of clear card", () => {
+    // The band between the matricule line and the coverage line, measured off
+    // a rendered card rather than derived from font metrics. A QR cannot be
+    // located without clear space around it, so the symbol must not merely
+    // fit — it must leave a margin. Two modules is the working minimum here.
+    const BAND = { top: 170.69, bottom: 223.61 }
+    const quiet = 2 * QR.module
+
+    expect(QR.originY).toBeGreaterThanOrEqual(BAND.top + quiet)
+    expect(QR.originY + QR.modules * QR.module).toBeLessThanOrEqual(
+      BAND.bottom - quiet
+    )
+  })
+
+  it("is centred on the artboard axis", () => {
+    const centre = QR.originX + (QR.modules * QR.module) / 2
+    expect(centre).toBeCloseTo(ARTBOARD.width / 2, 1)
   })
 })

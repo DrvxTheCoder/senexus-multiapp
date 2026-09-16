@@ -14,12 +14,17 @@ const NOW = new Date("2026-09-11T10:00:00.000Z")
 const FIRM = firmCode("firm_1")
 
 /**
- * Room the token must leave for the origin: `https://` plus a 20-character
+ * Room the token must leave for the origin: `https://` plus a 40-character
  * host. Stated as a length rather than a domain, so it holds whatever the
  * deployment ends up being called — and so that shortening the host is
  * visibly the lever when a card stops fitting.
+ *
+ * 40 is chosen against a real one: `ipm-test.senexus-app.cloud` is 26, and the
+ * first sizing of this budget assumed a shorter host than production turned
+ * out to have. Cards went out with no QR at all as a result, so the assumption
+ * is now generous on purpose.
  */
-const MIN_ORIGIN_BUDGET = 28
+const MIN_ORIGIN_BUDGET = 48
 
 const member = (matricule = "01716") =>
   ({ kind: "member", firmCode: FIRM, matricule }) as const
