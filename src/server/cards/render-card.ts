@@ -82,7 +82,7 @@ function template(name: "card-front" | "card-back"): string {
  *
  * **These must be TTF, not the WOFF the app serves to browsers.** resvg reads
  * raw SFNT only: handed a WOFF it neither converts nor complains, and renders
- * the card with no text at all. `scripts/build-card-fonts.mjs` unpacks the
+ * the card with no text at all. `scripts/build-fonts.mjs` unpacks the
  * WOFFs into `public/fonts/card/`, and the check below turns a missing file
  * into a loud failure rather than a blank card.
  *
@@ -105,7 +105,7 @@ function fontFiles(): string[] {
   if (missing.length) {
     throw new Error(
       `Card fonts are missing: ${missing.join(", ")}. ` +
-        `Run \`node scripts/build-card-fonts.mjs\`. Rendering without them ` +
+        `Run \`node scripts/build-fonts.mjs\`. Rendering without them ` +
         `produces a card with no text on it.`
     )
   }

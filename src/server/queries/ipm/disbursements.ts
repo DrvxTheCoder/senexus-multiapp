@@ -25,6 +25,13 @@ export type ProviderInvoiceRow = {
   /** Claimed minus matched. Positive means the provider claims more. */
   variance: number
   status: string
+  /**
+   * RECEIVED — typed in from the prestataire's paper. GENERATED — edited here
+   * from the consommation constatée, in which case there is no écart to find
+   * and the invoice has a line per bon.
+   */
+  origin: "RECEIVED" | "GENERATED"
+  lineCount: number
   disbursementNumber: string | null
 }
 
@@ -44,8 +51,10 @@ export async function listProviderInvoices(
       totalAmount: true,
       matchedAmount: true,
       status: true,
+      origin: true,
       provider: { select: { id: true, name: true } },
       disbursement: { select: { number: true } },
+      _count: { select: { lines: true } },
     },
   })
 
@@ -61,6 +70,8 @@ export async function listProviderInvoices(
     matchedAmount: Number(row.matchedAmount),
     variance: Number(row.totalAmount) - Number(row.matchedAmount),
     status: row.status,
+    origin: row.origin,
+    lineCount: row._count.lines,
     disbursementNumber: row.disbursement?.number ?? null,
   }))
 }
@@ -214,7 +225,15 @@ export async function disbursementSummary(
         _sum: { amount: true },
       }),
       db.ipmProviderInvoice.findMany({
-        where: { firmId: ctx.firmId, status: { in: ["RECEIVED", "CHECKED"] } },
+        // Generated invoices are excluded: their claimed and matched figures
+        // come from the same source and are equal by construction, so folding
+        // them in would only ever add noise to the one number this screen
+        // exists to show.
+        where: {
+          firmId: ctx.firmId,
+          status: { in: ["RECEIVED", "CHECKED"] },
+          origin: "RECEIVED",
+        },
         select: { totalAmount: true, matchedAmount: true },
       }),
     ])

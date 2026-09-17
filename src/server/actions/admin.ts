@@ -19,6 +19,7 @@ import {
 } from "@/lib/forms/admin-schemas"
 import { ActionError, holdingAction } from "@/server/actions/define-action"
 import { HR_MODULE_SLUG, writeMatriculePrefix } from "@/server/domain/matricule"
+import { safeDeleteFile } from "@/server/storage/zipline"
 
 /**
  * The administration console.
@@ -32,6 +33,41 @@ import { HR_MODULE_SLUG, writeMatriculePrefix } from "@/server/domain/matricule"
 
 const ADMIN_PATHS = ["/admin", "/admin/firms", "/admin/users", "/admin/modules"]
 const BCRYPT_COST = 10
+
+/* ==========================================================================
+ * Images
+ * ========================================================================== */
+
+/**
+ * What an image field means for a Prisma `data` object.
+ *
+ * `undefined` is absence — the column is left out of the update entirely, so a
+ * form that never showed the field cannot blank it. `""` is removal. Anything
+ * else is the URL `uploadAsset` just returned.
+ */
+function imageData(value: string | null | undefined): string | null | undefined {
+  return value === undefined || value === null ? undefined : value || null
+}
+
+/**
+ * Removes the blobs an update replaced.
+ *
+ * After the row is written, and never able to fail it: `safeDeleteFile`
+ * swallows its own errors, so an unreachable Zipline leaves an orphan and a
+ * warning rather than rolling back a change the operator already made. The
+ * same order `documents.ts` uses, for the same reason — an orphaned file is
+ * cheaper than a lost one.
+ */
+async function dropReplaced(
+  before: Record<string, string | null>,
+  after: Record<string, string | null | undefined>
+): Promise<void> {
+  for (const [key, previous] of Object.entries(before)) {
+    const next = after[key]
+    if (next === undefined) continue
+    if (previous && previous !== next) await safeDeleteFile(previous)
+  }
+}
 
 /* ==========================================================================
  * Firms
@@ -65,7 +101,9 @@ export const createFirm = holdingAction({
         holdingId: await defaultHoldingId(tx),
         name: input.name,
         slug: input.slug,
-        logo: input.logo || null,
+        logo: imageData(input.logo) ?? null,
+        letterhead: imageData(input.letterhead) ?? null,
+        stamp: imageData(input.stamp) ?? null,
         themeColor: input.themeColor || null,
       },
       select: { id: true, slug: true },
@@ -100,15 +138,28 @@ export const updateFirm = holdingAction({
       })
     }
 
+    const before = await tx.firm.findUnique({
+      where: { id: input.id },
+      select: { logo: true, letterhead: true, stamp: true },
+    })
+
+    const images = {
+      logo: imageData(input.logo),
+      letterhead: imageData(input.letterhead),
+      stamp: imageData(input.stamp),
+    }
+
     await tx.firm.update({
       where: { id: input.id },
       data: {
         name: input.name,
         slug: input.slug,
-        logo: input.logo || null,
+        ...images,
         themeColor: input.themeColor || null,
       },
     })
+
+    if (before) await dropReplaced(before, images)
 
     if (input.matriculePrefix !== undefined) {
       await writeMatriculePrefix(tx, input.id, input.matriculePrefix)
@@ -202,7 +253,8 @@ export const createUser = holdingAction({
       data: {
         name: input.name,
         email: input.email,
-        image: input.image || null,
+        image: imageData(input.image) ?? null,
+        signatureUrl: imageData(input.signatureUrl) ?? null,
         passwordHash: await hash(input.password, BCRYPT_COST),
         // Accounts created by an administrator are trusted; there is no mail
         // transport in this deployment to verify against.
@@ -253,14 +305,22 @@ export const updateUser = holdingAction({
       })
     }
 
+    const before = await tx.user.findUnique({
+      where: { id: input.id },
+      select: { image: true, signatureUrl: true },
+    })
+
+    const images = {
+      image: imageData(input.image),
+      signatureUrl: imageData(input.signatureUrl),
+    }
+
     await tx.user.update({
       where: { id: input.id },
-      data: {
-        name: input.name,
-        email: input.email,
-        image: input.image || null,
-      },
+      data: { name: input.name, email: input.email, ...images },
     })
+
+    if (before) await dropReplaced(before, images)
 
     // Memberships are replace-all, matching the legacy behaviour. It is worth
     // knowing what that costs: a user holding different roles in different

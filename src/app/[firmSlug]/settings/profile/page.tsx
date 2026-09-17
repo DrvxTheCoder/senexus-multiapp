@@ -33,6 +33,7 @@ export default async function ProfilePage({
         name: true,
         email: true,
         image: true,
+        signatureUrl: true,
         emailVerified: true,
         createdAt: true,
         passwordHash: true,
@@ -68,6 +69,7 @@ export default async function ProfilePage({
                   defaultName={user.name ?? ""}
                   email={user.email}
                   image={user.image}
+                  signatureUrl={user.signatureUrl}
                 />
               </Panel>
 

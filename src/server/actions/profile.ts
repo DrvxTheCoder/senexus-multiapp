@@ -7,6 +7,7 @@ import {
   updateProfileSchema,
 } from "@/lib/forms/profile-schema"
 import { ActionError, sessionAction } from "@/server/actions/define-action"
+import { safeDeleteFile } from "@/server/storage/zipline"
 
 /**
  * A user acting on their own account.
@@ -24,20 +25,42 @@ export const updateProfile = sessionAction({
   input: updateProfileSchema,
   revalidate: "/",
   handler: async ({ input, userId, tx, audit }) => {
+    const before = await tx.user.findUnique({
+      where: { id: userId },
+      select: { image: true, signatureUrl: true },
+    })
+
+    // `undefined` leaves the column alone; `""` removes the image. A form that
+    // does not show a field must not be able to blank it.
+    const images = {
+      ...(input.image === undefined || input.image === null
+        ? {}
+        : { image: input.image || null }),
+      ...(input.signatureUrl === undefined || input.signatureUrl === null
+        ? {}
+        : { signatureUrl: input.signatureUrl || null }),
+    }
+
     await tx.user.update({
       where: { id: userId },
-      data: {
-        name: input.name,
-        ...(input.image !== undefined ? { image: input.image || null } : {}),
-      },
+      data: { name: input.name, ...images },
     })
 
     await audit({
       action: "UPDATE",
       entity: "USER",
       entityId: userId,
-      metadata: { self: true, fields: ["name", "image"] },
+      metadata: { self: true, fields: ["name", ...Object.keys(images)] },
     })
+
+    // After the write, and unable to fail it — see `documents.ts`.
+    for (const key of ["image", "signatureUrl"] as const) {
+      const next = images[key]
+      const previous = before?.[key]
+      if (next !== undefined && previous && previous !== next) {
+        await safeDeleteFile(previous)
+      }
+    }
   },
 })
 

@@ -2,13 +2,23 @@
 
 import { z } from "zod"
 
+import type { Prisma } from "@prisma/client"
+
 import { amountField, dateField, toDate } from "@/lib/forms/hr-schemas"
 import {
   checkProviderInvoiceSchema,
+  disbursementFromInvoiceSchema,
+  generateProviderInvoiceSchema,
+  previewProviderInvoiceSchema,
   reviewReimbursementSchema,
   visaDisbursementSchema,
 } from "@/lib/forms/ipm-schemas"
-import { ActionError, firmAction } from "@/server/actions/define-action"
+import {
+  ActionError,
+  firmAction,
+  type AuditFn,
+} from "@/server/actions/define-action"
+import type { FirmContext } from "@/server/auth/require-firm-access"
 import { split } from "@/server/domain/ipm/settlement"
 import { nextInSequence } from "@/server/domain/ipm/sequence"
 
@@ -430,146 +440,188 @@ const createDisbursementSchema = z.object({
 })
 
 /**
+ * Le noyau d'un bon de décaissement : les pièces, le montant, les lignes.
+ *
+ * Shared by the two ways a bon comes into being — an operator picking several
+ * pieces by hand, and the one-click conversion of a facture that has just been
+ * approved — because the two must agree about every rule that matters:
+ *
+ *   - **only approved pieces are settled.** A bon that could carry an
+ *     unchecked invoice would make the contrôle optional;
+ *   - **the amount is the sum of what is attached, never typed.** A figure
+ *     entered by hand beside a list of invoices is a figure that will
+ *     eventually disagree with the list;
+ *   - **a piece is attached once.** `disbursementId: null` in the predicate is
+ *     what stops the same invoice being paid twice, and it is a predicate
+ *     rather than a check afterwards so two concurrent conversions cannot both
+ *     pass it.
+ *
+ * Two implementations of that would drift, and the one that drifted would be
+ * the one that pays somebody twice.
+ */
+async function settleIntoDisbursement(
+  tx: Prisma.TransactionClient,
+  ctx: FirmContext,
+  audit: AuditFn,
+  input: {
+    journalCode: string
+    date: Date
+    payeeType: "PROVIDER" | "MEMBER" | "SUPPLIER"
+    payeeId: string | null
+    payeeName: string
+    motif: string
+    paymentMethod: "CHEQUE" | "TRANSFER" | "CASH" | "ORANGE_MONEY"
+    paymentReference: string | null
+    providerInvoiceIds: string[]
+    reimbursementIds: string[]
+  }
+): Promise<{ id: string; number: string; amount: number }> {
+  const [invoices, reimbursements] = await Promise.all([
+    input.providerInvoiceIds.length
+      ? tx.ipmProviderInvoice.findMany({
+          where: {
+            id: { in: input.providerInvoiceIds },
+            firmId: ctx.firmId,
+            disbursementId: null,
+          },
+          select: {
+            id: true,
+            number: true,
+            totalAmount: true,
+            status: true,
+            provider: { select: { name: true } },
+          },
+        })
+      : Promise.resolve([]),
+    input.reimbursementIds.length
+      ? tx.ipmReimbursement.findMany({
+          where: {
+            id: { in: input.reimbursementIds },
+            firmId: ctx.firmId,
+            disbursementId: null,
+          },
+          select: { id: true, number: true, insurerShare: true, status: true },
+        })
+      : Promise.resolve([]),
+  ])
+
+  if (invoices.length === 0 && reimbursements.length === 0) {
+    throw new ActionError(
+      "Un bon de décaissement règle au moins une facture ou un remboursement."
+    )
+  }
+
+  const unapproved = [
+    ...invoices.filter((invoice) => invoice.status !== "APPROVED"),
+    ...reimbursements.filter((entry) => entry.status !== "APPROVED"),
+  ]
+  if (unapproved.length > 0) {
+    throw new ActionError(
+      "Seules des pièces approuvées peuvent être réglées : " +
+        unapproved.map((entry) => entry.number).join(", ")
+    )
+  }
+
+  const amount =
+    invoices.reduce((sum, invoice) => sum + Number(invoice.totalAmount), 0) +
+    reimbursements.reduce((sum, entry) => sum + Number(entry.insurerShare), 0)
+
+  const sequence = await nextInSequence(
+    tx,
+    ctx.firmId,
+    "DEC",
+    input.date.getFullYear()
+  )
+  const number = String(sequence).padStart(4, "0")
+
+  const disbursement = await tx.ipmDisbursement.create({
+    data: {
+      firmId: ctx.firmId,
+      number,
+      date: input.date,
+      journalCode: input.journalCode,
+      payeeType: input.payeeType,
+      payeeId: input.payeeId,
+      payeeName: input.payeeName,
+      amount,
+      motif: input.motif,
+      paymentMethod: input.paymentMethod,
+      paymentReference: input.paymentReference,
+      enteredById: ctx.userId,
+      status: "DRAFT",
+    },
+    select: { id: true, number: true },
+  })
+
+  await tx.ipmDisbursementLine.createMany({
+    data: [
+      ...invoices.map((invoice) => ({
+        firmId: ctx.firmId,
+        disbursementId: disbursement.id,
+        sourceType: "INVOICE",
+        sourceId: invoice.id,
+        label: `Facture ${invoice.number} — ${invoice.provider.name}`,
+        amount: invoice.totalAmount,
+      })),
+      ...reimbursements.map((entry) => ({
+        firmId: ctx.firmId,
+        disbursementId: disbursement.id,
+        sourceType: "REIMBURSEMENT",
+        sourceId: entry.id,
+        label: `Remboursement ${entry.number}`,
+        amount: entry.insurerShare,
+      })),
+    ],
+  })
+
+  await tx.ipmProviderInvoice.updateMany({
+    where: { id: { in: invoices.map((invoice) => invoice.id) } },
+    data: { disbursementId: disbursement.id },
+  })
+  await tx.ipmReimbursement.updateMany({
+    where: { id: { in: reimbursements.map((entry) => entry.id) } },
+    data: { disbursementId: disbursement.id },
+  })
+
+  await audit({
+    action: "CREATE_DISBURSEMENT",
+    entity: "IPM_DISBURSEMENT",
+    entityId: disbursement.id,
+    metadata: {
+      number: disbursement.number,
+      amount,
+      invoices: invoices.length,
+      reimbursements: reimbursements.length,
+    },
+  })
+
+  return { id: disbursement.id, number: disbursement.number, amount }
+}
+
+/**
  * Le bon de décaissement.
  *
  * Everything on the paper document is derivable, so it is derived: the amount
- * is the sum of the attached sources, never typed. A figure entered by hand
- * next to a list of invoices is a figure that will eventually disagree with
- * the list.
+ * is the sum of the attached sources, never typed.
  */
 export const createDisbursement = firmAction({
   input: createDisbursementSchema,
   minimumRole: "MANAGER",
   module: IPM_MODULE,
   revalidate: (input) => listPath(input.firmSlug, "decaissements"),
-  handler: async ({ input, ctx, tx, audit }) => {
-    const [invoices, reimbursements] = await Promise.all([
-      input.providerInvoiceIds.length
-        ? tx.ipmProviderInvoice.findMany({
-            where: {
-              id: { in: input.providerInvoiceIds },
-              firmId: ctx.firmId,
-              disbursementId: null,
-            },
-            select: {
-              id: true,
-              number: true,
-              totalAmount: true,
-              status: true,
-              provider: { select: { name: true } },
-            },
-          })
-        : Promise.resolve([]),
-      input.reimbursementIds.length
-        ? tx.ipmReimbursement.findMany({
-            where: {
-              id: { in: input.reimbursementIds },
-              firmId: ctx.firmId,
-              disbursementId: null,
-            },
-            select: {
-              id: true,
-              number: true,
-              insurerShare: true,
-              status: true,
-            },
-          })
-        : Promise.resolve([]),
-    ])
-
-    if (invoices.length === 0 && reimbursements.length === 0) {
-      throw new ActionError(
-        "Un bon de décaissement règle au moins une facture ou un remboursement."
-      )
-    }
-
-    const unapproved = [
-      ...invoices.filter((invoice) => invoice.status !== "APPROVED"),
-      ...reimbursements.filter((entry) => entry.status !== "APPROVED"),
-    ]
-    if (unapproved.length > 0) {
-      throw new ActionError(
-        "Seules des pièces approuvées peuvent être réglées : " +
-          unapproved.map((entry) => entry.number).join(", ")
-      )
-    }
-
-    const amount =
-      invoices.reduce((sum, invoice) => sum + Number(invoice.totalAmount), 0) +
-      reimbursements.reduce((sum, entry) => sum + Number(entry.insurerShare), 0)
-
-    const date = toDate(input.date)
-    const sequence = await nextInSequence(
-      tx,
-      ctx.firmId,
-      "DEC",
-      date.getFullYear()
-    )
-    const number = String(sequence).padStart(4, "0")
-
-    const disbursement = await tx.ipmDisbursement.create({
-      data: {
-        firmId: ctx.firmId,
-        number,
-        date,
-        journalCode: input.journalCode,
-        payeeType: input.payeeType,
-        payeeId: orNull(input.payeeId),
-        payeeName: input.payeeName,
-        amount,
-        motif: input.motif,
-        paymentMethod: input.paymentMethod,
-        paymentReference: orNull(input.paymentReference),
-        enteredById: ctx.userId,
-        status: "DRAFT",
-      },
-      select: { id: true, number: true },
-    })
-
-    await tx.ipmDisbursementLine.createMany({
-      data: [
-        ...invoices.map((invoice) => ({
-          firmId: ctx.firmId,
-          disbursementId: disbursement.id,
-          sourceType: "INVOICE",
-          sourceId: invoice.id,
-          label: `Facture ${invoice.number} — ${invoice.provider.name}`,
-          amount: invoice.totalAmount,
-        })),
-        ...reimbursements.map((entry) => ({
-          firmId: ctx.firmId,
-          disbursementId: disbursement.id,
-          sourceType: "REIMBURSEMENT",
-          sourceId: entry.id,
-          label: `Remboursement ${entry.number}`,
-          amount: entry.insurerShare,
-        })),
-      ],
-    })
-
-    await tx.ipmProviderInvoice.updateMany({
-      where: { id: { in: invoices.map((invoice) => invoice.id) } },
-      data: { disbursementId: disbursement.id },
-    })
-    await tx.ipmReimbursement.updateMany({
-      where: { id: { in: reimbursements.map((entry) => entry.id) } },
-      data: { disbursementId: disbursement.id },
-    })
-
-    await audit({
-      action: "CREATE_DISBURSEMENT",
-      entity: "IPM_DISBURSEMENT",
-      entityId: disbursement.id,
-      metadata: {
-        number: disbursement.number,
-        amount,
-        invoices: invoices.length,
-        reimbursements: reimbursements.length,
-      },
-    })
-
-    return { id: disbursement.id, number: disbursement.number, amount }
-  },
+  handler: async ({ input, ctx, tx, audit }) =>
+    settleIntoDisbursement(tx, ctx, audit, {
+      journalCode: input.journalCode,
+      date: toDate(input.date),
+      payeeType: input.payeeType,
+      payeeId: orNull(input.payeeId),
+      payeeName: input.payeeName,
+      motif: input.motif,
+      paymentMethod: input.paymentMethod,
+      paymentReference: orNull(input.paymentReference),
+      providerInvoiceIds: input.providerInvoiceIds,
+      reimbursementIds: input.reimbursementIds,
+    }),
 })
 
 /**
@@ -665,5 +717,327 @@ export const visaDisbursement = firmAction({
     })
 
     return { id: disbursement.id }
+  },
+})
+
+/* ==========================================================================
+ * Facturation de la consommation — l'IPM édite la facture du prestataire
+ * ========================================================================== */
+
+/**
+ * La période, bornée à la journée entière.
+ *
+ * `toDate` puts a form date at noon UTC, which is right for a single date and
+ * wrong for the end of a range: a bon settled at 18:00 on the last day of the
+ * month would fall outside `lte noon` and be billed the following month, for
+ * no reason anybody could ever reconstruct.
+ */
+function dayRange(from: string, to: string): { from: Date; to: Date } {
+  return {
+    from: new Date(`${from}T00:00:00.000Z`),
+    to: new Date(`${to}T23:59:59.999Z`),
+  }
+}
+
+type BillableLine = {
+  voucherId: string
+  voucherNumber: string
+  serviceDate: Date
+  beneficiaryName: string
+  memberMatricule: string
+  categoryLabel: string
+  totalAmount: number
+  insurerShare: number
+  memberShare: number
+}
+
+/**
+ * Les bons facturables chez un prestataire sur une période.
+ *
+ * Three conditions, and each one is load-bearing:
+ *
+ *   - **SETTLED**, because an issued bon is a commitment and not a
+ *     consumption: it may never be presented at all, and billing for it would
+ *     charge the institution for care nobody received;
+ *   - **`settledAt` inside the period**, not `issueDate` — a bon issued in
+ *     March and honoured in April belongs to April's invoice, which is the
+ *     month the provider is claiming for;
+ *   - **not already attached to an invoice**, which is what stops a bon being
+ *     billed twice. It is a predicate rather than a check afterwards, so two
+ *     operators invoicing the same clinic at the same moment cannot both
+ *     succeed on the same bons.
+ *
+ * Read inside the caller's transaction so the preview and the write see the
+ * same rows under the same lock.
+ */
+async function billableVouchers(
+  tx: Prisma.TransactionClient,
+  firmId: string,
+  providerId: string,
+  period: { from: Date; to: Date }
+): Promise<BillableLine[]> {
+  const vouchers = await tx.ipmVoucher.findMany({
+    where: {
+      firmId,
+      providerId,
+      status: "SETTLED",
+      providerInvoiceId: null,
+      settledAt: { gte: period.from, lte: period.to },
+    },
+    orderBy: [{ settledAt: "asc" }, { number: "asc" }],
+    select: {
+      id: true,
+      number: true,
+      settledAt: true,
+      issueDate: true,
+      beneficiaryName: true,
+      totalAmount: true,
+      insurerShare: true,
+      memberShare: true,
+      member: { select: { matricule: true } },
+      category: { select: { label: true } },
+    },
+  })
+
+  return vouchers.map((voucher) => ({
+    voucherId: voucher.id,
+    voucherNumber: voucher.number,
+    serviceDate: voucher.settledAt ?? voucher.issueDate,
+    beneficiaryName: voucher.beneficiaryName,
+    memberMatricule: voucher.member.matricule,
+    categoryLabel: voucher.category.label,
+    totalAmount: Number(voucher.totalAmount),
+    insurerShare: Number(voucher.insurerShare),
+    memberShare: Number(voucher.memberShare),
+  }))
+}
+
+export type ProviderInvoicePreview = {
+  providerName: string
+  lines: BillableLine[]
+  /** Gross cost of the care, participants' shares included. */
+  grossAmount: number
+  /** What the institution owes — the invoice's total. */
+  insurerShare: number
+  /** What participants already paid at the counter. */
+  memberShare: number
+}
+
+/**
+ * Ce que la facture contiendrait, sans rien écrire.
+ *
+ * The same reader as the write path, for the same reason bon issuance has a
+ * pre-flight: an operator choosing a period should see the bons it catches
+ * before committing, and a preview computed by different code from the write
+ * is a preview that can lie.
+ */
+export const previewProviderInvoice = firmAction({
+  input: previewProviderInvoiceSchema,
+  minimumRole: "MANAGER",
+  module: IPM_MODULE,
+  handler: async ({ input, ctx, tx }): Promise<ProviderInvoicePreview> => {
+    const provider = await tx.ipmProvider.findFirst({
+      where: { id: input.providerId, firmId: ctx.firmId },
+      select: { id: true, name: true },
+    })
+    if (!provider) throw new ActionError("Prestataire introuvable.")
+
+    const lines = await billableVouchers(
+      tx,
+      ctx.firmId,
+      provider.id,
+      dayRange(input.periodFrom, input.periodTo)
+    )
+
+    const sum = (pick: (line: BillableLine) => number) =>
+      lines.reduce((total, line) => total + pick(line), 0)
+
+    return {
+      providerName: provider.name,
+      lines,
+      grossAmount: sum((line) => line.totalAmount),
+      insurerShare: sum((line) => line.insurerShare),
+      memberShare: sum((line) => line.memberShare),
+    }
+  },
+})
+
+/**
+ * Éditer la facture d'un prestataire à partir de la consommation constatée.
+ *
+ * The inverse of `recordProviderInvoice`, and the reason `origin` exists on
+ * the table. There, a provider claims a figure and the institution's job is to
+ * find the écart; here the institution states the figure itself, line by line,
+ * from bons it has already honoured — so `totalAmount` and `matchedAmount` are
+ * equal **by construction** and there is no écart to find.
+ *
+ * Every line is denormalised onto the invoice at the moment of editing. That
+ * is deliberate, and it is the same rule `IpmVoucher` applies to its taux: an
+ * invoice is a document sent to a third party, and what they received must not
+ * change because a bon was corrected afterwards. `voucherId` stays for the
+ * audit trail and goes NULL if the bon is ever deleted, without taking the
+ * line with it.
+ *
+ * The invoice lands **CHECKED, not APPROVED**. The rapprochement is vacuous
+ * for a document whose two figures come from one source, and whoever picked
+ * the period did look at the lines — but deciding to pay is a separate act by
+ * a separate person, and collapsing the two would remove the only control
+ * standing between editing an invoice and paying it.
+ */
+export const generateProviderInvoice = firmAction({
+  input: generateProviderInvoiceSchema,
+  minimumRole: "MANAGER",
+  module: IPM_MODULE,
+  revalidate: (input) => [
+    listPath(input.firmSlug, "decaissements"),
+    listPath(input.firmSlug, "factures"),
+    listPath(input.firmSlug, "bons"),
+  ],
+  handler: async ({ input, ctx, tx, audit }) => {
+    const provider = await tx.ipmProvider.findFirst({
+      where: { id: input.providerId, firmId: ctx.firmId },
+      select: { id: true, name: true },
+    })
+    if (!provider) throw new ActionError("Prestataire introuvable.")
+
+    const period = dayRange(input.periodFrom, input.periodTo)
+    const lines = await billableVouchers(tx, ctx.firmId, provider.id, period)
+
+    if (lines.length === 0) {
+      throw new ActionError(
+        "Aucun bon réglé et non encore facturé pour ce prestataire sur cette période."
+      )
+    }
+
+    const insurerShare = lines.reduce((sum, line) => sum + line.insurerShare, 0)
+
+    // Financial documents restart each exercice — see `nextInSequence`.
+    const year = period.to.getFullYear()
+    const sequence = await nextInSequence(tx, ctx.firmId, "FACT", year)
+    const number = `FACT-${year}-${String(sequence).padStart(5, "0")}`
+
+    const invoice = await tx.ipmProviderInvoice.create({
+      data: {
+        firmId: ctx.firmId,
+        providerId: provider.id,
+        number,
+        origin: "GENERATED",
+        receivedDate: new Date(),
+        periodFrom: period.from,
+        periodTo: period.to,
+        totalAmount: insurerShare,
+        // Equal by construction. Stored rather than derived so the écart
+        // column means the same thing on every row of the list.
+        matchedAmount: insurerShare,
+        status: "CHECKED",
+        checkedById: ctx.userId,
+        checkedAt: new Date(),
+      },
+      select: { id: true, number: true },
+    })
+
+    await tx.ipmProviderInvoiceLine.createMany({
+      data: lines.map((line) => ({
+        firmId: ctx.firmId,
+        invoiceId: invoice.id,
+        voucherId: line.voucherId,
+        voucherNumber: line.voucherNumber,
+        serviceDate: line.serviceDate,
+        beneficiaryName: line.beneficiaryName,
+        memberMatricule: line.memberMatricule,
+        categoryLabel: line.categoryLabel,
+        totalAmount: line.totalAmount,
+        insurerShare: line.insurerShare,
+        memberShare: line.memberShare,
+      })),
+    })
+
+    // INVOICED, and pointing at this invoice: the same predicate that selected
+    // them now excludes them, so a second run over the same period bills
+    // nothing rather than billing it again.
+    await tx.ipmVoucher.updateMany({
+      where: { id: { in: lines.map((line) => line.voucherId) } },
+      data: { status: "INVOICED", providerInvoiceId: invoice.id },
+    })
+
+    await audit({
+      action: "GENERATE_PROVIDER_INVOICE",
+      entity: "IPM_PROVIDER_INVOICE",
+      entityId: invoice.id,
+      metadata: {
+        provider: provider.name,
+        number: invoice.number,
+        periodFrom: input.periodFrom,
+        periodTo: input.periodTo,
+        vouchers: lines.length,
+        amount: insurerShare,
+      },
+    })
+
+    return {
+      id: invoice.id,
+      number: invoice.number,
+      amount: insurerShare,
+      vouchers: lines.length,
+    }
+  },
+})
+
+/**
+ * Transformer une facture approuvée en bon de décaissement.
+ *
+ * One act rather than three: the operator picks the journal, the mode and the
+ * date, and everything else is read off the facture. The payee is its
+ * prestataire, the amount is its total, the motif names it. Retyping any of
+ * those is how a bon ends up settling a different figure from the invoice it
+ * cites.
+ *
+ * It goes through the same `settleIntoDisbursement` as the manual path, so it
+ * inherits the same refusals — an invoice that is not APPROVED, or is already
+ * attached to another bon, is refused here exactly as it is there.
+ */
+export const createDisbursementFromInvoice = firmAction({
+  input: disbursementFromInvoiceSchema,
+  minimumRole: "MANAGER",
+  module: IPM_MODULE,
+  revalidate: (input) => [
+    listPath(input.firmSlug, "decaissements"),
+    listPath(input.firmSlug, "factures"),
+  ],
+  handler: async ({ input, ctx, tx, audit }) => {
+    const invoice = await tx.ipmProviderInvoice.findFirst({
+      where: { id: input.invoiceId, firmId: ctx.firmId },
+      select: {
+        id: true,
+        number: true,
+        status: true,
+        periodFrom: true,
+        periodTo: true,
+        disbursementId: true,
+        provider: { select: { id: true, name: true } },
+      },
+    })
+    if (!invoice) throw new ActionError("Facture introuvable.")
+    if (invoice.disbursementId) {
+      throw new ActionError(
+        "Cette facture est déjà rattachée à un bon de décaissement."
+      )
+    }
+
+    const from = invoice.periodFrom.toLocaleDateString("fr-FR")
+    const to = invoice.periodTo.toLocaleDateString("fr-FR")
+
+    return settleIntoDisbursement(tx, ctx, audit, {
+      journalCode: input.journalCode,
+      date: toDate(input.date),
+      payeeType: "PROVIDER",
+      payeeId: invoice.provider.id,
+      payeeName: invoice.provider.name,
+      motif: `Règlement facture ${invoice.number} — prestations du ${from} au ${to}`,
+      paymentMethod: input.paymentMethod,
+      paymentReference: orNull(input.paymentReference),
+      providerInvoiceIds: [invoice.id],
+      reimbursementIds: [],
+    })
   },
 })

@@ -42,10 +42,28 @@ export const THEME_PRESETS = [
   { label: "Ardoise", value: "#334155" },
 ] as const
 
+/**
+ * An image column: a URL the browser uploaded to, an empty string meaning
+ * "removed", or absent meaning "leave it alone".
+ *
+ * Nullable rather than merely optional because the three are genuinely
+ * different — `undefined` must not erase a logo, and `""` must.
+ */
+const imageField = (label: string) =>
+  z.string().url(`${label} invalide.`).or(z.literal("")).nullish()
+
 export const firmSchema = z.object({
   name: z.string().trim().min(2, "Le nom est requis.").max(120),
   slug: slugField,
-  logo: z.string().url("URL de logo invalide.").or(z.literal("")).optional(),
+  logo: imageField("Logo"),
+  /**
+   * En-tête imprimé sur les documents de la filiale — une image, déposée par
+   * l'administrateur, et non cinq colonnes de raison sociale que seul le PDF
+   * lirait. Voir `Firm.letterhead`.
+   */
+  letterhead: imageField("En-tête"),
+  /** Cachet apposé au bas des documents signés. */
+  stamp: imageField("Cachet"),
   themeColor: z
     .string()
     .regex(HEX_COLOR, "Couleur hexadécimale attendue, par exemple #0B5D53.")
@@ -107,7 +125,16 @@ export const USER_ROLES = [
 export const userBaseSchema = z.object({
   name: z.string().trim().min(1, "Le nom est requis.").max(120),
   email: z.string().trim().toLowerCase().email("Adresse email invalide."),
-  image: z.string().url().or(z.literal("")).optional(),
+  image: imageField("Photo"),
+  /**
+   * Signature manuscrite scannée.
+   *
+   * Collected in the user form because that is where a person's identity is
+   * administered, and because without it a bon de décaissement prints three
+   * empty visa boxes — which is what the document looked like before this
+   * field existed.
+   */
+  signatureUrl: imageField("Signature"),
   // RESPONSABLE is in the database enum but was missing from every legacy form,
   // so the only way to grant it was direct SQL — even though it is the role the
   // whole client-scoped visibility model depends on.

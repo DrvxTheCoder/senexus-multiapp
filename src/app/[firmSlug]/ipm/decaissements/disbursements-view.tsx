@@ -7,6 +7,10 @@ import {
   RejectInvoiceDialog,
   RejectReimbursementDialog,
 } from "@/app/[firmSlug]/ipm/decaissements/decision-dialogs"
+import {
+  ConvertInvoiceDialog,
+  GenerateInvoiceDialog,
+} from "@/app/[firmSlug]/ipm/decaissements/invoice-dialogs"
 import { VisaStepper } from "@/app/[firmSlug]/ipm/decaissements/visa-stepper"
 import { DataTable } from "@/components/data-table"
 import { useAction } from "@/components/forms/use-action"
@@ -19,6 +23,11 @@ import {
   TwoFacts,
 } from "@/components/primitives"
 import { ResourceDrawer } from "@/components/resource-drawer"
+import { DocumentLink } from "@/components/document-link"
+import {
+  disbursementPdfUrl,
+  providerInvoicePdfUrl,
+} from "@/lib/ipm/document-urls"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { formatCurrency, formatDate, formatNumber } from "@/lib/format"
@@ -118,6 +127,7 @@ export function DisbursementsView({
   invoices,
   reimbursements,
   disbursements,
+  providers,
   canWrite,
 }: {
   firmSlug: string
@@ -125,9 +135,14 @@ export function DisbursementsView({
   invoices: ProviderInvoiceRow[]
   reimbursements: ReimbursementRow[]
   disbursements: DisbursementRow[]
+  /** For the "éditer une facture" dialog, which bills one prestataire. */
+  providers: { id: string; name: string; accountCode: string | null }[]
   canWrite: boolean
 }) {
   const [tab, setTab] = React.useState<Tab>("INVOICES")
+  const [generating, setGenerating] = React.useState(false)
+  const [converting, setConverting] =
+    React.useState<ProviderInvoiceRow | null>(null)
   const [selected, setSelected] = React.useState<Set<string>>(new Set())
   const [rejectInvoice, setRejectInvoice] =
     React.useState<ProviderInvoiceRow | null>(null)
@@ -210,10 +225,18 @@ export function DisbursementsView({
         id: "invoice",
         header: "Facture",
         cell: ({ row }) => (
-          <TwoFacts
-            primary={row.original.providerName}
-            secondary={`n° ${row.original.number}`}
-          />
+          <div className="flex items-center gap-2">
+            <TwoFacts
+              primary={row.original.providerName}
+              secondary={`n° ${row.original.number}`}
+            />
+            {/* An invoice the institution edited itself has no écart to find,
+                so the badge says why that column is empty rather than leaving
+                it looking like a rapprochement nobody did. */}
+            {row.original.origin === "GENERATED" ? (
+              <StatusPill tone="brand">éditée</StatusPill>
+            ) : null}
+          </div>
         ),
       },
       {
@@ -246,7 +269,11 @@ export function DisbursementsView({
         id: "variance",
         header: "Écart",
         cell: ({ row }) =>
-          row.original.variance === 0 ? (
+          row.original.origin === "GENERATED" ? (
+            <span className="text-[11.5px] text-ink-3">
+              {formatNumber(row.original.lineCount)} bons
+            </span>
+          ) : row.original.variance === 0 ? (
             <span className="text-ink-3">—</span>
           ) : (
             <span className="num font-medium text-alert">
@@ -277,34 +304,58 @@ export function DisbursementsView({
               id: "actions",
               header: "",
               cell: ({ row }) => {
-                if (!["RECEIVED", "CHECKED"].includes(row.original.status)) {
-                  return null
-                }
+                const invoice = row.original
+                const pending = ["RECEIVED", "CHECKED"].includes(invoice.status)
                 const next =
-                  row.original.status === "RECEIVED" ? "CHECKED" : "APPROVED"
+                  invoice.status === "RECEIVED" ? "CHECKED" : "APPROVED"
+                const payable =
+                  invoice.status === "APPROVED" && !invoice.disbursementNumber
+
                 return (
                   <div className="flex items-center justify-end gap-1.5">
-                    <Button
-                      size="xs"
-                      variant="outline"
-                      disabled={check.pending}
-                      onClick={() =>
-                        void check.run({
-                          firmSlug,
-                          invoiceId: row.original.id,
-                          decision: next,
-                        })
-                      }
-                    >
-                      {next === "CHECKED" ? "Contrôler" : "Approuver"}
-                    </Button>
-                    <Button
-                      size="xs"
-                      variant="ghost"
-                      onClick={() => setRejectInvoice(row.original)}
-                    >
-                      Rejeter
-                    </Button>
+                    <DocumentLink
+                      compact
+                      href={providerInvoicePdfUrl(firmSlug, invoice.id)}
+                      label={`Imprimer la facture ${invoice.number}`}
+                    />
+                    {pending ? (
+                      <>
+                        <Button
+                          size="xs"
+                          variant="outline"
+                          disabled={check.pending}
+                          onClick={() =>
+                            void check.run({
+                              firmSlug,
+                              invoiceId: invoice.id,
+                              decision: next,
+                            })
+                          }
+                        >
+                          {next === "CHECKED" ? "Contrôler" : "Approuver"}
+                        </Button>
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          onClick={() => setRejectInvoice(invoice)}
+                        >
+                          Rejeter
+                        </Button>
+                      </>
+                    ) : null}
+                    {/* The one-click conversion. It exists beside the
+                        multi-select below rather than replacing it: several
+                        invoices from one prestataire still settle on one bon,
+                        and that is the case the checkboxes are for. */}
+                    {payable ? (
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        onClick={() => setConverting(invoice)}
+                      >
+                        Établir le bon
+                      </Button>
+                    ) : null}
                   </div>
                 )
               },
@@ -516,8 +567,27 @@ export function DisbursementsView({
           </StatusPill>
         ),
       },
+      {
+        id: "document",
+        header: "",
+        size: 40,
+        cell: ({ row }) => (
+          // `stopPropagation`, because the row itself opens the drawer and a
+          // click on the link means the PDF, not the drawer behind it.
+          <span
+            className="flex justify-end"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <DocumentLink
+              compact
+              href={disbursementPdfUrl(firmSlug, row.original.id)}
+              label={`Imprimer le bon n° ${row.original.number}`}
+            />
+          </span>
+        ),
+      },
     ],
-    []
+    [firmSlug]
   )
 
   /* ---- rendu ------------------------------------------------------------ */
@@ -575,19 +645,29 @@ export function DisbursementsView({
         title={PANEL[tab].title}
         description={PANEL[tab].description}
         tools={
-          <SegmentedControl
-            ariaLabel="File à traiter"
-            value={tab}
-            onChange={setTab}
-            options={[
-              { value: "INVOICES", label: `Factures ${invoices.length}` },
-              {
-                value: "REIMBURSEMENTS",
-                label: `Remboursements ${reimbursements.length}`,
-              },
-              { value: "DISBURSEMENTS", label: `Bons ${disbursements.length}` },
-            ]}
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <SegmentedControl
+              ariaLabel="File à traiter"
+              value={tab}
+              onChange={setTab}
+              options={[
+                { value: "INVOICES", label: `Factures ${invoices.length}` },
+                {
+                  value: "REIMBURSEMENTS",
+                  label: `Remboursements ${reimbursements.length}`,
+                },
+                {
+                  value: "DISBURSEMENTS",
+                  label: `Bons ${disbursements.length}`,
+                },
+              ]}
+            />
+            {tab === "INVOICES" && canWrite ? (
+              <Button size="sm" onClick={() => setGenerating(true)}>
+                Éditer une facture
+              </Button>
+            ) : null}
+          </div>
         }
         padded={false}
         footer={
@@ -736,6 +816,21 @@ export function DisbursementsView({
               </Fact>
             </dl>
 
+            <div className="flex flex-wrap items-center gap-1.5">
+              <DocumentLink
+                href={disbursementPdfUrl(firmSlug, openDisbursement.id)}
+                label="Ouvrir le bon"
+              />
+              <DocumentLink
+                download
+                href={disbursementPdfUrl(firmSlug, openDisbursement.id)}
+                label="Télécharger"
+              />
+              <span className="text-[11.5px] text-ink-3">
+                Les factures éditées par l&apos;IPM sont annexées au bon.
+              </span>
+            </div>
+
             <div className="border-t border-line pt-3.5">
               <VisaStepper
                 firmSlug={firmSlug}
@@ -746,6 +841,23 @@ export function DisbursementsView({
           </div>
         ) : null}
       </ResourceDrawer>
+
+      {generating ? (
+        <GenerateInvoiceDialog
+          firmSlug={firmSlug}
+          providers={providers}
+          onClose={() => setGenerating(false)}
+        />
+      ) : null}
+
+      {converting ? (
+        <ConvertInvoiceDialog
+          firmSlug={firmSlug}
+          invoice={converting}
+          onClose={() => setConverting(null)}
+          onConverted={() => setTab("DISBURSEMENTS")}
+        />
+      ) : null}
 
       {rejectInvoice ? (
         <RejectInvoiceDialog

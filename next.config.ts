@@ -18,13 +18,19 @@ const nextConfig: NextConfig = {
   //     path is rewritten to a location that does not exist and the card
   //     renderer dies at runtime with an ENOENT for `C:\ROOT\...` — a failure
   //     that only shows up in a production build, never in dev;
-  //   - `sharp` is a native addon in the same position.
+  //   - `sharp` is a native addon in the same position;
+  //   - `@react-pdf/renderer` loads font files from `public/fonts/pdf/` by
+  //     absolute path and pulls in `fontkit`, which reaches for its own data
+  //     files the same way. Bundled, the paths are rewritten and every
+  //     document renders with no text — the exact failure `satori` has above,
+  //     and again only in a production build.
   serverExternalPackages: [
     "@prisma/client",
     "bcryptjs",
     "satori",
     "@resvg/resvg-js",
     "sharp",
+    "@react-pdf/renderer",
   ],
   poweredByHeader: false,
 }

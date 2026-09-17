@@ -1,9 +1,12 @@
 /**
- * WOFF → TTF, for the card renderer.
+ * WOFF → TTF, for the renderers that read fonts off the disk.
  *
- * resvg reads raw SFNT (TTF/OTF) only. Handed a WOFF it neither converts nor
- * complains — it renders the card with **no text at all**, silently, which is
- * exactly the invisible failure that shows up after the cards are printed.
+ * Two of them, with the same constraint. **resvg** (the cards) reads raw SFNT
+ * (TTF/OTF) only: handed a WOFF it neither converts nor complains — it renders
+ * the card with **no text at all**, silently, which is exactly the invisible
+ * failure that shows up after the cards are printed. **@react-pdf/renderer**
+ * (the bons, factures and bons de décaissement) is the same: `Font.register`
+ * takes a TTF, and a WOFF throws deep inside fontkit at render time.
  *
  * ## Why Montserrat, and why these weights
  *
@@ -19,14 +22,24 @@
  * here so the regular and bold faces each resolve exactly rather than being
  * synthesised.
  *
- * The source WOFFs come from `@fontsource/montserrat`, so the licence is
- * vendored with the repo and the build needs no network.
+ * ## The document faces
+ *
+ * The printed documents are not the card. A bon de garantie is a dense form —
+ * labelled boxes, a table of acts, a paragraph of legal text — and Montserrat
+ * set at 8pt in a table cell is unreadable: it is a display face with wide
+ * counters and almost no contrast between weights at that size. IBM Plex Sans
+ * is the body face for the documents, with four weights so a label, a value
+ * and a total are distinguishable without changing size; Montserrat stays for
+ * the one thing it is good at here, the document's title band.
+ *
+ * The source WOFFs come from `@fontsource/*`, so the licences are vendored
+ * with the repo and the build needs no network.
  *
  * WOFF1 is an SFNT whose tables are individually zlib-compressed behind a
  * 44-byte header and a directory — so unpacking it is a header rewrite and a
  * per-table inflate, which `node:zlib` already does.
  *
- * Run: node scripts/build-card-fonts.mjs
+ * Run: node scripts/build-fonts.mjs
  */
 import { inflateSync } from "node:zlib"
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs"
@@ -35,11 +48,24 @@ import { fileURLToPath } from "node:url"
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..")
 
-const FONTSOURCE = "node_modules/@fontsource/montserrat/files"
+const MONTSERRAT = "node_modules/@fontsource/montserrat/files"
+const PLEX = "node_modules/@fontsource/ibm-plex-sans/files"
 
 const SOURCES = [
-  [`${FONTSOURCE}/montserrat-latin-400-normal.woff`, "public/fonts/card/CardSans-Regular.ttf"],
-  [`${FONTSOURCE}/montserrat-latin-700-normal.woff`, "public/fonts/card/CardSans-Bold.ttf"],
+  // The card.
+  [`${MONTSERRAT}/montserrat-latin-400-normal.woff`, "public/fonts/card/CardSans-Regular.ttf"],
+  [`${MONTSERRAT}/montserrat-latin-700-normal.woff`, "public/fonts/card/CardSans-Bold.ttf"],
+
+  // The printed documents. Four weights of the body face, because a form
+  // distinguishes a label from a value from a total by weight, not by size.
+  [`${PLEX}/ibm-plex-sans-latin-400-normal.woff`, "public/fonts/pdf/DocSans-Regular.ttf"],
+  [`${PLEX}/ibm-plex-sans-latin-500-normal.woff`, "public/fonts/pdf/DocSans-Medium.ttf"],
+  [`${PLEX}/ibm-plex-sans-latin-600-normal.woff`, "public/fonts/pdf/DocSans-SemiBold.ttf"],
+  [`${PLEX}/ibm-plex-sans-latin-700-normal.woff`, "public/fonts/pdf/DocSans-Bold.ttf"],
+  // Used for the "valable pour une durée de…" mentions and nothing else.
+  [`${PLEX}/ibm-plex-sans-latin-400-italic.woff`, "public/fonts/pdf/DocSans-Italic.ttf"],
+  // The title band only.
+  [`${MONTSERRAT}/montserrat-latin-700-normal.woff`, "public/fonts/pdf/DocDisplay-Bold.ttf"],
 ]
 
 function woffToSfnt(woff) {
@@ -104,9 +130,8 @@ function woffToSfnt(woff) {
   return Buffer.concat([header, directory, ...padded])
 }
 
-mkdirSync(join(ROOT, "public/fonts/card"), { recursive: true })
-
 for (const [from, to] of SOURCES) {
+  mkdirSync(join(ROOT, dirname(to)), { recursive: true })
   const ttf = woffToSfnt(readFileSync(join(ROOT, from)))
   writeFileSync(join(ROOT, to), ttf)
   console.log(`${from} → ${to} (${ttf.length} bytes)`)

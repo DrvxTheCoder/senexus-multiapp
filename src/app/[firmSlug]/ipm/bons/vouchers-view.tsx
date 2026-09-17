@@ -20,6 +20,8 @@ import { useAction } from "@/components/forms/use-action"
 import { Pager } from "@/components/list-controls"
 import { Panel } from "@/components/panel"
 import { EmptyState, StatusPill, TagCode, TwoFacts } from "@/components/primitives"
+import { DocumentLink } from "@/components/document-link"
+import { voucherPdfUrl } from "@/lib/ipm/document-urls"
 import { ResourceDrawer } from "@/components/resource-drawer"
 import { Button } from "@/components/ui/button"
 import { formatCurrency, formatDate, formatNumber } from "@/lib/format"
@@ -291,8 +293,27 @@ export function VouchersView({
           </div>
         ),
       },
+      {
+        id: "document",
+        header: "",
+        size: 40,
+        cell: ({ row }) => (
+          // `stopPropagation`, because the row opens the drawer and a click on
+          // this link means the document, not the panel behind it.
+          <span
+            className="flex justify-end"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <DocumentLink
+              compact
+              href={voucherPdfUrl(firmSlug, row.original.id)}
+              label={`Imprimer le bon ${row.original.number}`}
+            />
+          </span>
+        ),
+      },
     ],
-    []
+    [firmSlug]
   )
 
   const from = page.total === 0 ? 0 : (page.page - 1) * page.perPage + 1
@@ -497,9 +518,13 @@ export function VouchersView({
             : undefined
         }
         footer={
-          open && canWrite ? (
-            <div className="flex items-center gap-2">
-              {["ISSUED", "PRESENTED"].includes(open.status) ? (
+          open ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <DocumentLink
+                href={voucherPdfUrl(firmSlug, open.id)}
+                label="Imprimer (3 exemplaires)"
+              />
+              {!canWrite ? null : ["ISSUED", "PRESENTED"].includes(open.status) ? (
                 <>
                   <Button
                     size="sm"

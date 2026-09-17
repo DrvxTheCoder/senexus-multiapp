@@ -563,6 +563,57 @@ export const visaDisbursementSchema = z.object({
   visa: z.enum(["DIRECTION", "COMPTABILITE", "RECEPTION"]),
 })
 
+export const JOURNAL_CODES = ["B1", "02", "OM"] as const
+export const PAYMENT_METHODS = [
+  "CHEQUE",
+  "TRANSFER",
+  "CASH",
+  "ORANGE_MONEY",
+] as const
+
+/**
+ * Éditer une facture prestataire à partir de la consommation.
+ *
+ * The other direction from `recordProviderInvoiceSchema`: instead of typing
+ * what a provider claims and looking for the écart, the institution bills its
+ * own figures. The period is the whole input — the lines are the bons that
+ * were actually settled there and not yet invoiced, which is not something a
+ * form can be trusted to restate.
+ */
+export const providerPeriodSchema = z
+  .object({
+    ...firmScoped,
+    providerId: z.string().min(1, "Sélectionnez un prestataire."),
+    periodFrom: dateField,
+    periodTo: dateField,
+  })
+  .refine((value) => value.periodTo >= value.periodFrom, {
+    message: "La période se termine avant de commencer.",
+    path: ["periodTo"],
+  })
+
+/** Dry run: the same period, the lines it would bill, no write. */
+export const previewProviderInvoiceSchema = providerPeriodSchema
+
+export const generateProviderInvoiceSchema = providerPeriodSchema
+
+/**
+ * Transformer une facture approuvée en bon de décaissement.
+ *
+ * Everything the bon needs that is not already on the facture: which journal
+ * the entry lands in, how it is paid, and when. The payee, the amount and the
+ * motif are derived — a form that let an operator retype the amount next to an
+ * invoice is a form where the two eventually disagree.
+ */
+export const disbursementFromInvoiceSchema = z.object({
+  ...firmScoped,
+  invoiceId: z.string().min(1),
+  journalCode: z.enum(JOURNAL_CODES),
+  date: dateField,
+  paymentMethod: z.enum(PAYMENT_METHODS),
+  paymentReference: optionalText(60),
+})
+
 /* ==========================================================================
  * Factures employeur
  * ========================================================================== */

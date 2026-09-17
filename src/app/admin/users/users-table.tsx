@@ -19,6 +19,12 @@ import type {
   AssignmentMap,
 } from "@/app/admin/users/page"
 import {
+  AssetField,
+  assetFrom,
+  type AssetValue,
+} from "@/components/forms/asset-field"
+import { resolveAssets } from "@/components/forms/resolve-asset"
+import {
   Field,
   FormMessage,
   SubmitButton,
@@ -287,7 +293,8 @@ function IconButton({
 type WizardValues = {
   name: string
   email: string
-  image?: string
+  image?: string | null
+  signatureUrl?: string | null
   role: (typeof ROLE_ORDER)[number]
   firmIds: string[]
   employeeId?: string
@@ -324,7 +331,6 @@ function UserWizard({
     defaultValues: {
       name: user?.name ?? "",
       email: user?.email ?? "",
-      image: user?.image ?? "",
       role: (user?.memberships[0]?.role as WizardValues["role"]) ?? "STAFF",
       firmIds: user?.memberships.map((m) => m.firmId) ?? [],
       employeeId: user?.linkedEmployee?.id ?? "",
@@ -332,6 +338,21 @@ function UserWizard({
       confirmPassword: "",
     },
   })
+
+  /**
+   * The photo and the signature, held beside the form.
+   *
+   * Both are a chosen `File` plus the URL it replaces until the submit handler
+   * uploads them — see `AssetField`. The signature is the reason this wizard
+   * grew a second image at all: a bon de décaissement prints the visa of
+   * whoever approved it, and before this field there was nowhere to put one.
+   */
+  const [avatar, setAvatar] = React.useState<AssetValue>(() =>
+    assetFrom(user?.image)
+  )
+  const [signature, setSignature] = React.useState<AssetValue>(() =>
+    assetFrom(user?.signatureUrl)
+  )
 
   const role = form.watch("role")
   const firmIds = form.watch("firmIds") ?? []
@@ -345,11 +366,23 @@ function UserWizard({
   const { submit, pending, message, tone } = useActionForm<WizardValues, void>(
     form,
     async (values) => {
+      // Uploaded before the row is written, so the action still takes strings.
+      // A refused file stops here with the wizard intact.
+      const images = await resolveAssets(
+        {
+          image: { value: avatar, kind: "user-avatar" },
+          signatureUrl: { value: signature, kind: "user-signature" },
+        },
+        user?.id
+      )
+      if (!images.ok) return { ok: false, message: images.message }
+
       const payload = {
         ...values,
         firmIds: allFirms ? firms.map((firm) => firm.id) : values.firmIds,
         employeeId: values.employeeId || undefined,
-        image: values.image || undefined,
+        image: images.urls.image ?? "",
+        signatureUrl: images.urls.signatureUrl ?? "",
       }
       const result = isEdit
         ? await updateUser({ ...payload, id: user.id })
@@ -447,19 +480,26 @@ function UserWizard({
                 />
               </Field>
 
-              <Field
+              <AssetField
                 label="Photo"
-                htmlFor="image"
-                hint="URL d'une image déjà hébergée."
+                name="image"
+                shape="avatar"
+                value={avatar}
+                onChange={setAvatar}
+                hint="JPEG, PNG ou WebP, 5 Mo maximum."
                 error={form.formState.errors.image?.message}
-              >
-                <input
-                  {...fieldProps("image", form.formState.errors.image?.message)}
-                  {...form.register("image")}
-                  className={inputClass}
-                  placeholder="https://…"
-                />
-              </Field>
+              />
+
+              <AssetField
+                label="Signature"
+                name="signatureUrl"
+                shape="signature"
+                value={signature}
+                onChange={setSignature}
+                emptyLabel="Glissez la signature scannée"
+                hint="PNG à fond transparent, signature seule sur fond blanc. Imprimée sur les visas des bons de décaissement que cette personne approuve."
+                error={form.formState.errors.signatureUrl?.message}
+              />
             </>
           ) : (
             <>

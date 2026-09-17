@@ -5,6 +5,7 @@ import { DisbursementsView } from "@/app/[firmSlug]/ipm/decaissements/disburseme
 import { TopBar } from "@/components/shell/top-bar"
 import { Button } from "@/components/ui/button"
 import { requireFirmPage } from "@/server/auth/firm-page"
+import { db } from "@/lib/db"
 import {
   disbursementSummary,
   listDisbursements,
@@ -21,12 +22,21 @@ export default async function DisbursementsPage({
   const { firmSlug } = await params
   const ctx = await requireFirmPage(firmSlug, { module: "ipm" })
 
-  const [summary, invoices, reimbursements, disbursements] = await Promise.all([
-    disbursementSummary(ctx),
-    listProviderInvoices(ctx),
-    listReimbursements(ctx),
-    listDisbursements(ctx),
-  ])
+  const [summary, invoices, reimbursements, disbursements, providers] =
+    await Promise.all([
+      disbursementSummary(ctx),
+      listProviderInvoices(ctx),
+      listReimbursements(ctx),
+      listDisbursements(ctx),
+      // Only the providers a bon can actually be issued to. Offering a
+      // terminated prestataire in the invoicing dialog would produce a facture
+      // nobody can pay.
+      db.ipmProvider.findMany({
+        where: { firmId: ctx.firmId, status: "ACTIVE" },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true, accountCode: true },
+      }),
+    ])
 
   const year = new Date().getFullYear()
 
@@ -68,6 +78,7 @@ export default async function DisbursementsPage({
             invoices={invoices}
             reimbursements={reimbursements}
             disbursements={disbursements}
+            providers={providers}
             canWrite={roleAtLeast(ctx.role, "MANAGER")}
           />
         </div>

@@ -53,7 +53,7 @@ export const ARTBOARD_RATIO = ARTBOARD.height / ARTBOARD.width
  * The font family the templates reference.
  *
  * Must match the family name embedded in the TTFs that
- * `scripts/build-card-fonts.mjs` produces, or resvg falls back silently.
+ * `scripts/build-fonts.mjs` produces, or resvg falls back silently.
  */
 export const CARD_FONT_FAMILY = "Montserrat"
 

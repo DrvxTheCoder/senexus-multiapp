@@ -6,20 +6,24 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 
 import {
+  AssetField,
+  assetFrom,
+  type AssetValue,
+} from "@/components/forms/asset-field"
+import { resolveAssets } from "@/components/forms/resolve-asset"
+import {
   Field,
   FormMessage,
   SubmitButton,
   fieldProps,
   inputClass,
 } from "@/components/forms/form-field"
-import { Avatar } from "@/components/primitives"
 import {
   changeOwnPasswordSchema,
   updateProfileSchema,
   type ChangeOwnPasswordInput,
   type UpdateProfileInput,
 } from "@/lib/forms/profile-schema"
-import { initials } from "@/lib/format"
 import { changeOwnPassword, updateProfile } from "@/server/actions/profile"
 import { useActionForm } from "@/components/forms/use-action-form"
 
@@ -27,31 +31,76 @@ export function ProfileForm({
   defaultName,
   email,
   image,
+  signatureUrl,
 }: {
   defaultName: string
   email: string
   image: string | null
+  signatureUrl: string | null
 }) {
   const router = useRouter()
   const form = useForm<UpdateProfileInput>({
     resolver: zodResolver(updateProfileSchema),
-    defaultValues: { name: defaultName, image: image ?? "" },
+    defaultValues: { name: defaultName },
   })
 
-  const { submit, pending, message, tone } = useActionForm(form, updateProfile, {
-    success: "Profil mis à jour.",
-    onSuccess: () => router.refresh(),
-  })
+  /**
+   * Both images are self-service now.
+   *
+   * The photo used to say "change it from the administration for the moment",
+   * which meant an administrator retyping a URL for somebody else. The
+   * signature never had anywhere to go at all — and it is the one thing on
+   * this account that nobody else should be setting, because it is what the
+   * visas on a bon de décaissement print.
+   */
+  const [avatar, setAvatar] = React.useState<AssetValue>(() => assetFrom(image))
+  const [signature, setSignature] = React.useState<AssetValue>(() =>
+    assetFrom(signatureUrl)
+  )
+
+  const { submit, pending, message, tone } = useActionForm(
+    form,
+    async (values: UpdateProfileInput) => {
+      const images = await resolveAssets({
+        image: { value: avatar, kind: "own-avatar" },
+        signatureUrl: { value: signature, kind: "own-signature" },
+      })
+      if (!images.ok) return { ok: false as const, message: images.message }
+
+      return updateProfile({
+        ...values,
+        image: images.urls.image ?? "",
+        signatureUrl: images.urls.signatureUrl ?? "",
+      })
+    },
+    {
+      success: "Profil mis à jour.",
+      onSuccess: () => router.refresh(),
+    }
+  )
 
   return (
     <form onSubmit={submit} className="mt-1 space-y-3">
-      <div className="flex items-center gap-3">
-        <Avatar initials={initials(defaultName || email)} size={44} />
-        <p className="text-[12.5px] text-ink-3">
-          La photo de profil se change depuis l&apos;administration pour le
-          moment.
-        </p>
-      </div>
+      <AssetField
+        label="Photo"
+        name="image"
+        shape="avatar"
+        value={avatar}
+        onChange={setAvatar}
+        hint="JPEG, PNG ou WebP, 5 Mo maximum."
+        error={form.formState.errors.image?.message}
+      />
+
+      <AssetField
+        label="Signature"
+        name="signatureUrl"
+        shape="signature"
+        value={signature}
+        onChange={setSignature}
+        emptyLabel="Glissez votre signature scannée"
+        hint="PNG à fond transparent. Apposée sur les bons de décaissement que vous visez."
+        error={form.formState.errors.signatureUrl?.message}
+      />
 
       <Field
         label="Nom"

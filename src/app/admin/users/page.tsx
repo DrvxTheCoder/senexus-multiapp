@@ -12,6 +12,7 @@ export type AdminUser = {
   name: string | null
   email: string
   image: string | null
+  signatureUrl: string | null
   verified: boolean
   createdAt: Date
   /** One row per firm. The console edits them as a single role for the set. */
@@ -40,6 +41,7 @@ export default async function AdminUsersPage() {
         name: true,
         email: true,
         image: true,
+        signatureUrl: true,
         emailVerified: true,
         createdAt: true,
         userFirms: {
@@ -86,6 +88,7 @@ export default async function AdminUsersPage() {
       name: user.name,
       email: user.email,
       image: user.image,
+      signatureUrl: user.signatureUrl,
       verified: user.emailVerified !== null,
       createdAt: user.createdAt,
       memberships: user.userFirms.map((membership) => ({

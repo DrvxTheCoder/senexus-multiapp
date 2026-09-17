@@ -17,7 +17,20 @@ export const passwordField = z
 
 export const updateProfileSchema = z.object({
   name: z.string().trim().min(1, "Le nom est requis.").max(120),
-  image: z.string().url("URL d'image invalide.").or(z.literal("")).optional(),
+  /** Uploaded URL, `""` to remove, absent to leave alone. */
+  image: z.string().url("URL d'image invalide.").or(z.literal("")).nullish(),
+  /**
+   * Sa propre signature.
+   *
+   * Self-service on purpose: a signature is the one thing on this account that
+   * nobody else should be setting, and it is what the visas on a bon de
+   * décaissement print.
+   */
+  signatureUrl: z
+    .string()
+    .url("URL de signature invalide.")
+    .or(z.literal(""))
+    .nullish(),
 })
 
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>

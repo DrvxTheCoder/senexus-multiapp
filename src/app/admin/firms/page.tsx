@@ -13,6 +13,8 @@ export type AdminFirm = {
   name: string
   slug: string
   logo: string | null
+  letterhead: string | null
+  stamp: string | null
   themeColor: string | null
   matriculePrefix: string
   prefixIsDefault: boolean
@@ -32,6 +34,8 @@ export default async function AdminFirmsPage() {
       name: true,
       slug: true,
       logo: true,
+      letterhead: true,
+      stamp: true,
       themeColor: true,
       _count: { select: { employees: true, clients: true, userFirms: true } },
       firmModules: {
@@ -59,6 +63,8 @@ export default async function AdminFirmsPage() {
       name: firm.name,
       slug: firm.slug,
       logo: firm.logo?.trim() ? firm.logo : null,
+      letterhead: firm.letterhead?.trim() ? firm.letterhead : null,
+      stamp: firm.stamp?.trim() ? firm.stamp : null,
       themeColor: firm.themeColor,
       // Shown so an administrator can see at a glance which firms are still on
       // a guessed prefix rather than a chosen one.

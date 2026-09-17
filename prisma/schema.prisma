@@ -13,6 +13,12 @@ model User {
   email              String                  @unique
   emailVerified      DateTime?
   image              String?
+  /// Signature manuscrite scannée, fond transparent de préférence.
+  ///
+  /// Apposée sur les documents que cette personne vise — VISA DIRECTION et
+  /// VISA COMPTABILITÉ sur un bon de décaissement. Stockée, jamais dessinée :
+  /// une signature générée n'engage personne.
+  signatureUrl       String?
   passwordHash       String?
   createdAt          DateTime                @default(now())
   updatedAt          DateTime                @updatedAt
@@ -106,6 +112,14 @@ model Firm {
   name                  String
   slug                  String                  @unique
   themeColor            String?
+  /// En-tête imprimé sur les documents de la filiale.
+  ///
+  /// Une image, pas un gabarit de champs : la raison sociale, le NINEA,
+  /// l'adresse et les téléphones sont déjà composés dedans par la filiale, ce
+  /// qui évite d'ajouter cinq colonnes que seule l'impression lirait.
+  letterhead            String?
+  /// Cachet / tampon apposé au bas des documents signés.
+  stamp                 String?
   createdAt             DateTime                @default(now())
   updatedAt             DateTime                @updatedAt
   logo                  String?
@@ -131,32 +145,33 @@ model Firm {
 
   // IPM. Every row is firm-scoped, which is what §7 relies on: the tenancy
   // predicate on these tables is the same one every other resolver applies.
-  ipmServiceCategories   IpmServiceCategory[]
-  ipmServiceTypes        IpmServiceType[]
-  ipmProviderSpecialties IpmProviderSpecialty[]
-  ipmMedicalActs         IpmMedicalAct[]
-  ipmPlans               IpmPlan[]
-  ipmPlanRates           IpmPlanRate[]
-  ipmEmployerRates       IpmEmployerRate[]
-  ipmEmployers           IpmEmployer[]
-  ipmMembers             Member[]
-  ipmDependents          Dependent[]
-  ipmContributions       IpmMemberContribution[]
-  ipmCards               IpmMemberCard[]
-  ipmProviders           IpmProvider[]
-  ipmProviderBranches    IpmProviderBranch[]
-  ipmAgreements          IpmAgreement[]
-  ipmVouchers            IpmVoucher[]
-  ipmVoucherLines        IpmVoucherLine[]
-  ipmConsumptions        IpmConsumption[]
-  ipmSequences           IpmSequence[]
-  ipmLedgerEntries       IpmLedgerEntry[]
-  ipmEmployerInvoices    IpmEmployerInvoice[]
-  ipmInvoiceLines        IpmEmployerInvoiceLine[]
-  ipmProviderInvoices    IpmProviderInvoice[]
-  ipmReimbursements      IpmReimbursement[]
-  ipmDisbursements       IpmDisbursement[]
-  ipmDisbursementLines   IpmDisbursementLine[]
+  ipmServiceCategories    IpmServiceCategory[]
+  ipmServiceTypes         IpmServiceType[]
+  ipmProviderSpecialties  IpmProviderSpecialty[]
+  ipmMedicalActs          IpmMedicalAct[]
+  ipmPlans                IpmPlan[]
+  ipmPlanRates            IpmPlanRate[]
+  ipmEmployerRates        IpmEmployerRate[]
+  ipmEmployers            IpmEmployer[]
+  ipmMembers              Member[]
+  ipmDependents           Dependent[]
+  ipmContributions        IpmMemberContribution[]
+  ipmCards                IpmMemberCard[]
+  ipmProviders            IpmProvider[]
+  ipmProviderBranches     IpmProviderBranch[]
+  ipmAgreements           IpmAgreement[]
+  ipmVouchers             IpmVoucher[]
+  ipmVoucherLines         IpmVoucherLine[]
+  ipmConsumptions         IpmConsumption[]
+  ipmSequences            IpmSequence[]
+  ipmLedgerEntries        IpmLedgerEntry[]
+  ipmEmployerInvoices     IpmEmployerInvoice[]
+  ipmInvoiceLines         IpmEmployerInvoiceLine[]
+  ipmProviderInvoices     IpmProviderInvoice[]
+  ipmProviderInvoiceLines IpmProviderInvoiceLine[]
+  ipmReimbursements       IpmReimbursement[]
+  ipmDisbursements        IpmDisbursement[]
+  ipmDisbursementLines    IpmDisbursementLine[]
 
   @@map("firms")
 }
@@ -1493,16 +1508,17 @@ model IpmVoucher {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  firm        Firm               @relation(fields: [firmId], references: [id], onDelete: Cascade)
-  member      Member             @relation(fields: [memberId], references: [id])
-  dependent   Dependent?         @relation(fields: [dependentId], references: [id])
-  provider    IpmProvider        @relation(fields: [providerId], references: [id])
-  serviceType IpmServiceType     @relation(fields: [serviceTypeId], references: [id])
-  category    IpmServiceCategory @relation(fields: [categoryId], references: [id])
-  issuedBy    User?              @relation("IpmVoucherIssuer", fields: [issuedById], references: [id])
-  settledBy   User?              @relation("IpmVoucherSettler", fields: [settledById], references: [id])
-  lines       IpmVoucherLine[]
-  consumption IpmConsumption[]
+  firm         Firm                     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  member       Member                   @relation(fields: [memberId], references: [id])
+  dependent    Dependent?               @relation(fields: [dependentId], references: [id])
+  provider     IpmProvider              @relation(fields: [providerId], references: [id])
+  serviceType  IpmServiceType           @relation(fields: [serviceTypeId], references: [id])
+  category     IpmServiceCategory       @relation(fields: [categoryId], references: [id])
+  issuedBy     User?                    @relation("IpmVoucherIssuer", fields: [issuedById], references: [id])
+  settledBy    User?                    @relation("IpmVoucherSettler", fields: [settledById], references: [id])
+  lines        IpmVoucherLine[]
+  consumption  IpmConsumption[]
+  invoiceLines IpmProviderInvoiceLine[]
 
   @@unique([firmId, number])
   @@index([firmId, status, issueDate])
@@ -1749,6 +1765,18 @@ model IpmEmployerInvoiceLine {
 // IPM — DÉCAISSEMENTS (PHASE 4)
 // ============================================================================
 
+/// D'où vient une facture prestataire.
+///
+/// RECEIVED est le cas historique : le prestataire envoie un papier, on le
+/// saisit, et le contrôle consiste à rapprocher ce qu'il réclame des bons
+/// réellement émis. GENERATED est l'inverse — l'IPM édite lui-même la facture
+/// à partir de la consommation constatée, et il n'y a alors pas d'écart
+/// possible puisque les deux chiffres sortent de la même source.
+enum IpmInvoiceOrigin {
+  RECEIVED
+  GENERATED
+}
+
 enum IpmProviderInvoiceStatus {
   RECEIVED
   CHECKED
@@ -1779,6 +1807,7 @@ model IpmProviderInvoice {
   matchedAmount Decimal @default(0) @db.Decimal(14, 2)
 
   status IpmProviderInvoiceStatus @default(RECEIVED)
+  origin IpmInvoiceOrigin         @default(RECEIVED)
 
   checkedById  String?
   checkedAt    DateTime?
@@ -1789,14 +1818,49 @@ model IpmProviderInvoice {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  firm         Firm             @relation(fields: [firmId], references: [id], onDelete: Cascade)
-  provider     IpmProvider      @relation(fields: [providerId], references: [id])
-  checkedBy    User?            @relation("IpmProviderInvoiceChecker", fields: [checkedById], references: [id])
-  disbursement IpmDisbursement? @relation(fields: [disbursementId], references: [id])
+  firm         Firm                     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  provider     IpmProvider              @relation(fields: [providerId], references: [id])
+  checkedBy    User?                    @relation("IpmProviderInvoiceChecker", fields: [checkedById], references: [id])
+  disbursement IpmDisbursement?         @relation(fields: [disbursementId], references: [id])
+  lines        IpmProviderInvoiceLine[]
 
   @@unique([firmId, providerId, number])
   @@index([firmId, status])
   @@map("ipm_provider_invoices")
+}
+
+/// Le détail d'une facture prestataire éditée par l'IPM.
+///
+/// Une ligne par bon réglé sur la période. Tout est **dénormalisé au moment de
+/// l'édition** — le numéro du bon, le bénéficiaire, la date, les trois
+/// montants — pour la même raison que `IpmVoucher` fige son taux : une facture
+/// est un document envoyé à un tiers, et ce qu'il a reçu ne doit pas changer
+/// parce qu'un bon a été corrigé ensuite. `voucherId` reste pour remonter au
+/// dossier, et passe à NULL si le bon disparaît, sans emporter la ligne.
+model IpmProviderInvoiceLine {
+  id        String  @id @default(cuid())
+  firmId    String
+  invoiceId String
+  voucherId String?
+
+  voucherNumber   String
+  serviceDate     DateTime
+  beneficiaryName String
+  memberMatricule String
+  categoryLabel   String
+
+  totalAmount  Decimal @db.Decimal(12, 2)
+  insurerShare Decimal @db.Decimal(12, 2)
+  memberShare  Decimal @db.Decimal(12, 2)
+
+  createdAt DateTime @default(now())
+
+  firm    Firm               @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  invoice IpmProviderInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  voucher IpmVoucher?        @relation(fields: [voucherId], references: [id], onDelete: SetNull)
+
+  @@index([firmId, invoiceId])
+  @@map("ipm_provider_invoice_lines")
 }
 
 enum IpmReimbursementStatus {
