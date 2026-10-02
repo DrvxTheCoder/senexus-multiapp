@@ -29,7 +29,7 @@ import { formatCurrency, formatNumber } from "@/lib/format"
 import { createPlanSchema, setPlanRateSchema } from "@/lib/forms/ipm-schemas"
 import { createPlan, setPlanRate } from "@/server/actions/ipm"
 import { formatRate } from "@/server/domain/ipm/rates"
-import type { CategoryRef, PlanRow } from "@/server/queries/ipm/plans"
+import type { CategoryRef, PlanRateCell, PlanRow } from "@/server/queries/ipm/plans"
 
 /**
  * Formules et barèmes — a matrix, formules down and catégories across.
@@ -55,7 +55,7 @@ export function PlansView({
   const [editingCell, setEditingCell] = React.useState<{
     plan: PlanRow
     category: CategoryRef
-    current: number | null
+    current: PlanRateCell | null
   } | null>(null)
 
   const activeCategories = categories.filter((category) => category.active)
@@ -152,7 +152,7 @@ export function PlansView({
                                   setEditingCell({
                                     plan,
                                     category,
-                                    current: cell.rate,
+                                    current: cell,
                                   })
                                 }
                                 className="tabular-nums hover:text-brand hover:underline"
@@ -318,7 +318,7 @@ function RateDialog({
   firmSlug: string
   plan: PlanRow
   category: CategoryRef
-  current: number | null
+  current: PlanRateCell | null
   onClose: () => void
 }) {
   const router = useRouter()
@@ -331,11 +331,13 @@ function RateDialog({
       categoryId: category.id,
       beneficiaryType: "ALL",
       // Shown as a percentage; the schema converts it to the stored fraction.
-      rate: current === null ? "" : String(Math.round(current * 1000) / 10),
-      ceilingPerAct: "",
-      ceilingMonthly: "",
-      ceilingAnnual: "",
-      waitingPeriodDays: 0,
+      rate: current === null ? "" : String(Math.round(current.rate * 1000) / 10),
+      // Seeded from the row being edited: the action writes every field back,
+      // so a blank here used to erase the plafonds of whoever changed a taux.
+      ceilingPerAct: current?.ceilingPerAct == null ? "" : String(current.ceilingPerAct),
+      ceilingMonthly: current?.ceilingMonthly == null ? "" : String(current.ceilingMonthly),
+      ceilingAnnual: current?.ceilingAnnual == null ? "" : String(current.ceilingAnnual),
+      waitingPeriodDays: current?.waitingPeriodDays ?? 0,
     } as never,
   })
 
@@ -386,6 +388,11 @@ function RateDialog({
               form={form}
               name={"ceilingPerAct" as never}
               label="Plafond par acte"
+            />
+            <TextControl
+              form={form}
+              name={"ceilingMonthly" as never}
+              label="Plafond mensuel"
             />
             <TextControl
               form={form}

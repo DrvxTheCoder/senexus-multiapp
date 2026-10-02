@@ -8,6 +8,7 @@ import {
 } from "nuqs/server"
 
 import {
+  VOUCHER_ORIGINS,
   VOUCHER_SORT_IDS,
   VOUCHER_STATUSES,
   VOUCHER_TYPES,
@@ -19,6 +20,7 @@ export const voucherSearchParams = {
   q: parseAsString,
   status: parseAsArrayOf(parseAsStringLiteral(VOUCHER_STATUSES), ","),
   type: parseAsArrayOf(parseAsStringLiteral(VOUCHER_TYPES), ","),
+  origin: parseAsArrayOf(parseAsStringLiteral(VOUCHER_ORIGINS), ","),
   provider: parseAsArrayOf(parseAsString, ","),
   category: parseAsArrayOf(parseAsString, ","),
   member: parseAsString,
@@ -45,6 +47,7 @@ export function toVoucherQuery(raw: RawParams): VoucherQuery {
     search: raw.q ?? undefined,
     status: raw.status ?? undefined,
     type: raw.type ?? undefined,
+    origin: raw.origin ?? undefined,
     providerId: raw.provider ?? undefined,
     categoryId: raw.category ?? undefined,
     memberId: raw.member ?? undefined,
@@ -75,6 +78,7 @@ export function vouchersHref(
     q: parsed.search ?? null,
     status: parsed.status ?? null,
     type: parsed.type ?? null,
+    origin: parsed.origin ?? null,
     provider: parsed.providerId ?? null,
     category: parsed.categoryId ?? null,
     member: parsed.memberId ?? null,

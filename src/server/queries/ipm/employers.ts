@@ -118,3 +118,28 @@ export async function availableOrganizations(
     take: 200,
   })
 }
+
+/** The header of an employer's own page. Null for an id outside the firm. */
+export async function getEmployerSummary(ctx: FirmContext, employerId: string) {
+  const employer = await db.ipmEmployer.findFirst({
+    where: { id: employerId, firmId: ctx.firmId },
+    select: {
+      id: true,
+      status: true,
+      planId: true,
+      ageMajority: true,
+      organization: { select: { name: true } },
+      plan: { select: { code: true, name: true } },
+      _count: { select: { members: { where: { status: "ACTIVE" } } } },
+    },
+  })
+  if (!employer) return null
+  return {
+    id: employer.id,
+    name: employer.organization.name,
+    status: employer.status,
+    planId: employer.planId,
+    planName: employer.plan ? `${employer.plan.name} (${employer.plan.code})` : null,
+    activeMembers: employer._count.members,
+  }
+}

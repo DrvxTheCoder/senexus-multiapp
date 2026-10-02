@@ -111,7 +111,8 @@ export async function ipmDashboard(
     }),
     db.ipmVoucher.groupBy({
       by: ["categoryId"],
-      where: { firmId: ctx.firmId, status: { not: "CANCELLED" } },
+      // A refused portal bon never committed anything, like a cancelled one.
+      where: { firmId: ctx.firmId, status: { notIn: ["CANCELLED", "REJECTED"] } },
       _sum: { insurerShare: true },
       _count: { _all: true },
     }),

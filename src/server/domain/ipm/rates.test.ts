@@ -172,3 +172,115 @@ describe("percentage conversion", () => {
     expect(formatRate(0.825)).toBe("82.5 %")
   })
 })
+
+describe("resolveRate — ceilings, field by field", () => {
+  const plan = rate({
+    beneficiaryType: "ALL",
+    ceilingPerAct: 50_000,
+    ceilingMonthly: 200_000,
+    ceilingAnnual: 1_500_000,
+  })
+
+  it("takes every ceiling from the formule when nothing overrides it", () => {
+    const resolved = resolveRate({ ...base, employerRates: [], planRates: [plan] })
+    expect(resolved.ceilingMonthly).toBe(200_000)
+    expect(resolved.ceilingSource).toEqual({ perAct: "PLAN", monthly: "PLAN", annual: "PLAN" })
+  })
+
+  it("lets an employer override one ceiling and inherit the others", () => {
+    const resolved = resolveRate({
+      ...base,
+      employerRates: [rate({ rate: 0.7, ceilingMonthly: 300_000 })],
+      planRates: [plan],
+    })
+    // The taux is the employer's whole row; the ceilings are not.
+    expect(resolved.rate).toBe(0.7)
+    expect(resolved.source).toBe("EMPLOYER")
+    expect(resolved.ceilingMonthly).toBe(300_000)
+    expect(resolved.ceilingPerAct).toBe(50_000)
+    expect(resolved.ceilingAnnual).toBe(1_500_000)
+    expect(resolved.ceilingSource).toEqual({ perAct: "PLAN", monthly: "EMPLOYER", annual: "PLAN" })
+  })
+
+  it("treats a null employer ceiling as inherit, not as no ceiling", () => {
+    const resolved = resolveRate({
+      ...base,
+      employerRates: [rate({ rate: 0.7 })],
+      planRates: [plan],
+    })
+    expect(resolved.ceilingMonthly).toBe(200_000)
+    expect(resolved.ceilingSource.monthly).toBe("PLAN")
+  })
+
+  it("prefers the employer's exact type, then its catch-all, per field", () => {
+    const resolved = resolveRate({
+      ...base,
+      employerRates: [
+        rate({ beneficiaryType: "CHILD", ceilingPerAct: 10_000 }),
+        rate({ beneficiaryType: "ALL", ceilingPerAct: 20_000, ceilingAnnual: 900_000 }),
+      ],
+      planRates: [plan],
+    })
+    expect(resolved.ceilingPerAct).toBe(10_000)
+    expect(resolved.ceilingAnnual).toBe(900_000)
+    expect(resolved.ceilingMonthly).toBe(200_000)
+  })
+
+  it("puts the participant's plafond above both, field by field", () => {
+    const resolved = resolveRate({
+      ...base,
+      employerRates: [rate({ ceilingMonthly: 300_000 })],
+      planRates: [plan],
+      memberCeilings: [
+        { categoryId: PHARMACIE, ceilingPerAct: null, ceilingMonthly: 450_000, ceilingAnnual: null },
+      ],
+    })
+    expect(resolved.ceilingMonthly).toBe(450_000)
+    expect(resolved.ceilingAnnual).toBe(1_500_000)
+    expect(resolved.ceilingSource).toEqual({ perAct: "PLAN", monthly: "MEMBER", annual: "PLAN" })
+  })
+
+  it("never gives a participant a taux, only ceilings", () => {
+    const resolved = resolveRate({
+      ...base,
+      employerRates: [],
+      planRates: [plan],
+      memberCeilings: [
+        { categoryId: PHARMACIE, ceilingPerAct: 1, ceilingMonthly: 1, ceilingAnnual: 1 },
+      ],
+    })
+    expect(resolved.rate).toBe(0.8)
+    expect(resolved.source).toBe("PLAN")
+  })
+
+  it("ignores a participant's plafond in another category", () => {
+    const resolved = resolveRate({
+      ...base,
+      employerRates: [],
+      planRates: [plan],
+      memberCeilings: [
+        { categoryId: OPTIQUE, ceilingPerAct: null, ceilingMonthly: 1, ceilingAnnual: null },
+      ],
+    })
+    expect(resolved.ceilingMonthly).toBe(200_000)
+  })
+
+  it("does not cover a category through a participant plafond alone", () => {
+    expect(
+      tryResolveRate({
+        ...base,
+        employerRates: [],
+        planRates: [],
+        memberCeilings: [
+          { categoryId: PHARMACIE, ceilingPerAct: null, ceilingMonthly: 1, ceilingAnnual: null },
+        ],
+      })
+    ).toBeNull()
+  })
+
+  it("leaves a ceiling null, with no source, when no level sets it", () => {
+    const resolved = resolveRate({ ...base, employerRates: [], planRates: [rate()] })
+    expect(resolved.ceilingAnnual).toBeNull()
+    expect(resolved.ceilingSource.annual).toBeNull()
+  })
+})

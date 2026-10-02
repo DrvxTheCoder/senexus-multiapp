@@ -19,6 +19,8 @@ import {
   type NavGroup,
 } from "@/components/shell/nav-config"
 import { UserMenu } from "@/components/shell/user-menu"
+import { ValidationsBadge } from "@/components/shell/validations-badge"
+import { roleAtLeast } from "@/types/auth"
 import { setSidebarCollapsed } from "@/server/preferences/actions"
 import { cn } from "@/lib/utils"
 
@@ -57,7 +59,16 @@ export function AppSidebar({
   const [collapsed, setCollapsed] = React.useState(initialCollapsed)
   const [, startTransition] = React.useTransition()
 
+  // Module gate from nav-config, then the role gate per item: a link the
+  // caller's role cannot open is not offered.
   const groups = visibleNavGroups(firm.modules)
+    .map((group) => ({
+      ...group,
+      items: group.items.filter(
+        (item) => !item.minimumRole || roleAtLeast(firm.role, item.minimumRole)
+      ),
+    }))
+    .filter((group) => group.items.length > 0)
   // Resolved once for the whole sidebar so exactly one link can be lit.
   const activeHref = activeNavHref(pathname, firm.slug, firm.modules)
 
@@ -211,7 +222,7 @@ function NavGroupSection({
               title={collapsed ? item.label : undefined}
               data-on={active ? "1" : "0"}
               className={cn(
-                "flex items-center gap-2.5 rounded-[7px] px-3 py-1.5 text-[13.5px] text-ink-2 transition-colors mt-0.5",
+                "relative flex items-center gap-2.5 rounded-[7px] px-3 py-1.5 text-[13.5px] text-ink-2 transition-colors mt-0.5",
                 "hover:bg-sunken hover:text-ink",
                 /*
                   Brand tint, not `surface`. In the dark theme `surface` sits
@@ -234,6 +245,9 @@ function NavGroupSection({
                 className={cn("shrink-0", active ? "opacity-100" : "opacity-70")}
               />
               {!collapsed ? <span className="truncate">{item.label}</span> : null}
+              {item.badge === "ipm-validations" ? (
+                <ValidationsBadge firmSlug={firmSlug} collapsed={collapsed} />
+              ) : null}
             </Link>
           </li>
         )

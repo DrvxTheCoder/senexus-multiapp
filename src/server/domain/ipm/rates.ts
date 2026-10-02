@@ -15,7 +15,22 @@ import type { IpmBeneficiaryType } from "@prisma/client"
  * up priced at a rate nobody chose. Refusing loudly is the only behaviour that
  * cannot quietly cost money.
  *
- * No database here — the caller loads the two rate sets once and resolves in
+ * **Ceilings resolve field by field**, most specific first, and are not tied
+ * to the row the taux came from:
+ *
+ *   participant (IpmMemberCeiling) > employer, exact type > employer, ALL
+ *     > formule, exact type > formule, ALL
+ *
+ * A null at any level means "inherit from the next one", never "no ceiling" —
+ * the same rule `waitingPeriodDays` already followed. So an employer that
+ * negotiates only its taux keeps the formule's plafonds, and a participant
+ * granted a higher monthly plafond keeps the annual one everybody else has.
+ * Each resolved ceiling says where it came from, so a screen can say so.
+ *
+ * This is the one implementation: issuance (`gatherIssuanceFacts`), the review
+ * threshold, the back office and the portal snapshot all call it.
+ *
+ * No database here — the caller loads the rate sets once and resolves in
  * memory, because a voucher screen resolves many lines against the same sets.
  */
 
@@ -37,6 +52,23 @@ export class RateNotFoundError extends Error {
 /** Where a resolved rate came from. Shown in the interface, never inferred. */
 export type RateSource = "EMPLOYER" | "PLAN"
 
+/** Where a resolved ceiling came from. `MEMBER` is a plafond particulier. */
+export type CeilingSource = "MEMBER" | "EMPLOYER" | "PLAN"
+
+/** A participant's plafonds particuliers in one category, already filtered to the date. */
+export type MemberCeilingRow = {
+  categoryId: string
+  ceilingPerAct: number | null
+  ceilingMonthly: number | null
+  ceilingAnnual: number | null
+}
+
+export type CeilingSources = {
+  perAct: CeilingSource | null
+  monthly: CeilingSource | null
+  annual: CeilingSource | null
+}
+
 export type RateRow = {
   categoryId: string
   beneficiaryType: IpmBeneficiaryType
@@ -56,8 +88,12 @@ export type ResolvedRate = {
   ceilingPerAct: number | null
   ceilingMonthly: number | null
   ceilingAnnual: number | null
+  /** Where each ceiling came from; null when no level sets it. */
+  ceilingSource: CeilingSources
   waitingPeriodDays: number
 }
+
+type CeilingField = "ceilingPerAct" | "ceilingMonthly" | "ceilingAnnual"
 
 function pick(
   rows: readonly RateRow[],
@@ -82,6 +118,8 @@ export function resolveRate(args: {
   beneficiaryType: IpmBeneficiaryType
   employerRates: readonly RateRow[]
   planRates: readonly RateRow[]
+  /** The participant's plafonds particuliers in force on the date. Optional. */
+  memberCeilings?: readonly MemberCeilingRow[]
 }): ResolvedRate {
   const { categoryId, categoryCode, beneficiaryType, employerRates, planRates } =
     args
@@ -97,16 +135,37 @@ export function resolveRate(args: {
     { row: planAll, source: "PLAN" },
   ]
 
+  const member = args.memberCeilings?.find((row) => row.categoryId === categoryId)
+
+  // Most specific first. The taux candidates above, with the participant's
+  // plafonds in front of them — ceilings only, a participant has no taux.
+  function ceiling(field: CeilingField): [number | null, CeilingSource | null] {
+    if (member && member[field] !== null) return [member[field], "MEMBER"]
+    for (const candidate of candidates) {
+      const value = candidate.row?.[field]
+      if (value !== null && value !== undefined) return [value, candidate.source]
+    }
+    return [null, null]
+  }
+
   for (const candidate of candidates) {
     if (!candidate.row) continue
     const row = candidate.row
+    const [perAct, perActSource] = ceiling("ceilingPerAct")
+    const [monthly, monthlySource] = ceiling("ceilingMonthly")
+    const [annual, annualSource] = ceiling("ceilingAnnual")
     return {
       rate: row.rate,
       source: candidate.source,
       matchedOn: row.beneficiaryType,
-      ceilingPerAct: row.ceilingPerAct,
-      ceilingMonthly: row.ceilingMonthly,
-      ceilingAnnual: row.ceilingAnnual,
+      ceilingPerAct: perAct,
+      ceilingMonthly: monthly,
+      ceilingAnnual: annual,
+      ceilingSource: {
+        perAct: perActSource,
+        monthly: monthlySource,
+        annual: annualSource,
+      },
       waitingPeriodDays:
         row.waitingPeriodDays ?? planFallback?.waitingPeriodDays ?? 0,
     }

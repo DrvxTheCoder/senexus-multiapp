@@ -27,6 +27,11 @@ const PUBLIC_PREFIXES = [
   // token in the URL, which the page itself verifies — being listed here
   // exempts it from the session redirect, not from that check.
   "/v/",
+  // The participant portal's API. Its callers are participants, who have no
+  // back-office session: each handler verifies the HMAC-signed bearer token
+  // and loads the account itself (`requirePortalAccount`). Being listed here
+  // exempts it from the session redirect, not from that check.
+  "/api/portail/",
 ]
 
 export default auth((req) => {

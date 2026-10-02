@@ -9,12 +9,14 @@ import {
   Folder01Icon,
   HealthIcon,
   Hospital01Icon,
+  InboxCheckIcon,
   Settings02Icon,
   UserMultipleIcon,
   Wallet01Icon,
   UserSettings01Icon,
 } from "@hugeicons/core-free-icons"
 import type { IconSvgElement } from "@hugeicons/react"
+import type { FirmRole } from "@prisma/client"
 
 /**
  * §3.4 — modules gate navigation and authorisation, not rendering. Every entry
@@ -33,6 +35,13 @@ export type NavItem = {
   label: string
   href: string
   icon: IconSvgElement
+  /**
+   * Hides the link below this role. Navigation only — the route enforces the
+   * same bar itself; this just avoids offering a link that always answers 403.
+   */
+  minimumRole?: FirmRole
+  /** A live count shown beside the label, by the sidebar. */
+  badge?: "ipm-validations"
 }
 
 export type NavGroup = {
@@ -113,6 +122,13 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Pilotage", href: "/ipm/pilotage", icon: DashboardSquare01Icon },
       { label: "Participants", href: "/ipm/participants", icon: UserMultipleIcon },
       { label: "Bons", href: "/ipm/bons", icon: File01Icon },
+      {
+        label: "Validations",
+        href: "/ipm/validations",
+        icon: InboxCheckIcon,
+        minimumRole: "MANAGER",
+        badge: "ipm-validations",
+      },
       { label: "Prestataires", href: "/ipm/prestataires", icon: Hospital01Icon },
       { label: "Employeurs", href: "/ipm/employeurs", icon: Building03Icon },
       { label: "Cartes", href: "/ipm/cartes", icon: CreditCardIcon },

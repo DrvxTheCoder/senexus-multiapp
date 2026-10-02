@@ -42,7 +42,8 @@ import {
 } from "@/lib/queries/ipm/member-query"
 import { CARD_STATE_LABELS, type CardState } from "@/server/domain/ipm/card"
 import { RELATION_LABELS } from "@/server/domain/ipm/coverage"
-import { formatRate } from "@/server/domain/ipm/rates"
+import { MemberCoveragePanel } from "@/app/[firmSlug]/ipm/coverage-panels"
+import type { CategoryCoverage } from "@/server/queries/ipm/ceilings"
 import type { MemberRecord } from "@/server/queries/ipm/member-record"
 
 const dateInput = (value: Date | null) =>
@@ -76,11 +77,13 @@ const cardTileTone = (state: CardState): StatTileProps["tone"] => {
 export function MemberRecordView({
   firmSlug,
   record,
+  coverage,
   employers,
   canWrite,
 }: {
   firmSlug: string
   record: MemberRecord
+  coverage: CategoryCoverage[]
   employers: { id: string; name: string; planCode: string | null }[]
   canWrite: boolean
 }) {
@@ -277,54 +280,13 @@ export function MemberRecordView({
         </dl>
       </Panel>
 
-      {/* ---- barème ------------------------------------------------------ */}
-      <Panel
-        titleAs="h2"
-        title="Taux de prise en charge"
-        description="Résolus dans l'ordre : dérogation employeur, puis formule."
-        padded={false}
-      >
-        <table className="w-full text-[13px]">
-          <thead>
-            <tr className="border-y border-line bg-sub text-left text-[11.5px] text-ink-3">
-              <th className="px-[15px] py-2 font-medium">Catégorie</th>
-              <th className="px-[15px] py-2 font-medium">Taux</th>
-              <th className="px-[15px] py-2 font-medium">Origine</th>
-              <th className="px-[15px] py-2 font-medium">Carence</th>
-              <th className="px-[15px] py-2 font-medium">Plafond annuel</th>
-            </tr>
-          </thead>
-          <tbody>
-            {record.rates.map((rate) => (
-              <tr key={rate.categoryId} className="border-b border-line">
-                <td className="px-[15px] py-2.5">{rate.categoryLabel}</td>
-                <td className="px-[15px] py-2.5 tabular-nums">
-                  {rate.rate === null ? (
-                    // Never 0 %. Nobody has entered this barème yet, which is
-                    // a different statement from "rien n'est couvert".
-                    <span className="text-alert">Barème manquant</span>
-                  ) : (
-                    formatRate(rate.rate)
-                  )}
-                </td>
-                <td className="px-[15px] py-2.5 text-ink-3">
-                  {rate.source === "EMPLOYER"
-                    ? "Dérogation employeur"
-                    : rate.source === "PLAN"
-                      ? "Formule"
-                      : "—"}
-                </td>
-                <td className="px-[15px] py-2.5 tabular-nums text-ink-3">
-                  {rate.waitingPeriodDays ? `${rate.waitingPeriodDays} j` : "—"}
-                </td>
-                <td className="px-[15px] py-2.5 tabular-nums text-ink-3">
-                  {rate.ceilingAnnual ? formatCurrency(rate.ceilingAnnual) : "—"}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Panel>
+      {/* ---- barème : taux et plafonds, avec leur origine ------------------- */}
+      <MemberCoveragePanel
+        firmSlug={firmSlug}
+        memberId={record.id}
+        rows={coverage}
+        canWrite={canWrite}
+      />
 
       
       <div className="flex flex-row gap-3.5 w-full">

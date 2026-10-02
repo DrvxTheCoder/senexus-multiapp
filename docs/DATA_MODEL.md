@@ -234,23 +234,44 @@ a measured cost, once there is production-shaped data to measure against.
 
 | Enum | Values |
 | --- | --- |
-| `FirmRole` | `OWNER` · `ADMIN` · `MANAGER` · `RESPONSABLE` · `STAFF` · `VIEWER` |
+| `FirmRole` | `OWNER` · `ADMIN` · `MANAGER` · `STAFF` · `VIEWER` · `RESPONSABLE` |
 | `EmployeeStatus` | `ACTIVE` · `INACTIVE` · `SUSPENDED` · `TERMINATED` · `ON_LEAVE` |
 | `Gender` | `MALE` · `FEMALE` · `OTHER` |
-| `ContractType` | `CDI` · `CDD` · `INTERIM` · `STAGE` · `PRESTATION` |
+| `ContractType` | `CDI` · `CDD` · `STAGE` · `PRESTATION` · `INTERIM` |
 | `ContractStatus` | `ACTIVE` · `EXPIRED` · `TERMINATED` · `RENEWED` |
 | `TransferStatus` | `PENDING` · `APPROVED` · `REJECTED` · `COMPLETED` · `CANCELLED` |
 | `LeaveType` | `ANNUAL` · `SICK` · `MATERNITY` · `PATERNITY` · `UNPAID` · `SPECIAL` · `COMPENSATORY` |
 | `LeaveStatus` | `PENDING` · `APPROVED` · `REJECTED` · `CANCELLED` |
 | `AbsenceType` | `UNJUSTIFIED` · `JUSTIFIED` · `LATE_ARRIVAL` · `EARLY_DEPARTURE` |
-| `MissionStatus` | `DRAFT` · `SUBMITTED` · `APPROVED` · `REJECTED` · `IN_PROGRESS` · `COMPLETED` · `CANCELLED` |
+| `MissionStatus` | `DRAFT` · `SUBMITTED` · `APPROVED` · `REJECTED` · `COMPLETED` · `CANCELLED` · `IN_PROGRESS` |
 | `ExpenseCategory` | `TRANSPORT` · `ACCOMMODATION` · `MEALS` · `FUEL` · `OTHER` |
 | `PayslipStatus` | `DRAFT` · `APPROVED` · `PAID` · `CANCELLED` |
 | `ClientStatus` | `ACTIVE` · `INACTIVE` · `PROSPECT` · `ARCHIVED` |
-| `PartnerType` | `PHARMACY` · `HOSPITAL` · `CLINIC` |
-| `ClaimStatus` | `SUBMITTED` · `REVIEWING` · `APPROVED` · `REJECTED` · `PAID` |
 | `DocumentType` | `CV` · `ID_CARD` · `PASSPORT` · `CONTRACT` · `PAYSLIP` · `CERTIFICATE` · `DIPLOMA` · `MEDICAL_CERTIFICATE` · `LEGAL_DOCUMENT` · `MISSION_REPORT` · `EXPENSE_RECEIPT` · `OTHER` |
 | `FileEntity` | `EMPLOYEE` · `CLIENT` · `CONTRACT` · `MISSION` · `LEAVE_REQUEST` · `CLAIM` |
+| `IpmBeneficiaryType` | `ALL` · `MEMBER` · `SPOUSE_F` · `CHILD` · `SPOUSE_M` · `ASCENDANT` · `OTHER` |
+| `IpmEmployerStatus` | `ACTIVE` · `SUSPENDED` · `TERMINATED` |
+| `IpmMemberStatus` | `PENDING` · `ACTIVE` · `SUSPENDED` · `TERMINATED` |
+| `IpmDependentStatus` | `ACTIVE` · `SUSPENDED` · `TERMINATED` |
+| `IpmDependentRelation` | `SPOUSE_F` · `CHILD` · `SPOUSE_M` · `ASCENDANT` · `OTHER` |
+| `IpmProviderStatus` | `ACTIVE` · `SUSPENDED` · `TERMINATED` |
+| `IpmAgreementStatus` | `DRAFT` · `ACTIVE` · `EXPIRED` · `TERMINATED` |
+| `IpmVoucherType` | `PHARMACY` · `OPTICAL` · `GUARANTEE` · `HOSPITALIZATION` |
+| `IpmVoucherStatus` | `PENDING_REVIEW` · `ISSUED` · `PRESENTED` · `SETTLED` · `INVOICED` · `CANCELLED` · `EXPIRED` · `REJECTED` |
+| `IpmVoucherOrigin` | `BACKOFFICE` · `PORTAL` |
+| `IpmVoucherEntryMode` | `SCAN` · `MANUAL` |
+| `IpmReviewFlag` | `ABOVE_THRESHOLD` · `AMOUNT_UNUSUAL` · `SAME_DAY_DUPLICATE` · `RECEIPT_REUSED` · `OCR_MISMATCH` · `ISSUANCE_WARNING` |
+| `IpmLedgerType` | `OPENING` · `CONTRIBUTION` · `CONSUMPTION` · `ADJUSTMENT` · `REVERSAL` |
+| `IpmLedgerSource` | `OPENING` · `INVOICE` · `VOUCHER` · `REIMBURSEMENT` · `MANUAL` |
+| `IpmEmployerInvoiceStatus` | `DRAFT` · `ISSUED` · `PARTIALLY_PAID` · `PAID` · `OVERDUE` · `CANCELLED` |
+| `IpmInvoiceOrigin` | `RECEIVED` · `GENERATED` |
+| `IpmProviderInvoiceStatus` | `RECEIVED` · `CHECKED` · `APPROVED` · `PAID` · `REJECTED` |
+| `IpmReimbursementStatus` | `SUBMITTED` · `REVIEWING` · `APPROVED` · `REJECTED` · `PAID` |
+| `IpmDisbursementStatus` | `DRAFT` · `APPROVED` · `POSTED` · `PAID` · `CANCELLED` |
+| `IpmPayeeType` | `PROVIDER` · `MEMBER` · `SUPPLIER` |
+| `IpmPaymentMethod` | `CHEQUE` · `TRANSFER` · `CASH` · `ORANGE_MONEY` |
+| `PortalAccountStatus` | `INVITED` · `ACTIVE` · `LOCKED` |
+| `PortalNotificationKind` | `VOUCHER_APPROVED` · `VOUCHER_REJECTED` |
 
 ## Models
 
@@ -263,6 +284,7 @@ a measured cost, once there is production-shaped data to measure against.
 | `email` | String | no | unique |
 | `emailVerified` | DateTime | yes |  |
 | `image` | String | yes |  |
+| `signatureUrl` | String | yes |  |
 | `passwordHash` | String | yes |  |
 | `createdAt` | DateTime | no | default `now()` |
 | `updatedAt` | DateTime | no | `@updatedAt` |
@@ -271,23 +293,35 @@ a measured cost, once there is production-shaped data to measure against.
 
 | Field | Target | Card. | FK | On delete | Relation name |
 | --- | --- | --- | --- | --- | --- |
-| `accounts` | `Account` | many | — | — | — |
-| `sessions` | `Session` | many | — | — | — |
-| `userFirms` | `UserFirm` | many | — | — | — |
-| `employees` | `Employee` | many | — | — | — |
-| `dashboards` | `DashboardView` | many | — | — | — |
-| `auditLogs` | `AuditLog` | many | — | — | — |
-| `uploadedFiles` | `FileObject` | many | — | — | — |
-| `reviewedLeaves` | `LeaveRequest` | many | — | — | — |
 | `recordedAbsences` | `Absence` | many | — | — | — |
-| `approvedMissions` | `Mission` | many | — | — | — |
-| `approvedPayslips` | `Payslip` | many | — | — | — |
+| `accounts` | `Account` | many | — | — | — |
+| `auditLogs` | `AuditLog` | many | — | — | — |
 | `generatedReports` | `ClientQuarterlyReport` | many | — | — | — |
-| `requestedTransfers` | `EmployeeTransfer` | many | — | — | `TransferRequester` |
-| `approvedTransfers` | `EmployeeTransfer` | many | — | — | `TransferApprover` |
+| `dashboards` | `DashboardView` | many | — | — | — |
 | `uploadedDocuments` | `EmployeeDocument` | many | — | — | `DocumentUploader` |
 | `verifiedDocuments` | `EmployeeDocument` | many | — | — | `DocumentVerifier` |
+| `approvedTransfers` | `EmployeeTransfer` | many | — | — | `TransferApprover` |
+| `requestedTransfers` | `EmployeeTransfer` | many | — | — | `TransferRequester` |
+| `employees` | `Employee` | many | — | — | — |
+| `reviewedLeaves` | `LeaveRequest` | many | — | — | — |
+| `approvedMissions` | `Mission` | many | — | — | — |
+| `approvedPayslips` | `Payslip` | many | — | — | — |
+| `sessions` | `Session` | many | — | — | — |
 | `clientAssignments` | `UserClientAssignment` | many | — | — | — |
+| `userFirms` | `UserFirm` | many | — | — | — |
+| `ipmContributions` | `IpmMemberContribution` | many | — | — | `IpmContributionAuthor` |
+| `ipmCards` | `IpmMemberCard` | many | — | — | `IpmCardAuthor` |
+| `ipmVouchersIssued` | `IpmVoucher` | many | — | — | `IpmVoucherIssuer` |
+| `ipmVouchersSettled` | `IpmVoucher` | many | — | — | `IpmVoucherSettler` |
+| `ipmLedgerEntries` | `IpmLedgerEntry` | many | — | — | `IpmLedgerAuthor` |
+| `ipmInvoiceStatuses` | `IpmEmployerInvoice` | many | — | — | `IpmInvoiceStatusAuthor` |
+| `ipmInvoicesChecked` | `IpmProviderInvoice` | many | — | — | `IpmProviderInvoiceChecker` |
+| `ipmReimbReviewed` | `IpmReimbursement` | many | — | — | `IpmReimbursementReviewer` |
+| `ipmDisbEntered` | `IpmDisbursement` | many | — | — | `IpmDisbursementAuthor` |
+| `ipmDisbApproved` | `IpmDisbursement` | many | — | — | `IpmDisbursementApprover` |
+| `ipmDisbAccounting` | `IpmDisbursement` | many | — | — | `IpmDisbursementAccountant` |
+| `ipmVouchersReviewed` | `IpmVoucher` | many | — | — | `IpmVoucherReviewer` |
+| `ipmCeilingsAuthored` | `IpmMemberCeiling` | many | — | — | `IpmMemberCeilingAuthor` |
 
 **Constraints:** `@id` on `id` · `@unique` on `email`
 
@@ -368,6 +402,8 @@ a measured cost, once there is production-shaped data to measure against.
 | Field | Target | Card. | FK | On delete | Relation name |
 | --- | --- | --- | --- | --- | --- |
 | `firms` | `Firm` | many | — | — | — |
+| `persons` | `Person` | many | — | — | — |
+| `organizations` | `Organization` | many | — | — | — |
 
 **Constraints:** `@id` on `id`
 
@@ -381,40 +417,68 @@ a measured cost, once there is production-shaped data to measure against.
 | `holdingId` | String | no |  |
 | `name` | String | no |  |
 | `slug` | String | no | unique |
-| `logo` | String | yes |  |
 | `themeColor` | String | yes |  |
+| `letterhead` | String | yes |  |
+| `stamp` | String | yes |  |
 | `createdAt` | DateTime | no | default `now()` |
 | `updatedAt` | DateTime | no | `@updatedAt` |
+| `logo` | String | yes |  |
 
 **Relations**
 
 | Field | Target | Card. | FK | On delete | Relation name |
 | --- | --- | --- | --- | --- | --- |
-| `holding` | `Holding` | one | `holdingId` | Cascade | — |
-| `userFirms` | `UserFirm` | many | — | — | — |
-| `firmModules` | `FirmModule` | many | — | — | — |
-| `departments` | `Department` | many | — | — | — |
-| `employees` | `Employee` | many | — | — | — |
-| `contracts` | `Contract` | many | — | — | — |
-| `clientFirmContracts` | `Contract` | many | — | — | `ClientFirmContracts` |
-| `leaveRequests` | `LeaveRequest` | many | — | — | — |
-| `missions` | `Mission` | many | — | — | — |
-| `clients` | `Client` | many | — | — | — |
-| `clientAssignments` | `ClientFirmAssignment` | many | — | — | — |
-| `userClientAssignments` | `UserClientAssignment` | many | — | — | — |
-| `clientReports` | `ClientQuarterlyReport` | many | — | — | — |
-| `partners` | `Partner` | many | — | — | — |
-| `partnerAgreements` | `PartnerAgreement` | many | — | — | — |
-| `benefitPlans` | `BenefitPlan` | many | — | — | — |
-| `contributions` | `Contribution` | many | — | — | — |
-| `claims` | `Claim` | many | — | — | — |
-| `files` | `FileObject` | many | — | — | — |
-| `dashboards` | `DashboardView` | many | — | — | — |
 | `auditLogs` | `AuditLog` | many | — | — | — |
+| `clientAssignments` | `ClientFirmAssignment` | many | — | — | — |
+| `clientReports` | `ClientQuarterlyReport` | many | — | — | — |
+| `clients` | `Client` | many | — | — | — |
+| `clientFirmContracts` | `Contract` | many | — | — | `ClientFirmContracts` |
+| `contracts` | `Contract` | many | — | — | — |
+| `dashboards` | `DashboardView` | many | — | — | — |
+| `departments` | `Department` | many | — | — | — |
 | `transfersOut` | `EmployeeTransfer` | many | — | — | `TransfersOut` |
 | `transfersIn` | `EmployeeTransfer` | many | — | — | `TransfersIn` |
+| `employees` | `Employee` | many | — | — | — |
+| `firmModules` | `FirmModule` | many | — | — | — |
+| `holding` | `Holding` | one | `holdingId` | Cascade | — |
+| `leaveRequests` | `LeaveRequest` | many | — | — | — |
+| `missions` | `Mission` | many | — | — | — |
 | `payrollConfig` | `PayrollConfig` | one? | — | — | — |
 | `payslips` | `Payslip` | many | — | — | — |
+| `userClientAssignments` | `UserClientAssignment` | many | — | — | — |
+| `userFirms` | `UserFirm` | many | — | — | — |
+| `ipmServiceCategories` | `IpmServiceCategory` | many | — | — | — |
+| `ipmServiceTypes` | `IpmServiceType` | many | — | — | — |
+| `ipmProviderSpecialties` | `IpmProviderSpecialty` | many | — | — | — |
+| `ipmMedicalActs` | `IpmMedicalAct` | many | — | — | — |
+| `ipmPlans` | `IpmPlan` | many | — | — | — |
+| `ipmPlanRates` | `IpmPlanRate` | many | — | — | — |
+| `ipmEmployerRates` | `IpmEmployerRate` | many | — | — | — |
+| `ipmEmployers` | `IpmEmployer` | many | — | — | — |
+| `ipmMembers` | `Member` | many | — | — | — |
+| `ipmDependents` | `Dependent` | many | — | — | — |
+| `ipmContributions` | `IpmMemberContribution` | many | — | — | — |
+| `ipmCards` | `IpmMemberCard` | many | — | — | — |
+| `ipmProviders` | `IpmProvider` | many | — | — | — |
+| `ipmProviderBranches` | `IpmProviderBranch` | many | — | — | — |
+| `ipmAgreements` | `IpmAgreement` | many | — | — | — |
+| `ipmVouchers` | `IpmVoucher` | many | — | — | — |
+| `ipmVoucherLines` | `IpmVoucherLine` | many | — | — | — |
+| `ipmConsumptions` | `IpmConsumption` | many | — | — | — |
+| `ipmSequences` | `IpmSequence` | many | — | — | — |
+| `ipmLedgerEntries` | `IpmLedgerEntry` | many | — | — | — |
+| `ipmEmployerInvoices` | `IpmEmployerInvoice` | many | — | — | — |
+| `ipmInvoiceLines` | `IpmEmployerInvoiceLine` | many | — | — | — |
+| `ipmProviderInvoices` | `IpmProviderInvoice` | many | — | — | — |
+| `ipmProviderInvoiceLines` | `IpmProviderInvoiceLine` | many | — | — | — |
+| `ipmReimbursements` | `IpmReimbursement` | many | — | — | — |
+| `ipmDisbursements` | `IpmDisbursement` | many | — | — | — |
+| `ipmDisbursementLines` | `IpmDisbursementLine` | many | — | — | — |
+| `portalAccounts` | `PortalAccount` | many | — | — | — |
+| `ipmPortalSettings` | `IpmPortalSettings` | one? | — | — | — |
+| `portalNotifications` | `PortalNotification` | many | — | — | — |
+| `ipmPortalBookings` | `IpmPortalBooking` | many | — | — | — |
+| `ipmMemberCeilings` | `IpmMemberCeiling` | many | — | — | — |
 
 **Constraints:** `@id` on `id` · `@unique` on `slug`
 
@@ -435,8 +499,8 @@ a measured cost, once there is production-shaped data to measure against.
 
 | Field | Target | Card. | FK | On delete | Relation name |
 | --- | --- | --- | --- | --- | --- |
-| `user` | `User` | one | `userId` | Cascade | — |
 | `firm` | `Firm` | one | `firmId` | Cascade | — |
+| `user` | `User` | one | `userId` | Cascade | — |
 
 **Constraints:** `@id` on `id` · `@@unique([userId, firmId])`
 
@@ -464,8 +528,8 @@ a measured cost, once there is production-shaped data to measure against.
 | Field | Target | Card. | FK | On delete | Relation name |
 | --- | --- | --- | --- | --- | --- |
 | `firmModules` | `FirmModule` | many | — | — | — |
-| `dependencies` | `ModuleDependency` | many | — | — | `ModuleDeps` |
 | `requiredBy` | `ModuleDependency` | many | — | — | `RequiredBy` |
+| `dependencies` | `ModuleDependency` | many | — | — | `ModuleDeps` |
 
 **Constraints:** `@id` on `id` · `@unique` on `slug`
 
@@ -506,8 +570,8 @@ a measured cost, once there is production-shaped data to measure against.
 
 | Field | Target | Card. | FK | On delete | Relation name |
 | --- | --- | --- | --- | --- | --- |
-| `module` | `Module` | one | `moduleId` | Cascade | `ModuleDeps` |
 | `dependsOn` | `Module` | one | `dependsOnId` | Cascade | `RequiredBy` |
+| `module` | `Module` | one | `moduleId` | Cascade | `ModuleDeps` |
 
 **Constraints:** `@id` on `id` · `@@unique([moduleId, dependsOnId])`
 
@@ -521,9 +585,9 @@ a measured cost, once there is production-shaped data to measure against.
 | `firmId` | String | no |  |
 | `name` | String | no |  |
 | `code` | String | no |  |
-| `managerId` | String | yes |  |
 | `createdAt` | DateTime | no | default `now()` |
 | `updatedAt` | DateTime | no | `@updatedAt` |
+| `managerId` | String | yes |  |
 
 **Relations**
 
@@ -547,51 +611,51 @@ a measured cost, once there is production-shaped data to measure against.
 | `firstName` | String | no |  |
 | `lastName` | String | no |  |
 | `matricule` | String | no |  |
-| `photoUrl` | String | yes |  |
 | `departmentId` | String | yes |  |
-| `assignedClientId` | String | yes |  |
 | `status` | EmployeeStatus | no | default `"ACTIVE"` |
 | `hireDate` | DateTime | no |  |
-| `phone` | String | yes |  |
-| `email` | String | yes |  |
-| `address` | String | yes |  |
-| `emergencyContact` | Json | yes |  |
-| `dateOfBirth` | DateTime | yes |  |
-| `placeOfBirth` | String | yes |  |
-| `gender` | Gender | yes |  |
-| `maritalStatus` | String | yes |  |
-| `nationality` | String | yes |  |
-| `cni` | String | yes | — National ID number |
-| `fatherName` | String | yes |  |
-| `motherName` | String | yes |  |
-| `jobTitle` | String | yes |  |
-| `category` | String | yes |  |
-| `contractEndDate` | DateTime | yes |  |
-| `netSalary` | Decimal | yes | `@db.Decimal(10, 2)` |
 | `createdAt` | DateTime | no | default `now()` |
 | `updatedAt` | DateTime | no | `@updatedAt` |
+| `address` | String | yes |  |
+| `assignedClientId` | String | yes |  |
+| `email` | String | yes |  |
+| `emergencyContact` | Json | yes |  |
+| `phone` | String | yes |  |
+| `category` | String | yes |  |
+| `cni` | String | yes |  |
+| `contractEndDate` | DateTime | yes |  |
+| `dateOfBirth` | DateTime | yes |  |
+| `fatherName` | String | yes |  |
+| `gender` | Gender | yes |  |
+| `jobTitle` | String | yes |  |
+| `maritalStatus` | String | yes |  |
+| `motherName` | String | yes |  |
+| `nationality` | String | yes |  |
+| `netSalary` | Decimal | yes | `@db.Decimal(10, 2)` |
+| `photoUrl` | String | yes |  |
+| `placeOfBirth` | String | yes |  |
+| `personId` | String | yes |  |
 
 **Relations**
 
 | Field | Target | Card. | FK | On delete | Relation name |
 | --- | --- | --- | --- | --- | --- |
+| `absences` | `Absence` | many | — | — | — |
+| `contracts` | `Contract` | many | — | — | — |
+| `managedDepartments` | `Department` | many | — | — | `DepartmentManager` |
+| `documents` | `EmployeeDocument` | many | — | — | — |
+| `salaries` | `EmployeeSalary` | many | — | — | — |
+| `transfersOut` | `EmployeeTransfer` | many | — | — | `TransferFrom` |
+| `assignedClient` | `Client` | one? | `assignedClientId` | — | — |
+| `department` | `Department` | one? | `departmentId` | — | `DepartmentEmployees` |
 | `firm` | `Firm` | one | `firmId` | Cascade | — |
 | `user` | `User` | one? | `userId` | — | — |
-| `department` | `Department` | one? | `departmentId` | — | `DepartmentEmployees` |
-| `assignedClient` | `Client` | one? | `assignedClientId` | — | — |
-| `managedDepartments` | `Department` | many | — | — | `DepartmentManager` |
-| `contracts` | `Contract` | many | — | — | — |
-| `leaveRequests` | `LeaveRequest` | many | — | — | — |
 | `leaveBalances` | `LeaveBalance` | many | — | — | — |
-| `absences` | `Absence` | many | — | — | — |
+| `leaveRequests` | `LeaveRequest` | many | — | — | — |
 | `requestedMissions` | `Mission` | many | — | — | — |
-| `transfersOut` | `EmployeeTransfer` | many | — | — | `TransferFrom` |
-| `salaries` | `EmployeeSalary` | many | — | — | — |
 | `payslips` | `Payslip` | many | — | — | — |
-| `coverageEnrollments` | `EmployeeCoverageEnrollment` | many | — | — | — |
-| `contributions` | `Contribution` | many | — | — | — |
-| `claims` | `Claim` | many | — | — | — |
-| `documents` | `EmployeeDocument` | many | — | — | — |
+| `person` | `Person` | one? | `personId` | — | — |
+| `ipmMembers` | `Member` | many | — | — | — |
 
 **Constraints:** `@id` on `id` · `@@unique([firmId, matricule])`
 
@@ -604,40 +668,40 @@ a measured cost, once there is production-shaped data to measure against.
 | `id` | String | no | **PK**, default `cuid()` |
 | `firmId` | String | no |  |
 | `employeeId` | String | no |  |
-| `clientId` | String | yes |  |
 | `type` | ContractType | no |  |
-| `status` | ContractStatus | no | default `"ACTIVE"` |
 | `startDate` | DateTime | no |  |
 | `endDate` | DateTime | yes |  |
-| `renewalDate` | DateTime | yes |  |
-| `renewedFromId` | String | yes | — Reference to previous contract if renewed |
-| `clientFirmId` | String | yes | — For interim: the client firm employee works at |
-| `alertThreshold` | Int | no | default `30` |
-| `isAutoRenewal` | Boolean | no | default `false` |
-| `position` | String | yes |  |
-| `salary` | Decimal | yes | `@db.Decimal(10, 2)` |
-| `workingHours` | Int | yes |  |
-| `trialPeriodEnd` | DateTime | yes |  |
-| `notes` | String | yes |  |
-| `isVise` | Boolean | no | default `false` |
-| `isActive` | Boolean | no | default `true` |
-| `terminationDate` | DateTime | yes |  |
-| `terminationReason` | String | yes |  |
-| `contractDocumentId` | String | yes |  |
 | `createdAt` | DateTime | no | default `now()` |
 | `updatedAt` | DateTime | no | `@updatedAt` |
+| `alertThreshold` | Int | no | default `30` |
+| `clientId` | String | yes |  |
+| `isActive` | Boolean | no | default `true` |
+| `isAutoRenewal` | Boolean | no | default `false` |
+| `notes` | String | yes |  |
+| `position` | String | yes |  |
+| `renewalDate` | DateTime | yes |  |
+| `salary` | Decimal | yes | `@db.Decimal(10, 2)` |
+| `terminationDate` | DateTime | yes |  |
+| `terminationReason` | String | yes |  |
+| `trialPeriodEnd` | DateTime | yes |  |
+| `workingHours` | Int | yes |  |
+| `clientFirmId` | String | yes |  |
+| `renewedFromId` | String | yes |  |
+| `status` | ContractStatus | no | default `"ACTIVE"` |
+| `isVise` | Boolean | no | default `false` |
+| `contractDocumentId` | String | yes |  |
 
 **Relations**
 
 | Field | Target | Card. | FK | On delete | Relation name |
 | --- | --- | --- | --- | --- | --- |
-| `firm` | `Firm` | one | `firmId` | Cascade | — |
-| `employee` | `Employee` | one | `employeeId` | Cascade | — |
+| `clientFirm` | `Firm` | one? | `clientFirmId` | — | `ClientFirmContracts` |
 | `client` | `Client` | one? | `clientId` | — | — |
+| `contractDocument` | `EmployeeDocument` | one? | `contractDocumentId` | — | `ContractSignedDocument` |
+| `employee` | `Employee` | one | `employeeId` | Cascade | — |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
 | `renewedFrom` | `Contract` | one? | `renewedFromId` | — | `ContractRenewal` |
 | `renewals` | `Contract` | many | — | — | `ContractRenewal` |
-| `clientFirm` | `Firm` | one? | `clientFirmId` | — | `ClientFirmContracts` |
-| `contractDocument` | `EmployeeDocument` | one? | `contractDocumentId` | SetNull | `ContractSignedDocument` |
 
 **Constraints:** `@id` on `id`
 
@@ -656,7 +720,6 @@ a measured cost, once there is production-shaped data to measure against.
 | `effectiveDate` | DateTime | no |  |
 | `reason` | String | no |  |
 | `status` | TransferStatus | no | default `"PENDING"` |
-| `newMatricule` | String | yes |  |
 | `requestedBy` | String | no |  |
 | `approvedBy` | String | yes |  |
 | `approvedAt` | DateTime | yes |  |
@@ -664,17 +727,18 @@ a measured cost, once there is production-shaped data to measure against.
 | `notes` | String | yes |  |
 | `createdAt` | DateTime | no | default `now()` |
 | `updatedAt` | DateTime | no | `@updatedAt` |
+| `newMatricule` | String | yes |  |
 
 **Relations**
 
 | Field | Target | Card. | FK | On delete | Relation name |
 | --- | --- | --- | --- | --- | --- |
+| `approver` | `User` | one? | `approvedBy` | — | `TransferApprover` |
+| `client` | `Client` | one? | `clientId` | — | — |
 | `employee` | `Employee` | one | `employeeId` | — | `TransferFrom` |
 | `fromFirm` | `Firm` | one | `fromFirmId` | — | `TransfersOut` |
-| `toFirm` | `Firm` | one | `toFirmId` | — | `TransfersIn` |
-| `client` | `Client` | one? | `clientId` | — | — |
 | `requester` | `User` | one | `requestedBy` | — | `TransferRequester` |
-| `approver` | `User` | one? | `approvedBy` | — | `TransferApprover` |
+| `toFirm` | `Firm` | one | `toFirmId` | — | `TransfersIn` |
 
 **Constraints:** `@id` on `id`
 
@@ -687,29 +751,29 @@ a measured cost, once there is production-shaped data to measure against.
 | `id` | String | no | **PK**, default `cuid()` |
 | `firmId` | String | no |  |
 | `employeeId` | String | no |  |
-| `leaveType` | LeaveType | no |  |
 | `startDate` | DateTime | no |  |
 | `endDate` | DateTime | no |  |
-| `totalDays` | Decimal | no | `@db.Decimal(5, 2)` |
-| `isPaid` | Boolean | no | default `true` |
 | `status` | LeaveStatus | no | default `"PENDING"` |
 | `reason` | String | yes |  |
-| `isJustified` | Boolean | no | default `false` |
-| `justification` | String | yes |  |
-| `supportingDoc` | String | yes |  |
-| `requestedAt` | DateTime | no | default `now()` |
-| `reviewedBy` | String | yes |  |
-| `reviewedAt` | DateTime | yes |  |
-| `rejectionReason` | String | yes |  |
 | `createdAt` | DateTime | no | default `now()` |
 | `updatedAt` | DateTime | no | `@updatedAt` |
+| `isJustified` | Boolean | no | default `false` |
+| `isPaid` | Boolean | no | default `true` |
+| `justification` | String | yes |  |
+| `leaveType` | LeaveType | no |  |
+| `rejectionReason` | String | yes |  |
+| `requestedAt` | DateTime | no | default `now()` |
+| `reviewedAt` | DateTime | yes |  |
+| `reviewedBy` | String | yes |  |
+| `supportingDoc` | String | yes |  |
+| `totalDays` | Decimal | no | `@db.Decimal(5, 2)` |
 
 **Relations**
 
 | Field | Target | Card. | FK | On delete | Relation name |
 | --- | --- | --- | --- | --- | --- |
-| `firm` | `Firm` | one | `firmId` | Cascade | — |
 | `employee` | `Employee` | one | `employeeId` | Cascade | — |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
 | `reviewer` | `User` | one? | `reviewedBy` | — | — |
 
 **Constraints:** `@id` on `id`
@@ -784,25 +848,25 @@ a measured cost, once there is production-shaped data to measure against.
 | `endDate` | DateTime | no |  |
 | `status` | MissionStatus | no | default `"DRAFT"` |
 | `purpose` | String | yes |  |
-| `budgetAmount` | Decimal | yes | `@db.Decimal(10, 2)` |
-| `actualAmount` | Decimal | yes | `@db.Decimal(10, 2)` |
-| `missionFees` | Decimal | yes | `@db.Decimal(10, 2)` |
-| `approvedBy` | String | yes |  |
-| `approvedAt` | DateTime | yes |  |
-| `rejectionReason` | String | yes |  |
-| `completedAt` | DateTime | yes |  |
-| `report` | String | yes |  |
 | `createdAt` | DateTime | no | default `now()` |
 | `updatedAt` | DateTime | no | `@updatedAt` |
+| `actualAmount` | Decimal | yes | `@db.Decimal(10, 2)` |
+| `approvedAt` | DateTime | yes |  |
+| `approvedBy` | String | yes |  |
+| `budgetAmount` | Decimal | yes | `@db.Decimal(10, 2)` |
+| `completedAt` | DateTime | yes |  |
+| `missionFees` | Decimal | yes | `@db.Decimal(10, 2)` |
+| `rejectionReason` | String | yes |  |
+| `report` | String | yes |  |
 
 **Relations**
 
 | Field | Target | Card. | FK | On delete | Relation name |
 | --- | --- | --- | --- | --- | --- |
+| `expenses` | `MissionExpense` | many | — | — | — |
+| `approver` | `User` | one? | `approvedBy` | — | — |
 | `firm` | `Firm` | one | `firmId` | Cascade | — |
 | `requester` | `Employee` | one | `requesterId` | Cascade | — |
-| `approver` | `User` | one? | `approvedBy` | — | — |
-| `expenses` | `MissionExpense` | many | — | — | — |
 
 **Constraints:** `@id` on `id`
 
@@ -906,10 +970,10 @@ a measured cost, once there is production-shaped data to measure against.
 
 | Field | Target | Card. | FK | On delete | Relation name |
 | --- | --- | --- | --- | --- | --- |
-| `firm` | `Firm` | one | `firmId` | Cascade | — |
-| `employee` | `Employee` | one | `employeeId` | Cascade | — |
-| `salary` | `EmployeeSalary` | one | `salaryId` | Cascade | — |
 | `approver` | `User` | one? | `approvedBy` | — | — |
+| `employee` | `Employee` | one | `employeeId` | Cascade | — |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
+| `salary` | `EmployeeSalary` | one | `salaryId` | Cascade | — |
 
 **Constraints:** `@id` on `id` · `@@unique([employeeId, period])`
 
@@ -922,32 +986,34 @@ a measured cost, once there is production-shaped data to measure against.
 | `id` | String | no | **PK**, default `cuid()` |
 | `firmId` | String | no |  |
 | `name` | String | no |  |
-| `photoUrl` | String | yes |  |
 | `contactName` | String | yes |  |
-| `contactEmail` | String | yes |  |
-| `contactPhone` | String | yes |  |
 | `taxNumber` | String | yes |  |
 | `address` | String | yes |  |
-| `industry` | String | yes |  |
 | `tags` | String[] | no |  |
 | `status` | ClientStatus | no | default `"PROSPECT"` |
-| `contractStartDate` | DateTime | yes |  |
-| `contractEndDate` | DateTime | yes |  |
-| `notes` | String | yes |  |
 | `createdAt` | DateTime | no | default `now()` |
 | `updatedAt` | DateTime | no | `@updatedAt` |
+| `contactEmail` | String | yes |  |
+| `contactPhone` | String | yes |  |
+| `contractEndDate` | DateTime | yes |  |
+| `contractStartDate` | DateTime | yes |  |
+| `industry` | String | yes |  |
+| `notes` | String | yes |  |
+| `photoUrl` | String | yes |  |
+| `organizationId` | String | yes |  |
 
 **Relations**
 
 | Field | Target | Card. | FK | On delete | Relation name |
 | --- | --- | --- | --- | --- | --- |
-| `firm` | `Firm` | one | `firmId` | Cascade | — |
 | `firmAssignments` | `ClientFirmAssignment` | many | — | — | — |
-| `assignedEmployees` | `Employee` | many | — | — | — |
+| `quarterlyReports` | `ClientQuarterlyReport` | many | — | — | — |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
 | `contracts` | `Contract` | many | — | — | — |
 | `transfers` | `EmployeeTransfer` | many | — | — | — |
-| `quarterlyReports` | `ClientQuarterlyReport` | many | — | — | — |
+| `assignedEmployees` | `Employee` | many | — | — | — |
 | `userAssignments` | `UserClientAssignment` | many | — | — | — |
+| `organization` | `Organization` | one? | `organizationId` | — | — |
 
 **Constraints:** `@id` on `id`
 
@@ -968,9 +1034,9 @@ a measured cost, once there is production-shaped data to measure against.
 
 | Field | Target | Card. | FK | On delete | Relation name |
 | --- | --- | --- | --- | --- | --- |
-| `user` | `User` | one | `userId` | Cascade | — |
 | `client` | `Client` | one | `clientId` | Cascade | — |
 | `firm` | `Firm` | one | `firmId` | Cascade | — |
+| `user` | `User` | one | `userId` | Cascade | — |
 
 **Constraints:** `@id` on `id` · `@@unique([userId, clientId, firmId])`
 
@@ -1027,208 +1093,11 @@ a measured cost, once there is production-shaped data to measure against.
 
 | Field | Target | Card. | FK | On delete | Relation name |
 | --- | --- | --- | --- | --- | --- |
-| `firm` | `Firm` | one | `firmId` | Cascade | — |
 | `client` | `Client` | one | `clientId` | Cascade | — |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
 | `generator` | `User` | one | `generatedBy` | — | — |
 
 **Constraints:** `@id` on `id` · `@@unique([clientId, quarter])`
-
----
-
-### `Partner` → table `partners`
-
-| Field | Type | Null | Notes |
-| --- | --- | --- | --- |
-| `id` | String | no | **PK**, default `cuid()` |
-| `firmId` | String | no |  |
-| `type` | PartnerType | no |  |
-| `name` | String | no |  |
-| `slug` | String | no |  |
-| `createdAt` | DateTime | no | default `now()` |
-| `updatedAt` | DateTime | no | `@updatedAt` |
-
-**Relations**
-
-| Field | Target | Card. | FK | On delete | Relation name |
-| --- | --- | --- | --- | --- | --- |
-| `firm` | `Firm` | one | `firmId` | Cascade | — |
-| `branches` | `PartnerBranch` | many | — | — | — |
-| `agreements` | `PartnerAgreement` | many | — | — | — |
-| `preferredEnrollments` | `EmployeeCoverageEnrollment` | many | — | — | — |
-| `claims` | `Claim` | many | — | — | — |
-
-**Constraints:** `@id` on `id` · `@@unique([firmId, slug])`
-
----
-
-### `PartnerBranch` → table `partner_branches`
-
-| Field | Type | Null | Notes |
-| --- | --- | --- | --- |
-| `id` | String | no | **PK**, default `cuid()` |
-| `partnerId` | String | no |  |
-| `name` | String | no |  |
-| `address` | String | yes |  |
-| `createdAt` | DateTime | no | default `now()` |
-| `updatedAt` | DateTime | no | `@updatedAt` |
-
-**Relations**
-
-| Field | Target | Card. | FK | On delete | Relation name |
-| --- | --- | --- | --- | --- | --- |
-| `partner` | `Partner` | one | `partnerId` | Cascade | — |
-
-**Constraints:** `@id` on `id`
-
----
-
-### `PartnerAgreement` → table `partner_agreements`
-
-| Field | Type | Null | Notes |
-| --- | --- | --- | --- |
-| `id` | String | no | **PK**, default `cuid()` |
-| `partnerId` | String | no |  |
-| `firmId` | String | no |  |
-| `tariffTable` | Json | yes |  |
-| `createdAt` | DateTime | no | default `now()` |
-| `updatedAt` | DateTime | no | `@updatedAt` |
-
-**Relations**
-
-| Field | Target | Card. | FK | On delete | Relation name |
-| --- | --- | --- | --- | --- | --- |
-| `partner` | `Partner` | one | `partnerId` | Cascade | — |
-| `firm` | `Firm` | one | `firmId` | Cascade | — |
-
-**Constraints:** `@id` on `id` · `@@unique([partnerId, firmId])`
-
----
-
-### `BenefitPlan` → table `benefit_plans`
-
-| Field | Type | Null | Notes |
-| --- | --- | --- | --- |
-| `id` | String | no | **PK**, default `cuid()` |
-| `firmId` | String | no |  |
-| `name` | String | no |  |
-| `code` | String | no |  |
-| `coverage` | Json | yes |  |
-| `createdAt` | DateTime | no | default `now()` |
-| `updatedAt` | DateTime | no | `@updatedAt` |
-
-**Relations**
-
-| Field | Target | Card. | FK | On delete | Relation name |
-| --- | --- | --- | --- | --- | --- |
-| `firm` | `Firm` | one | `firmId` | Cascade | — |
-| `enrollments` | `EmployeeCoverageEnrollment` | many | — | — | — |
-| `contributions` | `Contribution` | many | — | — | — |
-
-**Constraints:** `@id` on `id` · `@@unique([firmId, code])`
-
----
-
-### `EmployeeCoverageEnrollment` → table `employee_coverage_enrollments`
-
-| Field | Type | Null | Notes |
-| --- | --- | --- | --- |
-| `id` | String | no | **PK**, default `cuid()` |
-| `employeeId` | String | no |  |
-| `planId` | String | no |  |
-| `preferredPartnerId` | String | yes |  |
-| `createdAt` | DateTime | no | default `now()` |
-| `updatedAt` | DateTime | no | `@updatedAt` |
-
-**Relations**
-
-| Field | Target | Card. | FK | On delete | Relation name |
-| --- | --- | --- | --- | --- | --- |
-| `employee` | `Employee` | one | `employeeId` | Cascade | — |
-| `plan` | `BenefitPlan` | one | `planId` | Cascade | — |
-| `preferredPartner` | `Partner` | one? | `preferredPartnerId` | — | — |
-
-**Constraints:** `@id` on `id` · `@@unique([employeeId, planId])`
-
----
-
-### `Contribution` → table `contributions`
-
-| Field | Type | Null | Notes |
-| --- | --- | --- | --- |
-| `id` | String | no | **PK**, default `cuid()` |
-| `firmId` | String | no |  |
-| `employeeId` | String | no |  |
-| `planId` | String | no |  |
-| `period` | String | no |  |
-| `amount` | Decimal | no | `@db.Decimal(10, 2)` |
-| `createdAt` | DateTime | no | default `now()` |
-| `updatedAt` | DateTime | no | `@updatedAt` |
-
-**Relations**
-
-| Field | Target | Card. | FK | On delete | Relation name |
-| --- | --- | --- | --- | --- | --- |
-| `firm` | `Firm` | one | `firmId` | Cascade | — |
-| `employee` | `Employee` | one | `employeeId` | Cascade | — |
-| `plan` | `BenefitPlan` | one | `planId` | Cascade | — |
-
-**Constraints:** `@id` on `id`
-
----
-
-### `Claim` → table `claims`
-
-| Field | Type | Null | Notes |
-| --- | --- | --- | --- |
-| `id` | String | no | **PK**, default `cuid()` |
-| `firmId` | String | no |  |
-| `employeeId` | String | no |  |
-| `partnerId` | String | yes |  |
-| `amount` | Decimal | no | `@db.Decimal(10, 2)` |
-| `status` | ClaimStatus | no | default `"SUBMITTED"` |
-| `dateOfService` | DateTime | no |  |
-| `createdAt` | DateTime | no | default `now()` |
-| `updatedAt` | DateTime | no | `@updatedAt` |
-
-**Relations**
-
-| Field | Target | Card. | FK | On delete | Relation name |
-| --- | --- | --- | --- | --- | --- |
-| `firm` | `Firm` | one | `firmId` | Cascade | — |
-| `employee` | `Employee` | one | `employeeId` | Cascade | — |
-| `partner` | `Partner` | one? | `partnerId` | — | — |
-
-**Constraints:** `@id` on `id`
-
----
-
-### `FileObject` → table `file_objects`
-
-| Field | Type | Null | Notes |
-| --- | --- | --- | --- |
-| `id` | String | no | **PK**, default `cuid()` |
-| `firmId` | String | no |  |
-| `entity` | FileEntity | no |  |
-| `entityId` | String | no |  |
-| `documentType` | DocumentType | no |  |
-| `fileName` | String | no |  |
-| `storageKey` | String | no |  |
-| `fileSize` | Int | yes |  |
-| `mimeType` | String | yes |  |
-| `uploadedBy` | String | no |  |
-| `description` | String | yes |  |
-| `expiryDate` | DateTime | yes |  |
-| `createdAt` | DateTime | no | default `now()` |
-| `updatedAt` | DateTime | no | `@updatedAt` |
-
-**Relations**
-
-| Field | Target | Card. | FK | On delete | Relation name |
-| --- | --- | --- | --- | --- | --- |
-| `firm` | `Firm` | one | `firmId` | Cascade | — |
-| `uploader` | `User` | one | `uploadedBy` | — | — |
-
-**Constraints:** `@id` on `id`
 
 ---
 
@@ -1247,23 +1116,23 @@ a measured cost, once there is production-shaped data to measure against.
 | `mimeType` | String | yes |  |
 | `uploadedBy` | String | no |  |
 | `description` | String | yes |  |
-| `tags` | String[] | no | default `undefined()` |
-| `metadata` | Json | yes |  |
 | `expiryDate` | DateTime | yes |  |
 | `isVerified` | Boolean | no | default `false` |
 | `verifiedBy` | String | yes |  |
 | `verifiedAt` | DateTime | yes |  |
 | `createdAt` | DateTime | no | default `now()` |
 | `updatedAt` | DateTime | no | `@updatedAt` |
+| `metadata` | Json | yes |  |
+| `tags` | String[] | no | default `undefined()` |
 
 **Relations**
 
 | Field | Target | Card. | FK | On delete | Relation name |
 | --- | --- | --- | --- | --- | --- |
+| `signedContracts` | `Contract` | many | — | — | `ContractSignedDocument` |
 | `employee` | `Employee` | one | `employeeId` | Cascade | — |
 | `uploader` | `User` | one | `uploadedBy` | — | `DocumentUploader` |
 | `verifier` | `User` | one? | `verifiedBy` | — | `DocumentVerifier` |
-| `signedContracts` | `Contract` | many | — | — | `ContractSignedDocument` |
 
 **Constraints:** `@id` on `id`
 
@@ -1309,8 +1178,1072 @@ a measured cost, once there is production-shaped data to measure against.
 
 | Field | Target | Card. | FK | On delete | Relation name |
 | --- | --- | --- | --- | --- | --- |
-| `firm` | `Firm` | one? | `firmId` | Cascade | — |
 | `actor` | `User` | one | `actorId` | — | — |
+| `firm` | `Firm` | one? | `firmId` | Cascade | — |
+
+**Constraints:** `@id` on `id`
+
+---
+
+### `Person` → table `persons`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | String | no | **PK**, default `cuid()` |
+| `holdingId` | String | no |  |
+| `firstName` | String | no |  |
+| `lastName` | String | no |  |
+| `birthDate` | DateTime | yes |  |
+| `birthPlace` | String | yes |  |
+| `gender` | Gender | yes |  |
+| `nationalId` | String | yes |  |
+| `passportNo` | String | yes |  |
+| `phone` | String | yes |  |
+| `email` | String | yes |  |
+| `address` | String | yes |  |
+| `photoUrl` | String | yes |  |
+| `createdAt` | DateTime | no | default `now()` |
+| `updatedAt` | DateTime | no | `@updatedAt` |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `holding` | `Holding` | one | `holdingId` | Cascade | — |
+| `employees` | `Employee` | many | — | — | — |
+| `members` | `Member` | many | — | — | — |
+| `dependents` | `Dependent` | many | — | — | — |
+
+**Constraints:** `@id` on `id` · `@@unique([holdingId, nationalId])`
+
+---
+
+### `Organization` → table `organizations`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | String | no | **PK**, default `cuid()` |
+| `holdingId` | String | no |  |
+| `name` | String | no |  |
+| `ninea` | String | yes |  |
+| `sector` | String | yes |  |
+| `address` | String | yes |  |
+| `phone` | String | yes |  |
+| `email` | String | yes |  |
+| `createdAt` | DateTime | no | default `now()` |
+| `updatedAt` | DateTime | no | `@updatedAt` |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `holding` | `Holding` | one | `holdingId` | Cascade | — |
+| `clients` | `Client` | many | — | — | — |
+| `employers` | `IpmEmployer` | many | — | — | — |
+| `providers` | `IpmProvider` | many | — | — | — |
+
+**Constraints:** `@id` on `id` · `@@unique([holdingId, ninea])`
+
+---
+
+### `IpmServiceCategory` → table `ipm_service_categories`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | String | no | **PK**, default `cuid()` |
+| `firmId` | String | no |  |
+| `code` | String | no |  |
+| `label` | String | no |  |
+| `sortOrder` | Int | no | default `0` |
+| `active` | Boolean | no | default `true` |
+| `createdAt` | DateTime | no | default `now()` |
+| `updatedAt` | DateTime | no | `@updatedAt` |
+| `currentBalance` | Decimal | no | default `0`, `@db.Decimal(14, 2)` |
+| `balanceAsOf` | DateTime | yes |  |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
+| `serviceTypes` | `IpmServiceType` | many | — | — | — |
+| `planRates` | `IpmPlanRate` | many | — | — | — |
+| `employerRates` | `IpmEmployerRate` | many | — | — | — |
+| `vouchers` | `IpmVoucher` | many | — | — | — |
+| `consumptions` | `IpmConsumption` | many | — | — | — |
+| `ledgerEntries` | `IpmLedgerEntry` | many | — | — | — |
+| `invoiceLines` | `IpmEmployerInvoiceLine` | many | — | — | — |
+| `ipmReimbursements` | `IpmReimbursement` | many | — | — | — |
+| `memberCeilings` | `IpmMemberCeiling` | many | — | — | — |
+
+**Constraints:** `@id` on `id` · `@@unique([firmId, code])`
+
+---
+
+### `IpmServiceType` → table `ipm_service_types`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | String | no | **PK**, default `cuid()` |
+| `firmId` | String | no |  |
+| `categoryId` | String | no |  |
+| `code` | String | no |  |
+| `label` | String | no |  |
+| `accountCode` | String | yes |  |
+| `legacyCode` | String | yes |  |
+| `active` | Boolean | no | default `true` |
+| `createdAt` | DateTime | no | default `now()` |
+| `updatedAt` | DateTime | no | `@updatedAt` |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
+| `category` | `IpmServiceCategory` | one | `categoryId` | — | — |
+| `medicalActs` | `IpmMedicalAct` | many | — | — | — |
+| `vouchers` | `IpmVoucher` | many | — | — | — |
+| `portalBookings` | `IpmPortalBooking` | many | — | — | — |
+
+**Constraints:** `@id` on `id` · `@@unique([firmId, code])`
+
+---
+
+### `IpmProviderSpecialty` → table `ipm_provider_specialties`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | String | no | **PK**, default `cuid()` |
+| `firmId` | String | no |  |
+| `code` | String | no |  |
+| `label` | String | no |  |
+| `accountCode` | String | yes |  |
+| `legacyCode` | String | yes |  |
+| `active` | Boolean | no | default `true` |
+| `createdAt` | DateTime | no | default `now()` |
+| `updatedAt` | DateTime | no | `@updatedAt` |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
+| `providers` | `IpmProvider` | many | — | — | — |
+| `portalBookings` | `IpmPortalBooking` | many | — | — | — |
+
+**Constraints:** `@id` on `id` · `@@unique([firmId, code])`
+
+---
+
+### `IpmMedicalAct` → table `ipm_medical_acts`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | String | no | **PK**, default `cuid()` |
+| `firmId` | String | no |  |
+| `serviceTypeId` | String | no |  |
+| `code` | String | no |  |
+| `label` | String | no |  |
+| `coefficient` | Decimal | yes | `@db.Decimal(8, 2)` |
+| `tariff` | Decimal | yes | `@db.Decimal(12, 2)` |
+| `active` | Boolean | no | default `true` |
+| `createdAt` | DateTime | no | default `now()` |
+| `updatedAt` | DateTime | no | `@updatedAt` |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
+| `serviceType` | `IpmServiceType` | one | `serviceTypeId` | — | — |
+| `voucherLines` | `IpmVoucherLine` | many | — | — | — |
+
+**Constraints:** `@id` on `id` · `@@unique([firmId, code])`
+
+---
+
+### `IpmPlan` → table `ipm_plans`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | String | no | **PK**, default `cuid()` |
+| `firmId` | String | no |  |
+| `code` | String | no |  |
+| `name` | String | no |  |
+| `monthlyPrice` | Decimal | no | `@db.Decimal(12, 2)` |
+| `validFrom` | DateTime | no |  |
+| `validTo` | DateTime | yes |  |
+| `active` | Boolean | no | default `true` |
+| `createdAt` | DateTime | no | default `now()` |
+| `updatedAt` | DateTime | no | `@updatedAt` |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
+| `rates` | `IpmPlanRate` | many | — | — | — |
+| `employers` | `IpmEmployer` | many | — | — | — |
+| `contributions` | `IpmMemberContribution` | many | — | — | — |
+
+**Constraints:** `@id` on `id` · `@@unique([firmId, code, validFrom])`
+
+---
+
+### `IpmPlanRate` → table `ipm_plan_rates`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | String | no | **PK**, default `cuid()` |
+| `firmId` | String | no |  |
+| `planId` | String | no |  |
+| `categoryId` | String | no |  |
+| `beneficiaryType` | IpmBeneficiaryType | no | default `"ALL"` |
+| `rate` | Decimal | no | `@db.Decimal(5, 4)` |
+| `ceilingPerAct` | Decimal | yes | `@db.Decimal(12, 2)` |
+| `ceilingMonthly` | Decimal | yes | `@db.Decimal(12, 2)` |
+| `ceilingAnnual` | Decimal | yes | `@db.Decimal(12, 2)` |
+| `waitingPeriodDays` | Int | no | default `0` |
+| `createdAt` | DateTime | no | default `now()` |
+| `updatedAt` | DateTime | no | `@updatedAt` |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
+| `plan` | `IpmPlan` | one | `planId` | Cascade | — |
+| `category` | `IpmServiceCategory` | one | `categoryId` | — | — |
+
+**Constraints:** `@id` on `id` · `@@unique([planId, categoryId, beneficiaryType])`
+
+---
+
+### `IpmEmployerRate` → table `ipm_employer_rates`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | String | no | **PK**, default `cuid()` |
+| `firmId` | String | no |  |
+| `employerId` | String | no |  |
+| `categoryId` | String | no |  |
+| `beneficiaryType` | IpmBeneficiaryType | no | default `"ALL"` |
+| `rate` | Decimal | no | `@db.Decimal(5, 4)` |
+| `ceilingPerAct` | Decimal | yes | `@db.Decimal(12, 2)` |
+| `ceilingMonthly` | Decimal | yes | `@db.Decimal(12, 2)` |
+| `ceilingAnnual` | Decimal | yes | `@db.Decimal(12, 2)` |
+| `waitingPeriodDays` | Int | yes |  |
+| `createdAt` | DateTime | no | default `now()` |
+| `updatedAt` | DateTime | no | `@updatedAt` |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
+| `employer` | `IpmEmployer` | one | `employerId` | Cascade | — |
+| `category` | `IpmServiceCategory` | one | `categoryId` | — | — |
+
+**Constraints:** `@id` on `id` · `@@unique([employerId, categoryId, beneficiaryType])`
+
+---
+
+### `IpmEmployer` → table `ipm_employers`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | String | no | **PK**, default `cuid()` |
+| `firmId` | String | no |  |
+| `organizationId` | String | no |  |
+| `legacyCode` | String | yes |  |
+| `legacyEmployerCode` | String | yes |  |
+| `matriculePrefix` | String | yes |  |
+| `planId` | String | yes |  |
+| `accountCode` | String | yes |  |
+| `affiliationDate` | DateTime | no |  |
+| `terminationDate` | DateTime | yes |  |
+| `status` | IpmEmployerStatus | no | default `"ACTIVE"` |
+| `ageMajority` | Int | no | default `21` |
+| `ageRetirement` | Int | no | default `60` |
+| `contributionEmployerAmount` | Decimal | yes | `@db.Decimal(12, 2)` |
+| `contributionEmployeeAmount` | Decimal | yes | `@db.Decimal(12, 2)` |
+| `contributionRate` | Decimal | yes | `@db.Decimal(5, 4)` |
+| `reminderDelayDays` | Int | no | default `15` |
+| `suspensionDelayDays` | Int | no | default `90` |
+| `consumptionCeiling` | Decimal | yes | `@db.Decimal(14, 2)` |
+| `debtCeiling` | Decimal | yes | `@db.Decimal(14, 2)` |
+| `createdAt` | DateTime | no | default `now()` |
+| `updatedAt` | DateTime | no | `@updatedAt` |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
+| `organization` | `Organization` | one | `organizationId` | — | — |
+| `plan` | `IpmPlan` | one? | `planId` | — | — |
+| `members` | `Member` | many | — | — | — |
+| `rates` | `IpmEmployerRate` | many | — | — | — |
+| `invoices` | `IpmEmployerInvoice` | many | — | — | — |
+
+**Constraints:** `@id` on `id` · `@@unique([firmId, organizationId])` · `@@unique([firmId, legacyEmployerCode])` · `@@unique([firmId, legacyCode])`
+
+---
+
+### `Member` → table `ipm_members`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | String | no | **PK**, default `cuid()` |
+| `firmId` | String | no |  |
+| `personId` | String | no |  |
+| `employerId` | String | no |  |
+| `employeeId` | String | yes |  |
+| `matricule` | String | no |  |
+| `legacyCode` | String | yes |  |
+| `jobTitle` | String | yes |  |
+| `affiliationDate` | DateTime | no |  |
+| `terminationDate` | DateTime | yes |  |
+| `status` | IpmMemberStatus | no | default `"PENDING"` |
+| `currentBalance` | Decimal | no | default `0`, `@db.Decimal(14, 2)` |
+| `balanceAsOf` | DateTime | yes |  |
+| `createdAt` | DateTime | no | default `now()` |
+| `updatedAt` | DateTime | no | `@updatedAt` |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
+| `person` | `Person` | one | `personId` | — | — |
+| `employer` | `IpmEmployer` | one | `employerId` | — | — |
+| `employee` | `Employee` | one? | `employeeId` | — | — |
+| `dependents` | `Dependent` | many | — | — | — |
+| `contributions` | `IpmMemberContribution` | many | — | — | — |
+| `card` | `IpmMemberCard` | one? | — | — | — |
+| `vouchers` | `IpmVoucher` | many | — | — | — |
+| `consumptions` | `IpmConsumption` | many | — | — | — |
+| `ledgerEntries` | `IpmLedgerEntry` | many | — | — | — |
+| `invoiceLines` | `IpmEmployerInvoiceLine` | many | — | — | — |
+| `reimbursements` | `IpmReimbursement` | many | — | — | — |
+| `portalAccount` | `PortalAccount` | one? | — | — | — |
+| `ceilings` | `IpmMemberCeiling` | many | — | — | — |
+
+**Constraints:** `@id` on `id` · `@@unique([firmId, matricule])` · `@@unique([firmId, legacyCode])`
+
+---
+
+### `Dependent` → table `ipm_dependents`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | String | no | **PK**, default `cuid()` |
+| `firmId` | String | no |  |
+| `memberId` | String | no |  |
+| `personId` | String | no |  |
+| `matricule` | String | no |  |
+| `legacyCode` | String | yes |  |
+| `relation` | IpmDependentRelation | no |  |
+| `rank` | Int | no |  |
+| `marriageDate` | DateTime | yes |  |
+| `coverageStart` | DateTime | no |  |
+| `coverageEnd` | DateTime | yes |  |
+| `status` | IpmDependentStatus | no | default `"ACTIVE"` |
+| `createdAt` | DateTime | no | default `now()` |
+| `updatedAt` | DateTime | no | `@updatedAt` |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
+| `member` | `Member` | one | `memberId` | Cascade | — |
+| `person` | `Person` | one | `personId` | — | — |
+| `vouchers` | `IpmVoucher` | many | — | — | — |
+| `ipmReimbursements` | `IpmReimbursement` | many | — | — | — |
+
+**Constraints:** `@id` on `id` · `@@unique([firmId, matricule])` · `@@unique([memberId, rank])`
+
+---
+
+### `IpmMemberContribution` → table `ipm_member_contributions`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | String | no | **PK**, default `cuid()` |
+| `firmId` | String | no |  |
+| `memberId` | String | no |  |
+| `planId` | String | yes |  |
+| `monthlyAmount` | Decimal | no | `@db.Decimal(12, 2)` |
+| `employerAmount` | Decimal | yes | `@db.Decimal(12, 2)` |
+| `employeeAmount` | Decimal | yes | `@db.Decimal(12, 2)` |
+| `validFrom` | DateTime | no |  |
+| `validTo` | DateTime | yes |  |
+| `reason` | String | yes |  |
+| `createdAt` | DateTime | no | default `now()` |
+| `createdById` | String | yes |  |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
+| `member` | `Member` | one | `memberId` | Cascade | — |
+| `plan` | `IpmPlan` | one? | `planId` | — | — |
+| `createdBy` | `User` | one? | `createdById` | — | `IpmContributionAuthor` |
+
+**Constraints:** `@id` on `id`
+
+---
+
+### `IpmMemberCard` → table `ipm_member_cards`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | String | no | **PK**, default `cuid()` |
+| `firmId` | String | no |  |
+| `memberId` | String | no | unique |
+| `version` | Int | no | default `1` |
+| `inputsHash` | String | no |  |
+| `ppi` | Int | no | default `300` |
+| `generatedAt` | DateTime | no | default `now()` |
+| `generatedById` | String | yes |  |
+| `revokedAt` | DateTime | yes |  |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
+| `member` | `Member` | one | `memberId` | Cascade | — |
+| `generatedBy` | `User` | one? | `generatedById` | — | `IpmCardAuthor` |
+
+**Constraints:** `@id` on `id` · `@@unique([memberId])` · `@unique` on `memberId`
+
+---
+
+### `IpmProvider` → table `ipm_providers`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | String | no | **PK**, default `cuid()` |
+| `firmId` | String | no |  |
+| `organizationId` | String | yes |  |
+| `legacyCode` | String | yes |  |
+| `name` | String | no |  |
+| `specialtyId` | String | yes |  |
+| `address` | String | yes |  |
+| `phone` | String | yes |  |
+| `email` | String | yes |  |
+| `accountCode` | String | yes |  |
+| `accredited` | Boolean | no | default `false` |
+| `status` | IpmProviderStatus | no | default `"ACTIVE"` |
+| `paymentTermDays` | Int | no | default `60` |
+| `bankName` | String | yes |  |
+| `bankAccount` | String | yes |  |
+| `createdAt` | DateTime | no | default `now()` |
+| `updatedAt` | DateTime | no | `@updatedAt` |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
+| `organization` | `Organization` | one? | `organizationId` | — | — |
+| `specialty` | `IpmProviderSpecialty` | one? | `specialtyId` | — | — |
+| `branches` | `IpmProviderBranch` | many | — | — | — |
+| `agreements` | `IpmAgreement` | many | — | — | — |
+| `vouchers` | `IpmVoucher` | many | — | — | — |
+| `invoices` | `IpmProviderInvoice` | many | — | — | — |
+
+**Constraints:** `@id` on `id` · `@@unique([firmId, legacyCode])`
+
+---
+
+### `IpmProviderBranch` → table `ipm_provider_branches`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | String | no | **PK**, default `cuid()` |
+| `firmId` | String | no |  |
+| `providerId` | String | no |  |
+| `name` | String | no |  |
+| `address` | String | yes |  |
+| `phone` | String | yes |  |
+| `createdAt` | DateTime | no | default `now()` |
+| `updatedAt` | DateTime | no | `@updatedAt` |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
+| `provider` | `IpmProvider` | one | `providerId` | Cascade | — |
+
+**Constraints:** `@id` on `id`
+
+---
+
+### `IpmAgreement` → table `ipm_agreements`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | String | no | **PK**, default `cuid()` |
+| `firmId` | String | no |  |
+| `providerId` | String | no |  |
+| `reference` | String | no |  |
+| `startDate` | DateTime | no |  |
+| `endDate` | DateTime | yes |  |
+| `negotiatedRate` | Decimal | yes | `@db.Decimal(5, 4)` |
+| `terms` | String | yes |  |
+| `status` | IpmAgreementStatus | no | default `"DRAFT"` |
+| `createdAt` | DateTime | no | default `now()` |
+| `updatedAt` | DateTime | no | `@updatedAt` |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
+| `provider` | `IpmProvider` | one | `providerId` | Cascade | — |
+
+**Constraints:** `@id` on `id` · `@@unique([firmId, reference])`
+
+---
+
+### `IpmVoucher` → table `ipm_vouchers`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | String | no | **PK**, default `cuid()` |
+| `firmId` | String | no |  |
+| `number` | String | no |  |
+| `type` | IpmVoucherType | no |  |
+| `memberId` | String | no |  |
+| `dependentId` | String | yes |  |
+| `beneficiaryType` | IpmBeneficiaryType | no |  |
+| `beneficiaryName` | String | no |  |
+| `providerId` | String | no |  |
+| `serviceTypeId` | String | no |  |
+| `categoryId` | String | no |  |
+| `issueDate` | DateTime | no |  |
+| `expiryDate` | DateTime | no |  |
+| `status` | IpmVoucherStatus | no | default `"ISSUED"` |
+| `totalAmount` | Decimal | no | default `0`, `@db.Decimal(12, 2)` |
+| `insurerShare` | Decimal | no | default `0`, `@db.Decimal(12, 2)` |
+| `memberShare` | Decimal | no | default `0`, `@db.Decimal(12, 2)` |
+| `appliedRate` | Decimal | no | `@db.Decimal(5, 4)` |
+| `rateSource` | String | no |  |
+| `qrToken` | String | no |  |
+| `issuedById` | String | yes |  |
+| `settledAt` | DateTime | yes |  |
+| `settledById` | String | yes |  |
+| `cancelledAt` | DateTime | yes |  |
+| `cancelReason` | String | yes |  |
+| `providerInvoiceId` | String | yes |  |
+| `origin` | IpmVoucherOrigin | no | default `"BACKOFFICE"` |
+| `issuedByPortalAccountId` | String | yes |  |
+| `entryMode` | IpmVoucherEntryMode | yes |  |
+| `receiptUrl` | String | yes |  |
+| `receiptHash` | String | yes |  |
+| `ocrTotal` | Decimal | yes | `@db.Decimal(12, 2)` |
+| `reviewFlags` | IpmReviewFlag[] | no |  |
+| `reviewedById` | String | yes |  |
+| `reviewedAt` | DateTime | yes |  |
+| `reviewReason` | String | yes |  |
+| `clientRequestId` | String | yes |  |
+| `createdAt` | DateTime | no | default `now()` |
+| `updatedAt` | DateTime | no | `@updatedAt` |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
+| `issuedByPortalAccount` | `PortalAccount` | one? | `issuedByPortalAccountId` | — | — |
+| `reviewedBy` | `User` | one? | `reviewedById` | — | `IpmVoucherReviewer` |
+| `notifications` | `PortalNotification` | many | — | — | — |
+| `member` | `Member` | one | `memberId` | — | — |
+| `dependent` | `Dependent` | one? | `dependentId` | — | — |
+| `provider` | `IpmProvider` | one | `providerId` | — | — |
+| `serviceType` | `IpmServiceType` | one | `serviceTypeId` | — | — |
+| `category` | `IpmServiceCategory` | one | `categoryId` | — | — |
+| `issuedBy` | `User` | one? | `issuedById` | — | `IpmVoucherIssuer` |
+| `settledBy` | `User` | one? | `settledById` | — | `IpmVoucherSettler` |
+| `lines` | `IpmVoucherLine` | many | — | — | — |
+| `consumption` | `IpmConsumption` | many | — | — | — |
+| `invoiceLines` | `IpmProviderInvoiceLine` | many | — | — | — |
+
+**Constraints:** `@id` on `id` · `@@unique([firmId, number])` · `@@unique([firmId, clientRequestId])`
+
+---
+
+### `IpmVoucherLine` → table `ipm_voucher_lines`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | String | no | **PK**, default `cuid()` |
+| `firmId` | String | no |  |
+| `voucherId` | String | no |  |
+| `medicalActId` | String | yes |  |
+| `label` | String | no |  |
+| `quantity` | Decimal | no | default `1`, `@db.Decimal(8, 2)` |
+| `unitPrice` | Decimal | no | `@db.Decimal(12, 2)` |
+| `amount` | Decimal | no | `@db.Decimal(12, 2)` |
+| `createdAt` | DateTime | no | default `now()` |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
+| `voucher` | `IpmVoucher` | one | `voucherId` | Cascade | — |
+| `medicalAct` | `IpmMedicalAct` | one? | `medicalActId` | — | — |
+
+**Constraints:** `@id` on `id`
+
+---
+
+### `IpmConsumption` → table `ipm_consumptions`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | String | no | **PK**, default `cuid()` |
+| `firmId` | String | no |  |
+| `beneficiaryRef` | String | no |  |
+| `memberId` | String | no |  |
+| `categoryId` | String | no |  |
+| `periodYear` | Int | no |  |
+| `periodMonth` | Int | no |  |
+| `voucherId` | String | yes |  |
+| `amount` | Decimal | no | `@db.Decimal(12, 2)` |
+| `insurerShare` | Decimal | no | `@db.Decimal(12, 2)` |
+| `createdAt` | DateTime | no | default `now()` |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
+| `member` | `Member` | one | `memberId` | Cascade | — |
+| `category` | `IpmServiceCategory` | one | `categoryId` | — | — |
+| `voucher` | `IpmVoucher` | one? | `voucherId` | SetNull | — |
+
+**Constraints:** `@id` on `id`
+
+---
+
+### `IpmSequence` → table `ipm_sequences`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | String | no | **PK**, default `cuid()` |
+| `firmId` | String | no |  |
+| `kind` | String | no |  |
+| `year` | Int | no |  |
+| `next` | Int | no | default `1` |
+| `updatedAt` | DateTime | no | `@updatedAt` |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
+
+**Constraints:** `@id` on `id` · `@@unique([firmId, kind, year])`
+
+---
+
+### `IpmLedgerEntry` → table `ipm_ledger_entries`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | String | no | **PK**, default `cuid()` |
+| `firmId` | String | no |  |
+| `memberId` | String | no |  |
+| `periodYear` | Int | no |  |
+| `periodMonth` | Int | no |  |
+| `type` | IpmLedgerType | no |  |
+| `sourceType` | IpmLedgerSource | no |  |
+| `sourceId` | String | yes |  |
+| `credit` | Decimal | no | default `0`, `@db.Decimal(14, 2)` |
+| `debit` | Decimal | no | default `0`, `@db.Decimal(14, 2)` |
+| `balanceAfter` | Decimal | no | `@db.Decimal(14, 2)` |
+| `note` | String | yes |  |
+| `createdAt` | DateTime | no | default `now()` |
+| `createdById` | String | yes |  |
+| `ipmServiceCategoryId` | String | yes |  |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
+| `member` | `Member` | one | `memberId` | Cascade | — |
+| `createdBy` | `User` | one? | `createdById` | — | `IpmLedgerAuthor` |
+| `ipmServiceCategory` | `IpmServiceCategory` | one? | `ipmServiceCategoryId` | — | — |
+
+**Constraints:** `@id` on `id`
+
+---
+
+### `IpmEmployerInvoice` → table `ipm_employer_invoices`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | String | no | **PK**, default `cuid()` |
+| `firmId` | String | no |  |
+| `employerId` | String | no |  |
+| `number` | String | no |  |
+| `periodYear` | Int | no |  |
+| `periodMonth` | Int | no |  |
+| `issueDate` | DateTime | no |  |
+| `dueDate` | DateTime | no |  |
+| `memberCount` | Int | no |  |
+| `employerShare` | Decimal | no | `@db.Decimal(14, 2)` |
+| `employeeShare` | Decimal | no | `@db.Decimal(14, 2)` |
+| `totalAmount` | Decimal | no | `@db.Decimal(14, 2)` |
+| `status` | IpmEmployerInvoiceStatus | no | default `"DRAFT"` |
+| `paidAmount` | Decimal | no | default `0`, `@db.Decimal(14, 2)` |
+| `paidAt` | DateTime | yes |  |
+| `paymentMethod` | String | yes |  |
+| `paymentReference` | String | yes |  |
+| `statusChangedById` | String | yes |  |
+| `statusChangedAt` | DateTime | yes |  |
+| `createdAt` | DateTime | no | default `now()` |
+| `updatedAt` | DateTime | no | `@updatedAt` |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
+| `employer` | `IpmEmployer` | one | `employerId` | — | — |
+| `statusChangedBy` | `User` | one? | `statusChangedById` | — | `IpmInvoiceStatusAuthor` |
+| `lines` | `IpmEmployerInvoiceLine` | many | — | — | — |
+
+**Constraints:** `@id` on `id` · `@@unique([employerId, periodYear, periodMonth])` · `@@unique([firmId, number])`
+
+---
+
+### `IpmEmployerInvoiceLine` → table `ipm_employer_invoice_lines`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | String | no | **PK**, default `cuid()` |
+| `firmId` | String | no |  |
+| `invoiceId` | String | no |  |
+| `memberId` | String | no |  |
+| `matricule` | String | no |  |
+| `memberName` | String | no |  |
+| `monthlyContribution` | Decimal | no | `@db.Decimal(12, 2)` |
+| `employerShare` | Decimal | no | `@db.Decimal(12, 2)` |
+| `employeeShare` | Decimal | no | `@db.Decimal(12, 2)` |
+| `createdAt` | DateTime | no | default `now()` |
+| `ipmServiceCategoryId` | String | yes |  |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
+| `invoice` | `IpmEmployerInvoice` | one | `invoiceId` | Cascade | — |
+| `member` | `Member` | one | `memberId` | — | — |
+| `ipmServiceCategory` | `IpmServiceCategory` | one? | `ipmServiceCategoryId` | — | — |
+
+**Constraints:** `@id` on `id`
+
+---
+
+### `IpmProviderInvoice` → table `ipm_provider_invoices`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | String | no | **PK**, default `cuid()` |
+| `firmId` | String | no |  |
+| `providerId` | String | no |  |
+| `number` | String | no |  |
+| `receivedDate` | DateTime | no |  |
+| `periodFrom` | DateTime | no |  |
+| `periodTo` | DateTime | no |  |
+| `totalAmount` | Decimal | no | `@db.Decimal(14, 2)` |
+| `matchedAmount` | Decimal | no | default `0`, `@db.Decimal(14, 2)` |
+| `status` | IpmProviderInvoiceStatus | no | default `"RECEIVED"` |
+| `origin` | IpmInvoiceOrigin | no | default `"RECEIVED"` |
+| `checkedById` | String | yes |  |
+| `checkedAt` | DateTime | yes |  |
+| `rejectReason` | String | yes |  |
+| `disbursementId` | String | yes |  |
+| `createdAt` | DateTime | no | default `now()` |
+| `updatedAt` | DateTime | no | `@updatedAt` |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
+| `provider` | `IpmProvider` | one | `providerId` | — | — |
+| `checkedBy` | `User` | one? | `checkedById` | — | `IpmProviderInvoiceChecker` |
+| `disbursement` | `IpmDisbursement` | one? | `disbursementId` | — | — |
+| `lines` | `IpmProviderInvoiceLine` | many | — | — | — |
+
+**Constraints:** `@id` on `id` · `@@unique([firmId, providerId, number])`
+
+---
+
+### `IpmProviderInvoiceLine` → table `ipm_provider_invoice_lines`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | String | no | **PK**, default `cuid()` |
+| `firmId` | String | no |  |
+| `invoiceId` | String | no |  |
+| `voucherId` | String | yes |  |
+| `voucherNumber` | String | no |  |
+| `serviceDate` | DateTime | no |  |
+| `beneficiaryName` | String | no |  |
+| `memberMatricule` | String | no |  |
+| `categoryLabel` | String | no |  |
+| `totalAmount` | Decimal | no | `@db.Decimal(12, 2)` |
+| `insurerShare` | Decimal | no | `@db.Decimal(12, 2)` |
+| `memberShare` | Decimal | no | `@db.Decimal(12, 2)` |
+| `createdAt` | DateTime | no | default `now()` |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
+| `invoice` | `IpmProviderInvoice` | one | `invoiceId` | Cascade | — |
+| `voucher` | `IpmVoucher` | one? | `voucherId` | SetNull | — |
+
+**Constraints:** `@id` on `id`
+
+---
+
+### `IpmReimbursement` → table `ipm_reimbursements`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | String | no | **PK**, default `cuid()` |
+| `firmId` | String | no |  |
+| `memberId` | String | no |  |
+| `dependentId` | String | yes |  |
+| `number` | String | no |  |
+| `submittedDate` | DateTime | no |  |
+| `categoryId` | String | no |  |
+| `totalAmount` | Decimal | no | `@db.Decimal(12, 2)` |
+| `insurerShare` | Decimal | no | `@db.Decimal(12, 2)` |
+| `appliedRate` | Decimal | no | `@db.Decimal(5, 4)` |
+| `status` | IpmReimbursementStatus | no | default `"SUBMITTED"` |
+| `reviewedById` | String | yes |  |
+| `reviewedAt` | DateTime | yes |  |
+| `rejectReason` | String | yes |  |
+| `disbursementId` | String | yes |  |
+| `createdAt` | DateTime | no | default `now()` |
+| `updatedAt` | DateTime | no | `@updatedAt` |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
+| `member` | `Member` | one | `memberId` | — | — |
+| `dependent` | `Dependent` | one? | `dependentId` | — | — |
+| `category` | `IpmServiceCategory` | one | `categoryId` | — | — |
+| `reviewedBy` | `User` | one? | `reviewedById` | — | `IpmReimbursementReviewer` |
+| `disbursement` | `IpmDisbursement` | one? | `disbursementId` | — | — |
+
+**Constraints:** `@id` on `id` · `@@unique([firmId, number])`
+
+---
+
+### `IpmDisbursement` → table `ipm_disbursements`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | String | no | **PK**, default `cuid()` |
+| `firmId` | String | no |  |
+| `number` | String | no |  |
+| `date` | DateTime | no |  |
+| `journalCode` | String | no |  |
+| `payeeType` | IpmPayeeType | no |  |
+| `payeeId` | String | yes |  |
+| `payeeName` | String | no |  |
+| `amount` | Decimal | no | `@db.Decimal(14, 2)` |
+| `motif` | String | no |  |
+| `paymentMethod` | IpmPaymentMethod | no |  |
+| `paymentReference` | String | yes |  |
+| `enteredById` | String | yes |  |
+| `approvedById` | String | yes |  |
+| `approvedAt` | DateTime | yes |  |
+| `accountingById` | String | yes |  |
+| `accountingAt` | DateTime | yes |  |
+| `receivedAt` | DateTime | yes |  |
+| `status` | IpmDisbursementStatus | no | default `"DRAFT"` |
+| `createdAt` | DateTime | no | default `now()` |
+| `updatedAt` | DateTime | no | `@updatedAt` |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
+| `enteredBy` | `User` | one? | `enteredById` | — | `IpmDisbursementAuthor` |
+| `approvedBy` | `User` | one? | `approvedById` | — | `IpmDisbursementApprover` |
+| `accountingBy` | `User` | one? | `accountingById` | — | `IpmDisbursementAccountant` |
+| `lines` | `IpmDisbursementLine` | many | — | — | — |
+| `providerInvoices` | `IpmProviderInvoice` | many | — | — | — |
+| `reimbursements` | `IpmReimbursement` | many | — | — | — |
+
+**Constraints:** `@id` on `id` · `@@unique([firmId, number])`
+
+---
+
+### `IpmDisbursementLine` → table `ipm_disbursement_lines`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | String | no | **PK**, default `cuid()` |
+| `firmId` | String | no |  |
+| `disbursementId` | String | no |  |
+| `sourceType` | String | no |  |
+| `sourceId` | String | yes |  |
+| `label` | String | no |  |
+| `amount` | Decimal | no | `@db.Decimal(14, 2)` |
+| `createdAt` | DateTime | no | default `now()` |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
+| `disbursement` | `IpmDisbursement` | one | `disbursementId` | Cascade | — |
+
+**Constraints:** `@id` on `id`
+
+---
+
+### `PortalAccount` → table `ipm_portal_accounts`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | String | no | **PK**, default `cuid()` |
+| `firmId` | String | no |  |
+| `memberId` | String | no | unique |
+| `phone` | String | no |  |
+| `status` | PortalAccountStatus | no | default `"INVITED"` |
+| `activatedAt` | DateTime | yes |  |
+| `lastLoginAt` | DateTime | yes |  |
+| `createdAt` | DateTime | no | default `now()` |
+| `updatedAt` | DateTime | no | `@updatedAt` |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
+| `member` | `Member` | one | `memberId` | Cascade | — |
+| `vouchers` | `IpmVoucher` | many | — | — | — |
+| `notifications` | `PortalNotification` | many | — | — | — |
+
+**Constraints:** `@id` on `id` · `@@unique([firmId, phone])` · `@unique` on `memberId`
+
+---
+
+### `IpmPortalSettings` → table `ipm_portal_settings`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `firmId` | String | no | **PK** |
+| `reviewThresholdAmount` | Decimal | no | default `100000`, `@db.Decimal(12, 2)` |
+| `reviewThresholdRatio` | Decimal | no | default `0.5`, `@db.Decimal(5, 4)` |
+| `unusualAmountMultiple` | Decimal | no | default `3`, `@db.Decimal(5, 2)` |
+| `ocrMismatchTolerance` | Decimal | no | default `0.15`, `@db.Decimal(5, 4)` |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
+
+**Constraints:** `@id` on `firmId`
+
+---
+
+### `PortalNotification` → table `ipm_portal_notifications`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | String | no | **PK**, default `cuid()` |
+| `firmId` | String | no |  |
+| `portalAccountId` | String | no |  |
+| `voucherId` | String | no |  |
+| `kind` | PortalNotificationKind | no |  |
+| `createdAt` | DateTime | no | default `now()` |
+| `readAt` | DateTime | yes |  |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
+| `portalAccount` | `PortalAccount` | one | `portalAccountId` | Cascade | — |
+| `voucher` | `IpmVoucher` | one | `voucherId` | Cascade | — |
+
+**Constraints:** `@id` on `id`
+
+---
+
+### `IpmPortalBooking` → table `ipm_portal_bookings`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | String | no | **PK**, default `cuid()` |
+| `firmId` | String | no |  |
+| `type` | IpmVoucherType | no |  |
+| `serviceTypeId` | String | no |  |
+| `createdAt` | DateTime | no | default `now()` |
+| `updatedAt` | DateTime | no | `@updatedAt` |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `specialties` | `IpmProviderSpecialty` | many | — | — | — |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
+| `serviceType` | `IpmServiceType` | one | `serviceTypeId` | — | — |
+
+**Constraints:** `@id` on `id` · `@@unique([firmId, type])`
+
+---
+
+### `IpmMemberCeiling` → table `ipm_member_ceilings`
+
+| Field | Type | Null | Notes |
+| --- | --- | --- | --- |
+| `id` | String | no | **PK**, default `cuid()` |
+| `firmId` | String | no |  |
+| `memberId` | String | no |  |
+| `categoryId` | String | no |  |
+| `ceilingPerAct` | Decimal | yes | `@db.Decimal(12, 2)` |
+| `ceilingMonthly` | Decimal | yes | `@db.Decimal(12, 2)` |
+| `ceilingAnnual` | Decimal | yes | `@db.Decimal(12, 2)` |
+| `reason` | String | no |  |
+| `validFrom` | DateTime | no |  |
+| `validTo` | DateTime | yes |  |
+| `createdById` | String | yes |  |
+| `createdAt` | DateTime | no | default `now()` |
+| `updatedAt` | DateTime | no | `@updatedAt` |
+
+**Relations**
+
+| Field | Target | Card. | FK | On delete | Relation name |
+| --- | --- | --- | --- | --- | --- |
+| `firm` | `Firm` | one | `firmId` | Cascade | — |
+| `member` | `Member` | one | `memberId` | Cascade | — |
+| `category` | `IpmServiceCategory` | one | `categoryId` | — | — |
+| `createdBy` | `User` | one? | `createdById` | — | `IpmMemberCeilingAuthor` |
 
 **Constraints:** `@id` on `id`
 

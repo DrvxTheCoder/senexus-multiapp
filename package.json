@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit",
     "fonts": "node scripts/build-fonts.mjs",
     "db:seed:dev": "node prisma/seed.dev.mjs",
+    "db:reset:demo": "node scripts/db-reset-demo.mjs",
     "db:migrate": "prisma migrate dev",
     "db:migrate:status": "prisma migrate status",
     "db:migrate:deploy": "prisma migrate deploy",

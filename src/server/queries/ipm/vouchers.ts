@@ -8,7 +8,9 @@ import { searchWhere } from "@/server/queries/search-where"
 import { beneficiaryTypeFor } from "@/server/domain/ipm/coverage"
 import type { IssuanceFacts } from "@/server/domain/ipm/issuance"
 import { tryResolveRate, type RateRow } from "@/server/domain/ipm/rates"
+import { memberCeilingsOn } from "@/server/queries/ipm/ceilings"
 import {
+  VOUCHER_ORIGIN_LABELS,
   VOUCHER_STATUS_LABELS,
   VOUCHER_TYPE_LABELS,
   type VoucherQuery,
@@ -74,7 +76,9 @@ export type IssuanceContext = {
  * decides; `decideIssuance` does, which is what keeps the rules testable.
  */
 export async function gatherIssuanceFacts(
-  ctx: FirmContext,
+  // Only the firm: the portal calls this too, with no session behind it, and
+  // nothing here depends on who is asking.
+  ctx: Pick<FirmContext, "firmId">,
   input: {
     memberId: string
     dependentId: string | null
@@ -176,20 +180,24 @@ export async function gatherIssuanceFacts(
     ? beneficiaryTypeFor(dependent.relation)
     : ("MEMBER" as const)
 
-  const planRates = member.employer.planId
-    ? await client.ipmPlanRate.findMany({
-        where: { firmId: ctx.firmId, planId: member.employer.planId },
-        select: {
-          categoryId: true,
-          beneficiaryType: true,
-          rate: true,
-          ceilingPerAct: true,
-          ceilingMonthly: true,
-          ceilingAnnual: true,
-          waitingPeriodDays: true,
-        },
-      })
-    : []
+  const [planRates, memberCeilings] = await Promise.all([
+    member.employer.planId
+      ? client.ipmPlanRate.findMany({
+          where: { firmId: ctx.firmId, planId: member.employer.planId },
+          select: {
+            categoryId: true,
+            beneficiaryType: true,
+            rate: true,
+            ceilingPerAct: true,
+            ceilingMonthly: true,
+            ceilingAnnual: true,
+            waitingPeriodDays: true,
+          },
+        })
+      : Promise.resolve([]),
+    // The plafonds particuliers in force on the bon's date, not today's.
+    memberCeilingsOn(ctx.firmId, member.id, on, client),
+  ])
 
   const resolved = tryResolveRate({
     categoryId: serviceType.categoryId,
@@ -197,6 +205,7 @@ export async function gatherIssuanceFacts(
     beneficiaryType,
     employerRates: toRateRows(member.employer.rates),
     planRates: toRateRows(planRates),
+    memberCeilings,
   })
 
   const ref = beneficiaryRef(member.id, dependent?.id ?? null)
@@ -230,7 +239,7 @@ export async function gatherIssuanceFacts(
           memberId: member.id,
           dependentId: dependent?.id ?? null,
           categoryId: serviceType.categoryId,
-          status: { notIn: ["CANCELLED", "EXPIRED"] },
+          status: { notIn: ["CANCELLED", "EXPIRED", "REJECTED"] },
         },
         orderBy: { issueDate: "desc" },
         select: { issueDate: true },
@@ -315,6 +324,7 @@ export type VoucherRow = {
   insurerShare: number
   memberShare: number
   appliedRate: number
+  origin: "BACKOFFICE" | "PORTAL"
   /** True when the bon is past its expiry and still in circulation. */
   lapsed: boolean
 }
@@ -336,6 +346,7 @@ function where(q: VoucherQuery, ctx: FirmContext): Prisma.IpmVoucherWhereInput {
 
   if (q.status?.length) clauses.status = { in: q.status }
   if (q.type?.length) clauses.type = { in: q.type }
+  if (q.origin?.length) clauses.origin = { in: q.origin }
   if (q.providerId?.length) clauses.providerId = { in: q.providerId }
   if (q.categoryId?.length) clauses.categoryId = { in: q.categoryId }
   if (q.memberId) clauses.memberId = q.memberId
@@ -383,28 +394,33 @@ async function voucherFacets(
   ctx: FirmContext,
   q: VoucherQuery
 ): Promise<Facets> {
-  const { status: _s, type: _t, providerId: _p, categoryId: _c, ...rest } = q
+  const { status: _s, type: _t, providerId: _p, categoryId: _c, origin: _o, ...rest } = q
 
-  const [byStatus, byType, byProvider, byCategory, providers, categories] =
+  const [byStatus, byType, byProvider, byCategory, byOrigin, providers, categories] =
     await Promise.all([
       db.ipmVoucher.groupBy({
         by: ["status"],
-        where: where({ ...rest, type: q.type, providerId: q.providerId, categoryId: q.categoryId } as VoucherQuery, ctx),
+        where: where({ ...rest, type: q.type, providerId: q.providerId, categoryId: q.categoryId, origin: q.origin } as VoucherQuery, ctx),
         _count: { _all: true },
       }),
       db.ipmVoucher.groupBy({
         by: ["type"],
-        where: where({ ...rest, status: q.status, providerId: q.providerId, categoryId: q.categoryId } as VoucherQuery, ctx),
+        where: where({ ...rest, status: q.status, providerId: q.providerId, categoryId: q.categoryId, origin: q.origin } as VoucherQuery, ctx),
         _count: { _all: true },
       }),
       db.ipmVoucher.groupBy({
         by: ["providerId"],
-        where: where({ ...rest, status: q.status, type: q.type, categoryId: q.categoryId } as VoucherQuery, ctx),
+        where: where({ ...rest, status: q.status, type: q.type, categoryId: q.categoryId, origin: q.origin } as VoucherQuery, ctx),
         _count: { _all: true },
       }),
       db.ipmVoucher.groupBy({
         by: ["categoryId"],
-        where: where({ ...rest, status: q.status, type: q.type, providerId: q.providerId } as VoucherQuery, ctx),
+        where: where({ ...rest, status: q.status, type: q.type, providerId: q.providerId, origin: q.origin } as VoucherQuery, ctx),
+        _count: { _all: true },
+      }),
+      db.ipmVoucher.groupBy({
+        by: ["origin"],
+        where: where({ ...rest, status: q.status, type: q.type, providerId: q.providerId, categoryId: q.categoryId } as VoucherQuery, ctx),
         _count: { _all: true },
       }),
       db.ipmProvider.findMany({
@@ -429,6 +445,11 @@ async function voucherFacets(
     type: byType.map((bucket) => ({
       value: bucket.type,
       label: VOUCHER_TYPE_LABELS[bucket.type] ?? bucket.type,
+      count: bucket._count._all,
+    })),
+    origin: byOrigin.map((bucket) => ({
+      value: bucket.origin,
+      label: VOUCHER_ORIGIN_LABELS[bucket.origin] ?? bucket.origin,
       count: bucket._count._all,
     })),
     provider: byProvider
@@ -475,6 +496,7 @@ export async function listVouchers(
         insurerShare: true,
         memberShare: true,
         appliedRate: true,
+        origin: true,
         member: { select: { matricule: true } },
         provider: { select: { name: true } },
         category: { select: { label: true } },
@@ -500,6 +522,7 @@ export async function listVouchers(
       insurerShare: Number(row.insurerShare),
       memberShare: Number(row.memberShare),
       appliedRate: Number(row.appliedRate),
+      origin: row.origin,
       // Derived, never stored: a bon does not lapse by being written to, it
       // lapses by a date passing.
       lapsed:
@@ -576,6 +599,11 @@ export async function getVoucher(ctx: FirmContext, voucherId: string) {
       cancelledAt: true,
       cancelReason: true,
       qrToken: true,
+      origin: true,
+      receiptUrl: true,
+      reviewFlags: true,
+      reviewReason: true,
+      reviewedAt: true,
       member: {
         select: {
           id: true,

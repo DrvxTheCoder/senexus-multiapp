@@ -13,19 +13,12 @@ import {
 import { ActionError, firmAction } from "@/server/actions/define-action"
 import {
   decideIssuance,
-  expiryFor,
-  formatVoucherNumber,
   type Refusal,
   type Warning,
 } from "@/server/domain/ipm/issuance"
 import { lineTotal } from "@/server/domain/ipm/settlement"
-import { nextVoucherSequence } from "@/server/domain/ipm/sequence"
-import {
-  firmCode,
-  issueToken,
-  verificationSecret,
-} from "@/server/domain/ipm/verification-token"
-import { beneficiaryRef, gatherIssuanceFacts } from "@/server/queries/ipm/vouchers"
+import { cancelVoucherCore, createVoucher } from "@/server/ipm/voucher-writes"
+import { gatherIssuanceFacts } from "@/server/queries/ipm/vouchers"
 
 /**
  * Bons — the write layer.
@@ -283,139 +276,56 @@ export const issueVoucher = firmAction({
     listPath(input.firmSlug),
   ],
   handler: async ({ input, ctx, tx, audit }) => {
-    const issueDate = toDate(input.issueDate)
-    const totalAmount = lineTotal(
-      input.lines.map((line) => ({
-        quantity: line.quantity,
-        unitPrice: line.unitPrice ?? 0,
-      }))
-    )
-
-    const context = await gatherIssuanceFacts(
-      ctx,
+    // Facts, decision, sequence, voucher, lines and consumption: the shared
+    // write path, so the portal issues under exactly the same rules.
+    const created = await createVoucher(
+      tx,
+      { firmId: ctx.firmId, actor: { kind: "user", userId: ctx.userId } },
       {
-        memberId: input.memberId,
-        dependentId: orNull(input.dependentId),
-        providerId: input.providerId,
-        serviceTypeId: input.serviceTypeId,
-        totalAmount,
-        on: issueDate,
-      },
-      tx
-    )
-    if (!context) {
-      throw new ActionError("Participant, prestataire ou prestation introuvable.")
-    }
-
-    // Decided again, here, inside the transaction that writes. The preview the
-    // operator saw may be seconds old, and a plafond can be consumed in that
-    // time by somebody else's bon.
-    const decision = decideIssuance(context.facts)
-
-    if (!decision.allowed) {
-      throw new ActionError(
-        decision.refusals.map((refusal) => refusal.message).join(" "),
-        { _: decision.refusals.map((refusal) => refusal.message) }
-      )
-    }
-
-    // A warning is a decision for a person to take, and taking it is recorded.
-    // What is never possible is proceeding past a *refusal*.
-    if (decision.warnings.length > 0 && !input.acknowledgeWarnings) {
-      throw new ActionError(
-        `${decision.warnings.map((warning) => warning.message).join(" ")} Confirmez pour émettre malgré tout.`,
-        { acknowledgeWarnings: ["Confirmation requise."] }
-      )
-    }
-
-    const sequence = await nextVoucherSequence(tx, ctx.firmId, input.type)
-    const number = formatVoucherNumber(input.type, sequence)
-
-    const voucher = await tx.ipmVoucher.create({
-      data: {
-        firmId: ctx.firmId,
-        number,
         type: input.type,
         memberId: input.memberId,
         dependentId: orNull(input.dependentId),
-        beneficiaryType: context.beneficiaryType,
-        beneficiaryName: context.beneficiaryName,
         providerId: input.providerId,
         serviceTypeId: input.serviceTypeId,
-        categoryId: context.categoryId,
-        issueDate,
-        expiryDate: expiryFor(input.type, issueDate),
-        status: "ISSUED",
-        totalAmount,
-        insurerShare: decision.split.insurerShare,
-        memberShare: decision.split.memberShare,
-        // Frozen. A later edit to a barème must not reprice a bon already in
-        // somebody's hand.
-        appliedRate: context.facts.rate!,
-        rateSource: context.rateSource ?? "PLAN",
-        qrToken: issueToken(
-          {
-            kind: "member",
-            firmCode: firmCode(ctx.firmId),
-            matricule: context.memberMatricule,
-          },
-          verificationSecret()
-        ),
-        issuedById: ctx.userId,
-      },
-      select: { id: true, number: true },
-    })
-
-    await tx.ipmVoucherLine.createMany({
-      data: input.lines.map((line) => ({
-        firmId: ctx.firmId,
-        voucherId: voucher.id,
-        medicalActId: orNull(line.medicalActId),
-        label: line.label,
-        quantity: line.quantity,
-        unitPrice: line.unitPrice ?? 0,
-        amount: Math.round(line.quantity * (line.unitPrice ?? 0)),
-      })),
-    })
-
-    // Consumption is recorded at **issue**, not at settlement. The commitment
-    // is what a plafond has to account for: a bon in circulation is money the
-    // institution has already promised, and leaving it uncounted until the
-    // invoice arrives is how a ceiling is overrun.
-    await tx.ipmConsumption.create({
-      data: {
-        firmId: ctx.firmId,
-        beneficiaryRef: beneficiaryRef(
-          input.memberId,
-          orNull(input.dependentId)
-        ),
-        memberId: input.memberId,
-        categoryId: context.categoryId,
-        periodYear: issueDate.getFullYear(),
-        periodMonth: issueDate.getMonth() + 1,
-        voucherId: voucher.id,
-        amount: totalAmount,
-        insurerShare: decision.split.insurerShare,
-      },
-    })
+        issueDate: toDate(input.issueDate),
+        lines: input.lines.map((line) => ({
+          medicalActId: orNull(line.medicalActId),
+          label: line.label,
+          quantity: line.quantity,
+          unitPrice: line.unitPrice ?? 0,
+        })),
+        // A warning is a decision for a person to take, and taking it is
+        // recorded. What is never possible is proceeding past a *refusal* —
+        // the core has already thrown for those.
+        admit: async ({ decision }) => {
+          if (decision.warnings.length > 0 && !input.acknowledgeWarnings) {
+            throw new ActionError(
+              `${decision.warnings.map((warning) => warning.message).join(" ")} Confirmez pour émettre malgré tout.`,
+              { acknowledgeWarnings: ["Confirmation requise."] }
+            )
+          }
+          return { status: "ISSUED", reviewFlags: [] }
+        },
+      }
+    )
 
     await audit({
       action: "ISSUE_VOUCHER",
       entity: "IPM_VOUCHER",
-      entityId: voucher.id,
+      entityId: created.voucher.id,
       metadata: {
-        number: voucher.number,
+        number: created.voucher.number,
         memberId: input.memberId,
         providerId: input.providerId,
-        totalAmount,
-        insurerShare: decision.split.insurerShare,
-        appliedRate: context.facts.rate,
-        rateSource: context.rateSource,
-        warningsAcknowledged: decision.warnings.map((w) => w.code),
+        totalAmount: created.totalAmount,
+        insurerShare: created.decision.split.insurerShare,
+        appliedRate: created.context.facts.rate,
+        rateSource: created.context.rateSource,
+        warningsAcknowledged: created.decision.warnings.map((w) => w.code),
       },
     })
 
-    return voucher
+    return created.voucher
   },
 })
 
@@ -435,6 +345,12 @@ export const settleVoucher = firmAction({
     }
     if (voucher.status === "SETTLED" || voucher.status === "INVOICED") {
       throw new ActionError("Ce bon est déjà réglé.")
+    }
+    if (voucher.status === "PENDING_REVIEW") {
+      throw new ActionError("Ce bon attend encore sa validation.")
+    }
+    if (voucher.status === "REJECTED") {
+      throw new ActionError("Ce bon a été refusé.")
     }
 
     await tx.ipmVoucher.update({
@@ -470,42 +386,11 @@ export const cancelVoucher = firmAction({
   module: IPM_MODULE,
   revalidate: (input) => listPath(input.firmSlug, "bons"),
   handler: async ({ input, ctx, tx, audit }) => {
-    const voucher = await tx.ipmVoucher.findFirst({
-      where: { id: input.voucherId, firmId: ctx.firmId },
-      select: { id: true, number: true, status: true, insurerShare: true },
-    })
-    if (!voucher) throw new ActionError("Bon introuvable.")
-    if (voucher.status === "CANCELLED") {
-      throw new ActionError("Ce bon est déjà annulé.")
-    }
-    if (voucher.status === "INVOICED") {
-      throw new ActionError(
-        "Ce bon est rattaché à une facture prestataire : il ne peut plus être annulé."
-      )
-    }
-
-    await tx.ipmVoucher.update({
-      where: { id: voucher.id },
-      data: {
-        status: "CANCELLED",
-        cancelledAt: new Date(),
-        cancelReason: input.reason,
-        // Rotated to an already-expired token, so a photographed copy stops
-        // resolving. The matricule is deliberately not the bearer's: this
-        // token exists to fail, and it should carry nothing if it leaks.
-        qrToken: issueToken(
-          {
-            kind: "member",
-            firmCode: firmCode(ctx.firmId),
-            matricule: "00000",
-            expiresAt: 1,
-          },
-          verificationSecret()
-        ),
-      },
-    })
-
-    await tx.ipmConsumption.deleteMany({ where: { voucherId: voucher.id } })
+    const voucher = await cancelVoucherCore(
+      tx,
+      { firmId: ctx.firmId, actor: { kind: "user", userId: ctx.userId } },
+      { voucherId: input.voucherId, reason: input.reason }
+    )
 
     await audit({
       action: "CANCEL_VOUCHER",
@@ -514,7 +399,7 @@ export const cancelVoucher = firmAction({
       metadata: {
         number: voucher.number,
         reason: input.reason,
-        releasedInsurerShare: Number(voucher.insurerShare),
+        releasedInsurerShare: voucher.insurerShare,
       },
     })
 

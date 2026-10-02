@@ -26,6 +26,7 @@ import { ResourceDrawer } from "@/components/resource-drawer"
 import { Button } from "@/components/ui/button"
 import { formatCurrency, formatDate, formatNumber } from "@/lib/format"
 import {
+  VOUCHER_ORIGIN_LABELS,
   VOUCHER_STATUS_LABELS,
   VOUCHER_STATUS_TONES,
   VOUCHER_TYPE_LABELS,
@@ -36,6 +37,7 @@ import {
   voucherSearchParams,
 } from "@/lib/queries/ipm/voucher-params"
 import { settleVoucher } from "@/server/actions/ipm-vouchers"
+import { FLAG_LABELS as REVIEW_FLAG_LABELS_TYPED } from "@/server/domain/ipm/portal-review"
 import { formatRate } from "@/server/domain/ipm/rates"
 import type { VoucherRow, VoucherSummary } from "@/server/queries/ipm/vouchers"
 import type { Paged } from "@/server/queries/types"
@@ -63,6 +65,12 @@ export type OpenVoucher = {
   cancelReason: string | null
   issuedByName: string | null
   settledByName: string | null
+  origin: "BACKOFFICE" | "PORTAL"
+  /** Portal bons only; may be null when the upload was not possible. */
+  receiptUrl: string | null
+  reviewFlags: string[]
+  reviewReason: string | null
+  reviewedAt: Date | null
   lines: {
     id: string
     label: string
@@ -88,6 +96,8 @@ export type OpenVoucher = {
  * The picker, sized for the filter row: auto width and the 29px height the
  * facet buttons use, rather than the 36px full-width the forms want.
  */
+const REVIEW_FLAG_LABELS: Record<string, string> = REVIEW_FLAG_LABELS_TYPED
+
 const FILTER_PICKER =
   "h-[29px]! w-auto min-w-[132px] gap-2 px-2 text-[12.5px] data-[size=default]:h-[29px]"
 
@@ -165,6 +175,18 @@ export function VouchersView({
           page: null,
         }),
     })),
+    ...(params.origin ?? []).map((value) => ({
+      key: `origin:${value}`,
+      label: "Origine",
+      value: VOUCHER_ORIGIN_LABELS[value] ?? value,
+      onRemove: () =>
+        void setParams({
+          origin: (params.origin ?? []).filter((entry) => entry !== value).length
+            ? (params.origin ?? []).filter((entry) => entry !== value)
+            : null,
+          page: null,
+        }),
+    })),
     ...(params.provider ?? []).map((value) => ({
       key: `provider:${value}`,
       label: "Prestataire",
@@ -209,7 +231,12 @@ export function VouchersView({
         enableSorting: true,
         cell: ({ row }) => (
           <div>
-            <TagCode>{row.original.number}</TagCode>
+            <div className="flex items-center gap-1.5">
+              <TagCode>{row.original.number}</TagCode>
+              {row.original.origin === "PORTAL" ? (
+                <StatusPill tone="brand">Portail</StatusPill>
+              ) : null}
+            </div>
             <div className="mt-px text-[11.5px] text-ink-3">
               {VOUCHER_TYPE_LABELS[
                 row.original.type as keyof typeof VOUCHER_TYPE_LABELS
@@ -414,6 +441,17 @@ export function VouchersView({
             }
           />
           <FacetFilter
+            label="Origine"
+            options={page.facets.origin ?? []}
+            selected={params.origin ?? []}
+            onChange={(values) =>
+              void setParams({
+                origin: values.length ? (values as typeof params.origin) : null,
+                page: null,
+              })
+            }
+          />
+          <FacetFilter
             label="Prestataire"
             options={page.facets.provider ?? []}
             selected={params.provider ?? []}
@@ -466,6 +504,7 @@ export function VouchersView({
               q: null,
               status: null,
               type: null,
+              origin: null,
               provider: null,
               category: null,
               member: null,
@@ -549,9 +588,20 @@ export function VouchersView({
                 </>
               ) : (
                 <span className="text-[12.5px] text-ink-3">
-                  {open.status === "CANCELLED"
-                    ? `Annulé — ${open.cancelReason ?? "sans motif"}`
-                    : "Aucune action disponible à ce stade."}
+                  {open.status === "CANCELLED" ? (
+                    `Annulé — ${open.cancelReason ?? "sans motif"}`
+                  ) : open.status === "REJECTED" ? (
+                    `Refusé — ${open.reviewReason ?? "sans motif"}`
+                  ) : open.status === "PENDING_REVIEW" ? (
+                    <Link
+                      href={`/${firmSlug}/ipm/validations`}
+                      className="text-brand hover:underline"
+                    >
+                      En attente de validation — ouvrir la file
+                    </Link>
+                  ) : (
+                    "Aucune action disponible à ce stade."
+                  )}
                 </span>
               )}
             </div>
@@ -595,13 +645,53 @@ function VoucherDetail({
         <Fact label="Catégorie">{voucher.categoryLabel}</Fact>
         <Fact label="Émis le">{formatDate(voucher.issueDate)}</Fact>
         <Fact label="Valable jusqu'au">{formatDate(voucher.expiryDate)}</Fact>
-        <Fact label="Émis par">{voucher.issuedByName ?? "—"}</Fact>
+        <Fact label="Émis par">
+          {voucher.origin === "PORTAL"
+            ? "Le participant, sur le portail"
+            : (voucher.issuedByName ?? "—")}
+        </Fact>
         <Fact label="Réglé par">
           {voucher.settledByName
             ? `${voucher.settledByName} · ${formatDate(voucher.settledAt)}`
             : "—"}
         </Fact>
       </dl>
+
+      {voucher.origin === "PORTAL" ? (
+        <div className="flex items-start gap-3 rounded-[7px] border border-line p-3">
+          {voucher.receiptUrl ? (
+            // A plain <img>, as for participant photos: the Zipline host comes
+            // from an environment variable and cannot be allow-listed at build.
+            <a href={voucher.receiptUrl} target="_blank" rel="noreferrer" className="shrink-0">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={voucher.receiptUrl}
+                alt={`Reçu du bon ${voucher.number}`}
+                className="h-24 w-20 rounded-[5px] border border-line object-cover"
+              />
+            </a>
+          ) : (
+            <div className="grid h-24 w-20 shrink-0 place-items-center rounded-[5px] border border-dashed border-line text-center text-[11px] text-ink-3">
+              Reçu indisponible
+            </div>
+          )}
+          <div className="min-w-0 text-[12.5px]">
+            <p className="font-medium">Émis depuis le portail</p>
+            {voucher.reviewFlags.length ? (
+              <ul className="mt-1 space-y-0.5 text-ink-2">
+                {voucher.reviewFlags.map((flag) => (
+                  <li key={flag}>• {REVIEW_FLAG_LABELS[flag] ?? flag}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-1 text-ink-3">Aucun signalement.</p>
+            )}
+            {voucher.reviewedAt ? (
+              <p className="mt-1 text-ink-3">Vu le {formatDate(voucher.reviewedAt)}</p>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       <div className="rounded-[7px] border border-line">
         <div className="border-b border-line bg-sub px-3 py-1.5 text-[11.5px] text-ink-3">

@@ -5,6 +5,7 @@ import { MemberRecordView } from "@/app/[firmSlug]/ipm/participants/[memberId]/m
 import { TopBar } from "@/components/shell/top-bar"
 import { requireFirmPage } from "@/server/auth/firm-page"
 import { employerOptions } from "@/server/queries/ipm/employers"
+import { coverageFor } from "@/server/queries/ipm/ceilings"
 import { getMemberRecord } from "@/server/queries/ipm/member-record"
 import { roleAtLeast } from "@/types/auth"
 
@@ -26,6 +27,11 @@ export default async function MemberPage({
   // health data (§7).
   if (!record) notFound()
 
+  // Resolved through the same function issuance uses, with the plafonds
+  // particuliers in force today.
+  const coverage =
+    (await coverageFor(ctx, { employerId: record.employer.id, memberId: record.id })) ?? []
+
   return (
     <>
       <TopBar
@@ -43,6 +49,7 @@ export default async function MemberPage({
           <MemberRecordView
             firmSlug={firmSlug}
             record={record}
+            coverage={coverage}
             employers={employers}
             canWrite={roleAtLeast(ctx.role, "MANAGER")}
           />

@@ -251,6 +251,12 @@ const DOCUMENT_TYPES = [
   "DIPLOMA", "PAYSLIP", "LEGAL_DOCUMENT",
 ]
 
+/** Distinguishes this run's uploads from the previous run's, on Zipline. */
+const SEED_RUN = Date.now().toString(36)
+
+/** Filled by the portal section, printed at the very end. */
+const portalDemo = []
+
 async function main() {
   console.log("Seeding local development data…\n")
 
@@ -344,9 +350,14 @@ async function main() {
   await db.ipmEmployerInvoiceLine.deleteMany({ where: { firmId: ipmFirm.id } })
   await db.ipmEmployerInvoice.deleteMany({ where: { firmId: ipmFirm.id } })
   await db.ipmLedgerEntry.deleteMany({ where: { firmId: ipmFirm.id } })
+  await db.portalNotification.deleteMany({ where: { firmId: ipmFirm.id } })
   await db.ipmConsumption.deleteMany({ where: { firmId: ipmFirm.id } })
   await db.ipmVoucherLine.deleteMany({ where: { firmId: ipmFirm.id } })
   await db.ipmVoucher.deleteMany({ where: { firmId: ipmFirm.id } })
+  await db.portalAccount.deleteMany({ where: { firmId: ipmFirm.id } })
+  await db.ipmMemberCeiling.deleteMany({ where: { firmId: ipmFirm.id } })
+  await db.ipmPortalBooking.deleteMany({ where: { firmId: ipmFirm.id } })
+  await db.ipmPortalSettings.deleteMany({ where: { firmId: ipmFirm.id } })
   await db.ipmAgreement.deleteMany({ where: { firmId: ipmFirm.id } })
   await db.ipmProviderBranch.deleteMany({ where: { firmId: ipmFirm.id } })
   await db.ipmProvider.deleteMany({ where: { firmId: ipmFirm.id } })
@@ -1142,6 +1153,16 @@ async function main() {
   ]
 
   const VALID_FROM = new Date("2026-01-01T00:00:00.000Z")
+
+  // Plafonds de la formule, on the categories the flyer prices — the same for
+  // every formule. Optique and hospitalisation carry no rate (see above), and a
+  // plafond lives on a rate row, so theirs wait for the real barème too.
+  // FCFA, insurer share: what a plafond counts is the IPM's part (§4.7).
+  const PLAN_CEILINGS = {
+    PHARMACIE: { ceilingMonthly: 200_000, ceilingAnnual: 1_500_000 },
+    SOINS: { ceilingMonthly: 300_000, ceilingAnnual: 2_000_000 },
+    CONSULTATION: { ceilingPerAct: 25_000, ceilingAnnual: 300_000 },
+  }
   const planIdByCode = {}
   let rateCount = 0
 
@@ -1171,6 +1192,7 @@ async function main() {
           // `delai_suspension_optique` = 730 applies to optique, which has no
           // rate yet, so nothing here carries a carence.
           waitingPeriodDays: 0,
+          ...(PLAN_CEILINGS[categoryCode] ?? {}),
         },
       })
       rateCount += 1
@@ -1777,6 +1799,345 @@ async function main() {
   await createInBatches(db.ipmVoucherLine, lineRows)
   await createInBatches(db.ipmConsumption, consumptionRows)
 
+  totals.ipmVouchers = voucherCount
+  console.log(
+    `  ${voucherCount} bons, ${lineRows.length} lignes, ${consumptionCount} lignes de consommation`
+  )
+
+  // ---- IPM: portail participant -------------------------------------------
+  // Four families get a portal account, and their bons cover every state the
+  // validation queue and the portal have to show. Two rules hold throughout:
+  //
+  //   - **no RNG draw.** Everything after this block (the register, the
+  //     disbursements) is driven by `rnd`, so one extra draw here would shift
+  //     the whole rest of the seed;
+  //   - **consumption follows status**, as the API writes it: PENDING_REVIEW
+  //     and ISSUED reserve their share, REJECTED and CANCELLED hold nothing.
+  //
+  // Dates are relative to the real clock rather than `TODAY`: these bons are
+  // what a demo opens on, and a pending bon "from last month" or an ISSUED one
+  // already past its expiry is not what a fresh queue looks like.
+  console.log("\nPortail participant")
+
+  await db.ipmPortalSettings.create({ data: { firmId: ipmFirm.id } })
+
+  // What each type of bon books against on the portal, and which provider
+  // specialties may receive it. Configuration rows, like the barème: the
+  // portal and the API both read them, neither hard-codes them. Optique and
+  // hospitalisation have no rate in this seed (see the barème above), so a
+  // portal bon of either is refused with NO_RATE — offered, but honest.
+  const PORTAL_BOOKINGS = [
+    ["PHARMACY", "Pharmacie — médicaments", ["Pharmacie"]],
+    ["OPTICAL", "Optique — monture et verres", ["Optique"]],
+    ["GUARANTEE", "Analyses de laboratoire", ["Clinique", "Laboratoire", "Médecine générale"]],
+    ["HOSPITALIZATION", "Hospitalisation médicale", ["Clinique"]],
+  ]
+  for (const [type, serviceLabel, specialtyLabels] of PORTAL_BOOKINGS) {
+    const serviceType = serviceTypes.find((s) => s.label === serviceLabel)
+    if (!serviceType) continue
+    await db.ipmPortalBooking.create({
+      data: {
+        firmId: ipmFirm.id,
+        type,
+        serviceTypeId: serviceType.id,
+        specialties: {
+          connect: specialtyLabels
+            .map((label) => specialtyByLabel[label])
+            .filter(Boolean)
+            .map((id) => ({ id })),
+        },
+      },
+    })
+  }
+
+  const portalNow = new Date()
+  const hoursAgo = (hours) => new Date(portalNow.getTime() - hours * 3_600_000)
+  const nationalPhone = (raw) => {
+    const digits = (raw ?? "").replace(/\D/g, "")
+    return digits.startsWith("221") && digits.length === 12 ? digits.slice(3) : digits
+  }
+
+  const portalFamilies = []
+  for (const member of activeMembers) {
+    if (portalFamilies.length === 4) break
+    if (member.dependents.length === 0) continue
+    if (!rateFor(member, categoryIdByCode.PHARMACIE, "MEMBER")) continue
+    if (!rateFor(member, categoryIdByCode.SOINS, member.dependents[0].relation)) continue
+    portalFamilies.push(member)
+  }
+
+  const portalAccounts = []
+  for (const member of portalFamilies) {
+    const { person, employerId } = await db.member.findUnique({
+      where: { id: member.id },
+      select: { employerId: true, person: { select: { phone: true } } },
+    })
+    const account = await db.portalAccount.create({
+      data: {
+        firmId: ipmFirm.id,
+        memberId: member.id,
+        phone: nationalPhone(person.phone),
+        status: "ACTIVE",
+        activatedAt: hoursAgo(24 * 20),
+      },
+      select: { id: true, phone: true },
+    })
+    portalAccounts.push({ ...account, member: { ...member, employerId } })
+
+    // Up to date on cotisations. The rest of the seed leaves most families
+    // months behind — issuance reads "paid through" as the start of the open
+    // contribution period — so without this every bon a demo family asks for
+    // would be refused. The open period is closed today and reopened today,
+    // same amount and formule, the way a renewal is recorded.
+    const startOfToday = new Date(portalNow.getFullYear(), portalNow.getMonth(), portalNow.getDate())
+    const open = await db.ipmMemberContribution.findFirst({
+      where: { firmId: ipmFirm.id, memberId: member.id, validTo: null },
+      orderBy: { validFrom: "desc" },
+      select: { id: true, planId: true, monthlyAmount: true },
+    })
+    if (open) {
+      await db.ipmMemberContribution.update({
+        where: { id: open.id },
+        data: { validTo: startOfToday },
+      })
+      await db.ipmMemberContribution.create({
+        data: {
+          firmId: ipmFirm.id,
+          memberId: member.id,
+          planId: open.planId,
+          monthlyAmount: open.monthlyAmount,
+          validFrom: startOfToday,
+          reason: "Cotisations à jour (démo portail)",
+          createdById: owner.id,
+        },
+      })
+    }
+  }
+
+  const providerNamed = (name) => providers.find((p) => p.name === name)
+  const serviceTypeLabelled = (label) => serviceTypes.find((s) => s.label === label)
+  const pharmacy = serviceTypeLabelled("Pharmacie — médicaments")
+  const lab = serviceTypeLabelled("Analyses de laboratoire")
+
+  // `account` indexes portalAccounts; `who` is null for the participant, or
+  // the index of an ayant droit.
+  const PORTAL_BONS = [
+    {
+      account: 0, who: 0, type: "GUARANTEE", serviceType: lab, provider: "Clinique du Cap",
+      hours: 5, status: "PENDING_REVIEW", flags: ["ABOVE_THRESHOLD"],
+      lines: [["Bilan pré-opératoire complet", 1, 145_000], ["Échographie abdominale", 1, 40_000]],
+    },
+    {
+      account: 1, who: null, type: "PHARMACY", serviceType: pharmacy, provider: "Pharmacie du Point E",
+      hours: 3, status: "PENDING_REVIEW", flags: ["ISSUANCE_WARNING"],
+      // No lines: the participant only had the receipt total.
+      lines: [], total: 23_500,
+    },
+    {
+      account: 1, who: 0, type: "PHARMACY", serviceType: pharmacy, provider: "Pharmacie Guédiawaye",
+      hours: 26, status: "ISSUED", flags: ["AMOUNT_UNUSUAL"],
+      lines: [["Insuline glargine (stylo x5)", 1, 48_500], ["Bandelettes glycémie (50)", 1, 14_000]],
+    },
+    {
+      account: 2, who: null, type: "PHARMACY", serviceType: pharmacy, provider: "Pharmacie du Point E",
+      hours: 50, status: "ISSUED", flags: ["SAME_DAY_DUPLICATE"], reviewed: true,
+      lines: [["Amoxicilline 1 g (boîte de 14)", 1, 4_850], ["Paracétamol 500 mg", 2, 1_200]],
+    },
+    {
+      account: 2, who: 0, type: "GUARANTEE", serviceType: lab, provider: "Clinique du Cap",
+      hours: 72, status: "REJECTED", flags: ["ABOVE_THRESHOLD", "OCR_MISMATCH"],
+      reason: "Le montant saisi ne correspond pas au reçu (98 500 F lus). Refaites la demande avec le bon total.",
+      lines: [["Analyses de laboratoire", 1, 165_000]],
+    },
+    {
+      account: 3, who: null, type: "PHARMACY", serviceType: pharmacy, provider: "Pharmacie Guédiawaye",
+      hours: 30, status: "CANCELLED", flags: [],
+      cancelReason: "Ordonnance finalement non délivrée.",
+      lines: [["Sirop antitussif", 1, 3_900], ["Doliprane enfant 2,4 %", 1, 2_150]],
+    },
+  ]
+
+  let portalVoucherCount = 0
+  let receiptCount = 0
+  for (const [index, spec] of PORTAL_BONS.entries()) {
+    const account = portalAccounts[spec.account]
+    if (!account || !spec.serviceType) continue
+    const { member } = account
+    const dependent = spec.who === null ? null : member.dependents[spec.who]
+    const beneficiaryType = dependent ? dependent.relation : "MEMBER"
+    const resolved = rateFor(member, spec.serviceType.categoryId, beneficiaryType)
+    const provider = providerNamed(spec.provider)
+    if (!resolved || !provider) continue
+
+    const lines = spec.lines.length
+      ? spec.lines.map(([label, quantity, unitPrice]) => ({ label, quantity, unitPrice }))
+      : // What the API writes for a total with no lines: one global line.
+        [{ label: "Montant global du reçu", quantity: 1, unitPrice: spec.total }]
+    const totalAmount = lines.reduce((sum, l) => sum + l.quantity * l.unitPrice, 0)
+    const insurerShare = Math.ceil(totalAmount * resolved.rate)
+    const memberShare = totalAmount - insurerShare
+
+    sequences[spec.type] += 1
+    const number = `${PREFIX[spec.type]}${String(sequences[spec.type]).padStart(6, "0")}`
+    const issueDate = hoursAgo(spec.hours)
+    const voucherId = `seed_ipm_portal_voucher_${index}`
+    const clientRequestId = `seed-portal-${index}`
+    const beneficiaryName = dependent
+      ? `${dependent.person.lastName.toUpperCase()} ${dependent.person.firstName}`
+      : `${member.person.lastName.toUpperCase()} ${member.person.firstName}`
+
+    const receiptUrl = await seedReceipt(clientRequestId, {
+      provider: provider.name,
+      date: issueDate,
+      lines,
+      total: totalAmount,
+    })
+    if (receiptUrl) receiptCount += 1
+
+    const reviewed = spec.reviewed || spec.status === "REJECTED"
+    const closedAt = hoursAgo(spec.hours - 2)
+    await db.ipmVoucher.create({
+      data: {
+        id: voucherId,
+        firmId: ipmFirm.id,
+        number,
+        type: spec.type,
+        memberId: member.id,
+        dependentId: dependent?.id ?? null,
+        beneficiaryType,
+        beneficiaryName,
+        providerId: provider.id,
+        serviceTypeId: spec.serviceType.id,
+        categoryId: spec.serviceType.categoryId,
+        issueDate,
+        expiryDate: addDays(issueDate, 30),
+        status: spec.status,
+        totalAmount,
+        insurerShare,
+        memberShare,
+        appliedRate: resolved.rate,
+        rateSource: resolved.source,
+        qrToken: `seed.${voucherId}.0.seed`,
+        issuedById: null,
+        cancelledAt: spec.status === "CANCELLED" ? closedAt : null,
+        cancelReason: spec.cancelReason ?? null,
+        origin: "PORTAL",
+        issuedByPortalAccountId: account.id,
+        entryMode: spec.lines.length ? "SCAN" : "MANUAL",
+        receiptUrl,
+        ocrTotal: spec.flags.includes("OCR_MISMATCH") ? 98_500 : null,
+        reviewFlags: spec.flags,
+        reviewedById: reviewed ? owner.id : null,
+        reviewedAt: reviewed ? closedAt : null,
+        reviewReason: spec.reason ?? null,
+        clientRequestId,
+        lines: {
+          create: lines.map((line) => ({
+            firmId: ipmFirm.id,
+            label: line.label,
+            quantity: line.quantity,
+            unitPrice: line.unitPrice,
+            amount: line.quantity * line.unitPrice,
+          })),
+        },
+      },
+    })
+
+    if (spec.status === "PENDING_REVIEW" || spec.status === "ISSUED") {
+      await db.ipmConsumption.create({
+        data: {
+          firmId: ipmFirm.id,
+          beneficiaryRef: dependent ? `dependent:${dependent.id}` : `member:${member.id}`,
+          memberId: member.id,
+          categoryId: spec.serviceType.categoryId,
+          periodYear: issueDate.getFullYear(),
+          periodMonth: issueDate.getMonth() + 1,
+          voucherId,
+          amount: totalAmount,
+          insurerShare,
+        },
+      })
+    }
+
+    // A refusal reaches the participant in the same write that makes it.
+    if (spec.status === "REJECTED") {
+      await db.portalNotification.create({
+        data: {
+          firmId: ipmFirm.id,
+          portalAccountId: account.id,
+          voucherId,
+          kind: "VOUCHER_REJECTED",
+          createdAt: closedAt,
+        },
+      })
+    }
+    portalVoucherCount += 1
+  }
+
+  // ---- the three plafond levels, one family each ---------------------------
+  // Family 0 gets a plafond particulier, family 1's employer a dérogation;
+  // 2 and 3 keep the formule's. Pharmacie in all cases, so the portal's
+  // "Il vous reste" shows three different monthly figures for one category.
+  const ceilingLevel = portalAccounts.map(() => "Formule")
+  const pharmacieId = categoryIdByCode.PHARMACIE
+  const memberFamily = portalAccounts[0]
+  if (memberFamily) {
+    await db.ipmMemberCeiling.create({
+      data: {
+        firmId: ipmFirm.id,
+        memberId: memberFamily.member.id,
+        categoryId: pharmacieId,
+        ceilingMonthly: 350_000,
+        reason: "Traitement chronique (diabète) — décision du conseil du 15/09/2026.",
+        validFrom: new Date("2026-09-15T00:00:00.000Z"),
+        createdById: owner.id,
+      },
+    })
+    ceilingLevel[0] = "Particulier : pharmacie 350 000/mois"
+  }
+  const employerFamily = portalAccounts[1]
+  if (employerFamily && employerFamily.member.employerId !== memberFamily?.member.employerId) {
+    const resolved = rateFor(employerFamily.member, pharmacieId, "MEMBER")
+    if (resolved) {
+      // Same taux as the formule: a dérogation that only raises the monthly
+      // plafond, for every participant of this employer.
+      await db.ipmEmployerRate.upsert({
+        where: {
+          employerId_categoryId_beneficiaryType: {
+            employerId: employerFamily.member.employerId,
+            categoryId: pharmacieId,
+            beneficiaryType: "ALL",
+          },
+        },
+        update: { ceilingMonthly: 300_000 },
+        create: {
+          firmId: ipmFirm.id,
+          employerId: employerFamily.member.employerId,
+          categoryId: pharmacieId,
+          beneficiaryType: "ALL",
+          rate: resolved.rate,
+          ceilingMonthly: 300_000,
+        },
+      })
+      ceilingLevel[1] = "Employeur : pharmacie 300 000/mois"
+    }
+  }
+
+  portalDemo.push(
+    ...portalAccounts.map((account, index) => ({
+      phone: account.phone,
+      matricule: account.member.matricule,
+      participant: `${account.member.person.lastName.toUpperCase()} ${account.member.person.firstName}`,
+      plafonds: index < 2 ? ceilingLevel[index] : "Formule : pharmacie 200 000/mois",
+    }))
+  )
+  totals.portalAccounts = portalAccounts.length
+  totals.portalVouchers = portalVoucherCount
+  console.log(
+    `  ${portalAccounts.length} comptes portail, ${portalVoucherCount} bons portail, ${receiptCount} reçus téléversés` +
+      (receiptCount === 0 ? " (pas de Zipline : receiptUrl laissé vide)" : "")
+  )
+
   // The sequences continue where the fixtures stopped, so the first bon issued
   // through the application does not collide with a seeded one.
   for (const [type, value] of Object.entries(sequences)) {
@@ -1788,10 +2149,6 @@ async function main() {
     })
   }
 
-  totals.ipmVouchers = voucherCount
-  console.log(
-    `  ${voucherCount} bons, ${lineRows.length} lignes, ${consumptionCount} lignes de consommation`
-  )
 
 
   // ---- IPM: registre participant -----------------------------------------
@@ -2275,6 +2632,76 @@ async function main() {
       password: "senexus-dev",
     },
   ])
+
+  console.log("\nPortail participant — comptes de démonstration (code : DEMO_OTP) :")
+  console.table(portalDemo)
+}
+
+/**
+ * A receipt photo for a seeded portal bon.
+ *
+ * Rendered from SVG with sharp and uploaded to Zipline under the key shape the
+ * API uses (`ipm/receipts/{clientRequestId}`). The name rules mirror
+ * `src/server/storage/zipline.ts` — flattened, no extension — because this
+ * Zipline build rejects anything else, and a plain .mjs cannot import that
+ * module. Without ZIPLINE_URL / ZIPLINE_TOKEN, or on any failure, it returns
+ * null and the bon is seeded without a receipt, which every screen tolerates.
+ */
+async function seedReceipt(clientRequestId, { provider, date, lines, total }) {
+  const base = process.env.ZIPLINE_URL?.replace(/\/$/, "")
+  const token = process.env.ZIPLINE_TOKEN
+  if (!base || !token) return null
+
+  try {
+    const { default: sharp } = await import("sharp")
+    const esc = (text) =>
+      String(text).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c])
+    const money = (n) => `${String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, " ")} F`
+    const rows = lines
+      .map(
+        (line, i) =>
+          `<text x="30" y="${190 + i * 44}" font-size="19">${esc(line.label)}</text>` +
+          `<text x="30" y="${210 + i * 44}" font-size="14" fill="#555">${line.quantity} x ${money(line.unitPrice)}</text>` +
+          `<text x="490" y="${190 + i * 44}" font-size="19" text-anchor="end">${money(line.quantity * line.unitPrice)}</text>`
+      )
+      .join("")
+    const height = 300 + lines.length * 44
+    const when = date.toLocaleString("fr-FR", { timeZone: "Africa/Dakar" })
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="520" height="${height}" font-family="Courier New, DejaVu Sans Mono, monospace">
+      <rect width="100%" height="100%" fill="#fbfaf6"/>
+      <text x="260" y="60" font-size="24" font-weight="bold" text-anchor="middle">${esc(provider.toUpperCase())}</text>
+      <text x="260" y="92" font-size="15" text-anchor="middle" fill="#555">Dakar - Senegal</text>
+      <text x="260" y="130" font-size="15" text-anchor="middle">${esc(when)}</text>
+      <line x1="30" x2="490" y1="150" y2="150" stroke="#333" stroke-dasharray="4 4"/>
+      ${rows}
+      <line x1="30" x2="490" y1="${height - 90}" y2="${height - 90}" stroke="#333" stroke-dasharray="4 4"/>
+      <text x="30" y="${height - 55}" font-size="22" font-weight="bold">TOTAL</text>
+      <text x="490" y="${height - 55}" font-size="22" font-weight="bold" text-anchor="end">${money(total)}</text>
+      <text x="260" y="${height - 20}" font-size="13" text-anchor="middle" fill="#777">Merci de votre visite</text>
+    </svg>`
+    const png = await sharp(Buffer.from(svg)).png().toBuffer()
+
+    const body = new FormData()
+    body.append("file", new Blob([png], { type: "image/png" }), `${clientRequestId}.png`)
+    const response = await fetch(`${base}/api/upload`, {
+      method: "POST",
+      // Zipline refuses a name it already holds, and every seed run uploads
+      // again — so the name carries this run's stamp.
+      headers: { Authorization: token, "x-zipline-filename": `ipm_receipts_${clientRequestId}_${SEED_RUN}` },
+      body,
+    })
+    if (!response.ok) {
+      console.warn(`  reçu ${clientRequestId} refusé par Zipline (${response.status}) — sans reçu`)
+      return null
+    }
+    const payload = await response.json()
+    const first = payload.files?.[0]
+    const url = typeof first === "string" ? first : first?.url
+    return url ? url.replace(/^http:\/\//, "https://") : null
+  } catch (error) {
+    console.warn(`  reçu ${clientRequestId} non téléversé (${error.message}) — sans reçu`)
+    return null
+  }
 }
 
 /** createMany in chunks, so a large seed does not build one enormous statement. */

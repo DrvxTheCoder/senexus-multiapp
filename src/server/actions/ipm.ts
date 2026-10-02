@@ -863,6 +863,7 @@ export const setEmployerRate = firmAction({
   revalidate: (input) => [
     listPath(input.firmSlug, "formules"),
     listPath(input.firmSlug, "employeurs"),
+    listPath(input.firmSlug, "employeurs", input.employerId),
   ],
   handler: async ({ input, ctx, tx, audit }) => {
     const [employer, category] = await Promise.all([
@@ -926,7 +927,10 @@ export const removeEmployerRate = firmAction({
   input: removeEmployerRateSchema,
   minimumRole: "MANAGER",
   module: IPM_MODULE,
-  revalidate: (input) => listPath(input.firmSlug, "formules"),
+  revalidate: (input) => [
+    listPath(input.firmSlug, "formules"),
+    listPath(input.firmSlug, "employeurs"),
+  ],
   handler: async ({ input, ctx, tx, audit }) => {
     const rate = await tx.ipmEmployerRate.findFirst({
       where: { id: input.rateId, firmId: ctx.firmId },

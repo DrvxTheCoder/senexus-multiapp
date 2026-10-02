@@ -102,6 +102,11 @@ async function VouchersPanel({
               issuedByName: open.issuedBy?.name ?? open.issuedBy?.email ?? null,
               settledByName:
                 open.settledBy?.name ?? open.settledBy?.email ?? null,
+              origin: open.origin,
+              receiptUrl: open.receiptUrl,
+              reviewFlags: open.reviewFlags,
+              reviewReason: open.reviewReason,
+              reviewedAt: open.reviewedAt,
               lines: open.lines.map((line) => ({
                 id: line.id,
                 label: line.label,

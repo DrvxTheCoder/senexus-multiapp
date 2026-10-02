@@ -537,3 +537,110 @@ The report accounts for the **whole file**: rows in the file, rows retained,
 rows not retained and by line number. A report that silently omits what it never
 attempted cannot be reconciled against the spreadsheet it came from.
 
+---
+
+## Q23 — Who is the actor when a participant writes? · `ASSUMED` — nobody in `AuditLog`, for now
+
+`AuditLog.actorId` is a required `User`, and a participant is a `PortalAccount`, deliberately not a
+User (no `UserFirm`, no route into the back office). Making `actorId` nullable or polymorphic is a
+schema change to the one table every module writes, so it is **not done**.
+
+What stands in for the trail meanwhile:
+
+- **portal-side writes** (issue from the portal, cancel from the portal) write no `AuditLog` row.
+  The voucher row itself records who and when: `origin = PORTAL`, `issuedByPortalAccountId`,
+  `createdAt`, and for a cancellation `cancelledAt` + `cancelReason`;
+- **back-office review** (Valider, Refuser, Marquer comme vu) is done by a User and is audited
+  normally, inside the transaction that writes it (`APPROVE_PORTAL_VOUCHER`,
+  `REJECT_PORTAL_VOUCHER`, `ACKNOWLEDGE_PORTAL_VOUCHER`).
+
+To decide: whether `AuditLog` grows a nullable `portalAccountId` (with a check that exactly one of
+the two actors is set), or the portal gets its own log table.
+
+---
+
+## Q24 — The receipt checks are computed by the portal · `ASSUMED` — trusted for now
+
+`receiptHash` (the dHash behind `RECEIPT_REUSED`) and `ocrTotal` (behind `OCR_MISMATCH`) arrive in
+the submission from the portal, which computes them in the participant's browser. The API stores and
+uses them as sent. A participant who edits the request can therefore suppress both flags.
+
+This is acceptable for the demo because neither flag can *issue* anything: they only add a reason for
+the gestionnaire to look. Before production, the server should recompute the hash from the uploaded
+bytes (sharp is already a dependency) and either re-run the OCR or treat `ocrTotal` as advisory only.
+
+---
+
+## Q25 — Which prestation does a portal bon book against? · `DECIDED` — `IpmPortalBooking`, per IPM
+
+The prototype mapped a bon *type* to hard-coded mock ids (`VOUCHER_TYPE_BOOKING`,
+`VOUCHER_TYPE_SPECIALTIES`). Nothing is hard-coded now, on either side: each IPM has one
+`IpmPortalBooking` row per type it offers on the portal — the prestation it books against (and so the
+category whose rate and ceilings apply) and the provider specialties allowed to receive it.
+
+- The snapshot carries them as `bookings`; the portal reads its choices from there.
+- The draft carries **no** prestation id. The server resolves it from `type` at submission, inside the
+  transaction, and refuses a provider without an allowed specialty (`PROVIDER_NOT_ELIGIBLE`) or a type
+  with no booking (`TYPE_UNAVAILABLE`).
+- The seed creates the rows. There is no back-office screen to edit them yet — to decide: under
+  Référentiel, or with the portal settings.
+- One prestation per type is a simplification: a lettre de garantie covers consultations and
+  analyses alike. If that matters, the booking grows a list of prestations and the participant picks one.
+
+---
+
+## Q26 — `pnpm db:reset:demo` and AI agents · `FYI`
+
+Prisma 6 refuses `prisma migrate reset` when it detects it was started by an AI agent, unless the
+user's explicit consent is passed in an environment variable. The script is meant to be run by a
+person; it was verified here by building the demo database with `migrate deploy` + the seed on an
+empty database instead, which is the state a reset produces.
+
+---
+
+## Q27 — `IpmVoucher.qrToken` was unique · `DECIDED` — the constraint is dropped
+
+Since 897d28a a bon's QR token identifies the **bearer** (firm code, matricule, expiry day), not the
+bon. So two bons for the same participant issued the same day carry the same token, and every
+cancelled bon carries the same expired "dead" token. With `qrToken @unique`, the second such bon
+failed with a 500 — in the back office as much as on the portal — and only one bon per firm could
+ever be cancelled.
+
+Nothing looks a bon up by its token: the PDF prints it, and `/v/{token}` resolves the bearer by
+matricule. Migration `20261002150000_drop_voucher_qr_token_unique` drops the unique index; the token
+format, the cards, the PDF and the verification page are unchanged.
+
+---
+
+## Q28 — Receipt storage key · `FYI` — `ipm/receipts/{clientRequestId}-{6 hex}`
+
+Zipline refuses an upload whose name it already holds. With the bare `{clientRequestId}` as the
+name, a submission whose upload succeeded but whose transaction then failed could never be retried:
+the retry carries the same request id, and its upload is refused forever. The name therefore gets a
+short random suffix. The orphaned first file is the accepted cost.
+
+---
+
+## Q29 — Plafonds at three levels · `DECIDED` — participant > employeur > formule, field by field
+
+Ceilings (`ceilingPerAct`, `ceilingMonthly`, `ceilingAnnual`) now resolve **each on its own**, most
+specific first: plafond particulier (`IpmMemberCeiling`) > employer dérogation for the exact type >
+employer `ALL` > formule for the exact type > formule `ALL`. The taux is unchanged: still the first
+of employer exact > employer `ALL` > formule exact > formule `ALL`, and a participant never has one.
+One implementation, `resolveRate`, used by issuance, the review threshold, the participant record,
+the employer page and the portal snapshot (`Db.ceilings`).
+
+Decided, and worth knowing:
+
+- **A null plafond at any level means "inherit".** Before this, an employer dérogation row replaced
+  the formule's plafonds wholesale, so a dérogation that set only a taux removed every plafond. It
+  now keeps the formule's, as `waitingPeriodDays` already did. There is therefore no way to *lift*
+  a formule plafond for one employer or participant, only to raise it. To decide if that is needed.
+- **Plafonds particuliers are effective-dated** and never edited in place: a new one closes the open
+  one on its start date. One open row per participant and category is enforced by the action;
+  Prisma cannot declare the partial unique index that would enforce it in the database.
+- **Seeded plafonds only on the categories the flyer prices** (pharmacie, soins, consultation).
+  Optique and hospitalisation have no rate in the formules on purpose (check:ipm asserts it), and a
+  plafond lives on a rate row.
+- The formules dialog now has the monthly plafond and is seeded from the row it edits. Before, saving
+  a taux there silently erased that row's plafonds.

@@ -111,7 +111,16 @@ export function EmployersView({
         header: "Société",
         cell: ({ row }) => (
           <TwoFacts
-            primary={row.original.name}
+            primary={
+              // The employer's own page: its barème, which every participant
+              // of the employer inherits.
+              <Link
+                href={`/${firmSlug}/ipm/employeurs/${row.original.id}`}
+                className="hover:text-brand hover:underline"
+              >
+                {row.original.name}
+              </Link>
+            }
             secondary={
               row.original.accountCode ?? row.original.ninea ?? undefined
             }

@@ -348,13 +348,51 @@ export const setEmployerRateSchema = z.object({
   ceilingPerAct: amountField.optional(),
   ceilingMonthly: amountField.optional(),
   ceilingAnnual: amountField.optional(),
-  /** Absent means "keep the formule's" — see resolveRate. */
-  waitingPeriodDays: z.coerce.number().int().min(0).max(3650).optional(),
+  /**
+   * Absent means "keep the formule's" — see resolveRate. An empty form field
+   * is absent too: coerced as-is it would become an explicit 0, which lifts
+   * the formule's carence instead of keeping it.
+   */
+  waitingPeriodDays: z.preprocess(
+    (value) => (value === "" || value === null ? undefined : value),
+    z.coerce.number().int().min(0).max(3650).optional()
+  ),
 })
 
 export const removeEmployerRateSchema = z.object({
   ...firmScoped,
   rateId: z.string().min(1),
+})
+
+/**
+ * Plafonds particuliers. Ceilings only — a participant never gets a taux of
+ * their own. An empty field means "inherit", so at least one must be set.
+ */
+export const setMemberCeilingSchema = z
+  .object({
+    ...firmScoped,
+    memberId: z.string().min(1),
+    categoryId: z.string().min(1, "Choisissez une catégorie."),
+    ceilingPerAct: amountField.optional(),
+    ceilingMonthly: amountField.optional(),
+    ceilingAnnual: amountField.optional(),
+    reason: z.string().trim().min(5, "Indiquez le motif.").max(300),
+    validFrom: dateField,
+  })
+  .refine(
+    (value) =>
+      [value.ceilingPerAct, value.ceilingMonthly, value.ceilingAnnual].some(
+        (ceiling) => ceiling !== null && ceiling !== undefined
+      ),
+    {
+      message: "Renseignez au moins un plafond.",
+      path: ["ceilingMonthly"],
+    }
+  )
+
+export const endMemberCeilingSchema = z.object({
+  ...firmScoped,
+  ceilingId: z.string().min(1),
 })
 
 /* ==========================================================================
@@ -517,6 +555,22 @@ export const cancelVoucherSchema = z.object({
   ...firmScoped,
   voucherId: z.string().min(1),
   reason: z.string().trim().min(3, "Motif requis.").max(200),
+})
+
+/* ==========================================================================
+ * Validation des bons du portail
+ * ========================================================================== */
+
+export const reviewPortalVoucherSchema = z.object({
+  ...firmScoped,
+  voucherId: z.string().min(1),
+})
+
+export const rejectPortalVoucherSchema = z.object({
+  ...firmScoped,
+  voucherId: z.string().min(1),
+  // Shown to the participant as is, so it has to say something.
+  reason: z.string().trim().min(5, "Expliquez le refus au participant.").max(300),
 })
 
 /* ==========================================================================
