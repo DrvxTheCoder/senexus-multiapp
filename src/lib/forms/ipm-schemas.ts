@@ -5,6 +5,7 @@ import {
   dateField,
   optionalDateField,
 } from "@/lib/forms/hr-schemas"
+import { memberQuerySchema } from "@/lib/queries/ipm/member-query"
 
 /**
  * IPM form schemas — isomorphic, parsed by the dialog and by the action, so
@@ -43,6 +44,11 @@ const genderField = z
  * The conversion happens here rather than in the action, so every caller —
  * form, import, seed check — converts identically. A value above 100 is
  * refused: the institution cannot cover more than the bill.
+ *
+ * **Not idempotent**: parsed twice, 80 becomes 0.008. A form whose schema
+ * holds a rateField must resolve with `zodResolver(schema, undefined,
+ * { raw: true })`, so it submits the percentage typed and only the action
+ * converts it.
  */
 export const rateField = z
   .union([z.number(), z.string()])
@@ -571,6 +577,33 @@ export const rejectPortalVoucherSchema = z.object({
   voucherId: z.string().min(1),
   // Shown to the participant as is, so it has to say something.
   reason: z.string().trim().min(5, "Expliquez le refus au participant.").max(300),
+})
+
+/* ==========================================================================
+ * Accès au portail
+ * ========================================================================== */
+
+/**
+ * Who to open the portal to: listed ids, or everything the list currently
+ * matches minus the rows unticked — the bulk bar's two kinds of selection. The
+ * filters are the list's own, so the action counts what the list counted.
+ */
+export const grantPortalAccessSchema = z
+  .object({
+    ...firmScoped,
+    memberIds: z.array(z.string().min(1)).max(1000).optional(),
+    matching: memberQuerySchema
+      .pick({ search: true, status: true, employerId: true, withDependents: true, portal: true })
+      .optional(),
+    excludeIds: z.array(z.string().min(1)).max(1000).default([]),
+  })
+  .refine((input) => Boolean(input.memberIds?.length) !== Boolean(input.matching), {
+    message: "Sélection invalide.",
+  })
+
+export const portalAccountSchema = z.object({
+  ...firmScoped,
+  memberId: z.string().min(1),
 })
 
 /* ==========================================================================

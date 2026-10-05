@@ -9,6 +9,31 @@ export const MEMBER_STATUSES = [
   "TERMINATED",
 ] as const
 
+/**
+ * Portal access, as a filter: the account's status, or NONE for a participant
+ * who has no account yet — the value that finds whom to invite next.
+ */
+export const MEMBER_PORTAL_STATES = ["NONE", "INVITED", "ACTIVE", "LOCKED"] as const
+
+export type MemberPortalState = (typeof MEMBER_PORTAL_STATES)[number]
+
+export const MEMBER_PORTAL_LABELS: Record<MemberPortalState, string> = {
+  NONE: "Sans accès",
+  INVITED: "Invité",
+  ACTIVE: "Actif",
+  LOCKED: "Suspendu",
+}
+
+export const MEMBER_PORTAL_TONES: Record<
+  MemberPortalState,
+  "ok" | "signal" | "alert" | "muted"
+> = {
+  NONE: "muted",
+  INVITED: "signal",
+  ACTIVE: "ok",
+  LOCKED: "alert",
+}
+
 export const MEMBER_SORT_IDS = [
   "name",
   "matricule",
@@ -26,6 +51,7 @@ export const memberQuerySchema = z.object({
   employerId: z.array(z.string()).optional(),
   /** Only participants who have at least one ayant droit, or none. */
   withDependents: z.boolean().optional(),
+  portal: z.array(z.enum(MEMBER_PORTAL_STATES)).optional(),
   sort: z.array(sortSpecSchema).default([]),
   ...paginationSchema,
 })

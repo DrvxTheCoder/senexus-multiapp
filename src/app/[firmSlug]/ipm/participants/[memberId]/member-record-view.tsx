@@ -22,6 +22,7 @@ import {
   CardFaces,
 } from "@/app/[firmSlug]/ipm/cartes/card-faces"
 import { PersonPhoto } from "@/app/[firmSlug]/ipm/participants/person-photo"
+import { PortalAccessPanel } from "@/app/[firmSlug]/ipm/participants/portal-access"
 import { Panel, StatTiles, type StatTileProps } from "@/components/panel"
 import {
   Avatar,
@@ -279,6 +280,9 @@ export function MemberRecordView({
           </Fact>
         </dl>
       </Panel>
+
+      {/* ---- accès au portail participant ------------------------------------ */}
+      <PortalAccessPanel firmSlug={firmSlug} record={record} canWrite={canWrite} />
 
       {/* ---- barème : taux et plafonds, avec leur origine ------------------- */}
       <MemberCoveragePanel

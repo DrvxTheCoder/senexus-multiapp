@@ -32,6 +32,7 @@ import {
   nextDependentRank,
   withMemberMatricule,
 } from "@/server/domain/ipm/matricule"
+import { syncPortalPhone } from "@/server/ipm/portal-access"
 import { cardSnapshot } from "@/server/queries/ipm/cards"
 
 /**
@@ -417,6 +418,17 @@ export const updateMember = firmAction({
         address: orNull(input.person.address),
       },
     })
+
+    // The portal login follows the fiche's phone — see syncPortalPhone.
+    const phoneError = await syncPortalPhone(
+      tx,
+      ctx.firmId,
+      member.personId,
+      orNull(input.person.phone)
+    )
+    if (phoneError) {
+      throw new ActionError(phoneError, { "person.phone": [phoneError] })
+    }
 
     await audit({
       action: "UPDATE",

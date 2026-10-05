@@ -33,6 +33,15 @@
  *     `employerRates` (which stay, unchanged, for display). A null plafond
  *     means none applies. A category absent for a type is not covered.
  *
+ * Change 2026-10-05 — access codes:
+ *   - `POST /api/portail/access-request` (`AccessRequestRequest` →
+ *     `AccessRequestResponse`), for a participant who cannot log in;
+ *   - `SessionRequest.code` also accepts the access code the IPM then issues.
+ *
+ * Change 2026-10-05 — balance basis:
+ *   - `Member.currentBalance` is debited by each bon's `totalAmount`, no longer
+ *     its `insurerShare`. Plafonds are unchanged: they still cap the IPM share.
+ *
  * Nothing in this file may import server code: it is plain types.
  */
 
@@ -228,6 +237,10 @@ export type Member = {
   affiliationDate: ISODate
   terminationDate: ISODate | null
   status: IpmMemberStatus
+  /**
+   * Cotisations minus consumption, from the register. Since 2026-10-05 a bon
+   * is debited at its **full amount** (`totalAmount`), not its IPM share.
+   */
   currentBalance: number
 }
 
@@ -304,7 +317,10 @@ export type IpmVoucher = {
   origin: IpmVoucherOrigin
   issuedByPortalAccountId: string | null
   entryMode: IpmVoucherEntryMode | null
-  /** Zipline URL; null when the bon has no receipt (every back-office bon). */
+  /**
+   * Zipline URL; null when the bon has no receipt — every back-office bon, and
+   * a portal bon whose participant skipped the photo.
+   */
   receiptUrl: string | null
   receiptHash: string | null
   ocrTotal: number | null
@@ -402,9 +418,19 @@ export type ApiError = {
   }
 }
 
-/** POST /api/portail/session */
+/**
+ * POST /api/portail/session. `code` is the SMS code, or a six-digit access
+ * code the IPM issued from the back office — same field, same rules.
+ */
 export type SessionRequest = { firmSlug: string; phone: string; code: string }
 export type SessionResponse = { token: string; account: PortalAccount }
+
+/**
+ * POST /api/portail/access-request — no token. Always 202 with this body,
+ * whether or not the number has an account; 429 when asked too often.
+ */
+export type AccessRequestRequest = { firmSlug: string; phone: string }
+export type AccessRequestResponse = { requested: true }
 
 export type DraftLine = { label: string; quantity: number; unitPrice: number }
 

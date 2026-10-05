@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto"
+import { createHmac, randomInt, timingSafeEqual } from "node:crypto"
 
 /**
  * Jeton de session du portail participant.
@@ -142,4 +142,25 @@ export class FailureLimiter {
   clear(key: string): void {
     this.failures.delete(key)
   }
+}
+
+/* ==========================================================================
+ * Code d'accès — issued from the back office
+ * ========================================================================== */
+
+/** How long a back-office access code stays usable. */
+export const ACCESS_CODE_TTL_MS = 24 * 3_600_000
+
+/** Six digits, like the SMS code, so the portal's code field takes either. */
+export function newAccessCode(): string {
+  return String(randomInt(0, 1_000_000)).padStart(6, "0")
+}
+
+/**
+ * What `PortalAccount.accessCodeHash` stores. Keyed by the account, so the
+ * same six digits issued to two participants do not hash alike, and by the
+ * portal secret, so a leaked row cannot be brute-forced offline.
+ */
+export function hashAccessCode(portalAccountId: string, code: string, secret: string): string {
+  return createHmac("sha256", secret).update(`access:${portalAccountId}:${code}`).digest("base64url")
 }

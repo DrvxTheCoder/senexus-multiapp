@@ -324,7 +324,9 @@ function RateDialog({
   const router = useRouter()
 
   const form = useForm({
-    resolver: zodResolver(setPlanRateSchema) as never,
+    // raw: validate here, but submit what was typed. The schema turns 80 into
+    // 0.8, and the action parses again — a parsed value would arrive as 0.008.
+    resolver: zodResolver(setPlanRateSchema, undefined, { raw: true }) as never,
     defaultValues: {
       firmSlug,
       planId: plan.id,

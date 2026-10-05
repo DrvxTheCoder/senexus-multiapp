@@ -9,6 +9,7 @@ import { PortalError } from "@/server/portal/http"
 import { toContractAccount } from "@/server/portal/snapshot"
 import {
   FailureLimiter,
+  hashAccessCode,
   issuePortalToken,
   normalisePhone,
   sameCode,
@@ -22,9 +23,14 @@ import {
  * constant from the source. A real SMS code replaces the comparison below and
  * nothing else.
  *
+ * The code may also be an **access code** a gestionnaire issued from the back
+ * office, for a participant who cannot receive the SMS. It is checked against
+ * that account's hash, works once, and works whether or not `DEMO_OTP` is set.
+ *
  * Failures are counted per firm and phone, five per fifteen minutes, whether
  * the number exists or not — so the answer and the lockout cannot be used to
- * learn which numbers have an account.
+ * learn which numbers have an account. The same count covers access codes,
+ * which is what makes six digits enough.
  */
 
 export const sessionSchema = z.object({
@@ -43,13 +49,6 @@ const WRONG = () =>
 
 export async function openSession(raw: unknown): Promise<SessionResponse> {
   const expected = process.env.DEMO_OTP
-  if (!expected) {
-    throw new PortalError(
-      503,
-      "NOT_CONFIGURED",
-      "La connexion au portail n'est pas encore disponible."
-    )
-  }
   const secret = portalTokenSecret()
 
   const input = sessionSchema.parse(raw)
@@ -77,14 +76,39 @@ export async function openSession(raw: unknown): Promise<SessionResponse> {
   const account = firm
     ? await db.portalAccount.findUnique({
         where: { firmId_phone: { firmId: firm.id, phone } },
-        select: { id: true, firmId: true, status: true, activatedAt: true },
+        select: {
+          id: true,
+          firmId: true,
+          status: true,
+          activatedAt: true,
+          accessCodeHash: true,
+          accessCodeExpiresAt: true,
+        },
       })
     : null
 
-  // Same answer for an unknown number and a wrong code.
-  const codeMatches = sameCode(input.code, expected)
-  if (!account || !codeMatches) {
+  const now = new Date()
+  const otpMatches = expected ? sameCode(input.code, expected) : false
+  const accessCodeMatches = Boolean(
+    account?.accessCodeHash &&
+      account.accessCodeExpiresAt &&
+      account.accessCodeExpiresAt > now &&
+      sameCode(hashAccessCode(account.id, input.code, secret), account.accessCodeHash)
+  )
+
+  if (!account || !(otpMatches || accessCodeMatches)) {
     limiter.fail(key)
+    // No SMS service: only an access code can open a session, and a wrong one
+    // gets the same answer as before codes existed — answering differently
+    // would tell a stranger which numbers have a code outstanding.
+    if (!expected) {
+      throw new PortalError(
+        503,
+        "NOT_CONFIGURED",
+        "La connexion au portail n'est pas encore disponible."
+      )
+    }
+    // Same answer for an unknown number and a wrong code.
     throw WRONG()
   }
 
@@ -97,7 +121,6 @@ export async function openSession(raw: unknown): Promise<SessionResponse> {
   }
 
   limiter.clear(key)
-  const now = new Date()
 
   // The first successful code is the activation: an INVITED account becomes
   // ACTIVE, and `activatedAt` records when.
@@ -107,6 +130,10 @@ export async function openSession(raw: unknown): Promise<SessionResponse> {
       lastLoginAt: now,
       activatedAt: account.activatedAt ?? now,
       status: "ACTIVE",
+      // Logged in: whatever help was asked for is no longer needed, and an
+      // access code is spent — single use, whichever code opened the session.
+      accessRequestedAt: null,
+      ...(accessCodeMatches ? { accessCodeHash: null, accessCodeExpiresAt: null } : {}),
     },
     select: {
       id: true,

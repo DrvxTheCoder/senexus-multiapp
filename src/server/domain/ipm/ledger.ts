@@ -32,17 +32,21 @@ export type LedgerEntry = {
  * §11 Q9 — what a prise en charge debits.
  *
  * "Is the balance debited by the IPM share alone, or the whole voucher?" The
- * answer was the IPM share: it is the only figure that commits the
- * institution, and the ticket modérateur is the member's own money, which
- * never passed through the IPM's hands. Debiting the total would make every
- * balance overstate what the institution actually carries.
+ * first answer was the IPM share. It was revised on 2026-10-05: the balance is
+ * debited by the **full amount** of the bon — what the participant consumed,
+ * ticket modérateur included — so it reads as consumption against
+ * cotisations rather than as the institution's commitment alone.
  *
- * Kept as a named setting rather than a hard-coded choice, because the plan
- * asks for it to be configurable — but the default is the answer given.
+ * Only the balance follows this. The plafonds still cap the IPM share
+ * (`checkCeilings`), which is what the institution commits.
+ *
+ * Kept as a named setting, as the plan asks. Changing it does not rewrite
+ * the register: the next "Recalculer" tops up what was posted under the old
+ * basis — see `topUpConsumptionDebits`.
  */
 export type ConsumptionBasis = "INSURER_SHARE" | "TOTAL_AMOUNT"
 
-export const DEFAULT_CONSUMPTION_BASIS: ConsumptionBasis = "INSURER_SHARE"
+export const DEFAULT_CONSUMPTION_BASIS: ConsumptionBasis = "TOTAL_AMOUNT"
 
 export function consumptionDebit(
   basis: ConsumptionBasis,

@@ -9,6 +9,7 @@ import {
 } from "nuqs/server"
 
 import {
+  MEMBER_PORTAL_STATES,
   MEMBER_SORT_IDS,
   MEMBER_STATUSES,
   memberQuerySchema,
@@ -20,6 +21,7 @@ export const memberSearchParams = {
   status: parseAsArrayOf(parseAsStringLiteral(MEMBER_STATUSES), ","),
   employer: parseAsArrayOf(parseAsString, ","),
   deps: parseAsBoolean,
+  portal: parseAsArrayOf(parseAsStringLiteral(MEMBER_PORTAL_STATES), ","),
   sort: parseAsArrayOf(parseAsString, ","),
   page: parseAsInteger.withDefault(1),
   per: parseAsInteger.withDefault(25),
@@ -42,6 +44,7 @@ export function toMemberQuery(raw: RawParams): MemberQuery {
     status: raw.status ?? undefined,
     employerId: raw.employer ?? undefined,
     withDependents: raw.deps ?? undefined,
+    portal: raw.portal ?? undefined,
     sort: (raw.sort ?? []).flatMap((entry) => {
       const desc = entry.startsWith("-")
       const id = desc ? entry.slice(1) : entry
@@ -69,6 +72,7 @@ export function membersHref(
     status: parsed.status ?? null,
     employer: parsed.employerId ?? null,
     deps: parsed.withDependents ?? null,
+    portal: parsed.portal ?? null,
     sort: parsed.sort.map((entry) => (entry.desc ? `-${entry.id}` : entry.id)),
     page: parsed.page,
     per: parsed.perPage,

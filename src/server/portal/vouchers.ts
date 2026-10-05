@@ -353,7 +353,8 @@ export async function issuePortalVoucher(
   tx: Tx,
   principal: PortalPrincipal,
   draft: ParsedDraft,
-  receiptUrl: string,
+  /** Null when the participant skipped the photo. */
+  receiptUrl: string | null,
   on: Date = new Date()
 ): Promise<{ id: string }> {
   try {

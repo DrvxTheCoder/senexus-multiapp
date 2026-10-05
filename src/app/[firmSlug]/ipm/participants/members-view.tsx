@@ -8,24 +8,38 @@ import type { ColumnDef, SortingState } from "@tanstack/react-table"
 import { HugeiconsIcon } from "@hugeicons/react"
 import {
   Cancel01Icon,
+  Login01Icon,
   PlusSignIcon,
   Search01Icon,
 } from "@hugeicons/core-free-icons"
 
 import { MemberDialog } from "@/app/[firmSlug]/ipm/participants/member-dialogs"
+import {
+  AccessRequestsPanel,
+  BulkPortalAccessDialog,
+  type PortalSelection,
+} from "@/app/[firmSlug]/ipm/participants/portal-access"
+import { BulkActionBar } from "@/components/bulk-action-bar"
 import { DataTable } from "@/components/data-table"
 import { FacetFilter } from "@/components/filters/facet-filter"
-import { Pager } from "@/components/list-controls"
+import { Pager, RowCheckbox } from "@/components/list-controls"
 import { Panel } from "@/components/panel"
 import { Avatar, EmptyState, StatusPill, TwoFacts } from "@/components/primitives"
 import { formatCurrency, formatDate, formatNumber, initials } from "@/lib/format"
 import {
+  MEMBER_PORTAL_LABELS,
+  MEMBER_PORTAL_TONES,
   MEMBER_STATUS_LABELS,
   MEMBER_STATUS_TONES,
+  type MemberPortalState,
   type MemberQuery,
 } from "@/lib/queries/ipm/member-query"
 import { memberSearchParams, toMemberQuery } from "@/lib/queries/ipm/member-params"
-import type { MemberRow, MemberSummary } from "@/server/queries/ipm/members"
+import type {
+  AccessRequestRow,
+  MemberRow,
+  MemberSummary,
+} from "@/server/queries/ipm/members"
 import type { Paged } from "@/server/queries/types"
 
 type EmployerOption = {
@@ -52,12 +66,14 @@ export function MembersView({
   page,
   summary,
   employers,
+  accessRequests,
   canWrite,
 }: {
   firmSlug: string
   page: Paged<MemberRow>
   summary: MemberSummary
   employers: EmployerOption[]
+  accessRequests: AccessRequestRow[]
   canWrite: boolean
 }) {
   const router = useRouter()
@@ -67,6 +83,24 @@ export function MembersView({
   const query: MemberQuery = toMemberQuery(params)
 
   const [creating, setCreating] = React.useState(false)
+  const [granting, setGranting] = React.useState<{
+    selection: PortalSelection
+    count: number
+  } | null>(null)
+
+  // As on the employees list: a selection belongs to the filters it was made
+  // under, and is dropped when they change — only the page may move.
+  const fingerprint = JSON.stringify({ ...params, page: null })
+  const [selection, setSelection] = React.useState({
+    fingerprint,
+    ids: new Set<string>(),
+    allMatching: false,
+  })
+  if (selection.fingerprint !== fingerprint) {
+    setSelection({ fingerprint, ids: new Set<string>(), allMatching: false })
+  }
+  const clearSelection = () =>
+    setSelection((current) => ({ ...current, ids: new Set<string>(), allMatching: false }))
 
   // Same shape as the clients list: the draft is synced during render rather
   // than in an effect, and the URL is only written after the typing settles.
@@ -112,8 +146,65 @@ export function MembersView({
     [page.facets.employer]
   )
 
+  const portalOptions = React.useMemo(
+    () =>
+      (page.facets.portal ?? []).map((bucket) => ({
+        value: bucket.value,
+        label: MEMBER_PORTAL_LABELS[bucket.value as MemberPortalState] ?? bucket.value,
+        count: bucket.count,
+      })),
+    [page.facets.portal]
+  )
+
+  /* ---- selection -------------------------------------------------------- */
+  const pageIds = page.rows.map((row) => row.id)
+  const allOnPage = pageIds.length > 0 && pageIds.every((id) => selection.ids.has(id))
+  // With "everything matching", `ids` holds the rows unticked since.
+  const selectedCount = selection.allMatching
+    ? page.total - selection.ids.size
+    : selection.ids.size
+
+  const toggleRow = (id: string) =>
+    setSelection((current) => {
+      const ids = new Set(current.ids)
+      if (ids.has(id)) ids.delete(id)
+      else ids.add(id)
+      return { ...current, ids }
+    })
+
+  const togglePage = () =>
+    setSelection((current) => {
+      const ids = new Set(current.ids)
+      if (allOnPage) for (const id of pageIds) ids.delete(id)
+      else for (const id of pageIds) ids.add(id)
+      return { ...current, ids, allMatching: false }
+    })
+
   const columns = React.useMemo<ColumnDef<MemberRow, unknown>[]>(
     () => [
+      ...(canWrite
+        ? [
+            {
+              id: "select",
+              enableSorting: false,
+              meta: { width: 34 },
+              header: () => (
+                <RowCheckbox
+                  checked={allOnPage}
+                  onChange={togglePage}
+                  label="Sélectionner la page"
+                />
+              ),
+              cell: ({ row }) => (
+                <RowCheckbox
+                  checked={selection.allMatching !== selection.ids.has(row.original.id)}
+                  onChange={() => toggleRow(row.original.id)}
+                  label={`Sélectionner ${row.original.lastName}`}
+                />
+              ),
+            } satisfies ColumnDef<MemberRow, unknown>,
+          ]
+        : []),
       {
         id: "name",
         header: "Participant",
@@ -199,18 +290,38 @@ export function MembersView({
           </StatusPill>
         ),
       },
+      {
+        id: "portal",
+        header: "Portail",
+        cell: ({ row }) =>
+          row.original.portal === "NONE" ? (
+            <span className="text-ink-3">—</span>
+          ) : (
+            <StatusPill tone={MEMBER_PORTAL_TONES[row.original.portal]}>
+              {MEMBER_PORTAL_LABELS[row.original.portal]}
+            </StatusPill>
+          ),
+      },
     ],
-    []
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [canWrite, allOnPage, selection]
   )
 
   const filtersActive =
     Boolean(params.q) ||
     Boolean(params.status?.length) ||
     Boolean(params.employer?.length) ||
+    Boolean(params.portal?.length) ||
     params.deps !== null
 
   return (
     <>
+      <AccessRequestsPanel
+        firmSlug={firmSlug}
+        requests={accessRequests}
+        canWrite={canWrite}
+      />
+
       <Panel
         title="Participants"
         description={`${formatNumber(summary.total)} affiliés · ${formatNumber(summary.active)} actifs · ${formatNumber(summary.dependents)} ayants droit`}
@@ -269,6 +380,18 @@ export function MembersView({
               }
             />
 
+            <FacetFilter
+              label="Portail"
+              options={portalOptions}
+              selected={params.portal ?? []}
+              onChange={(values) =>
+                void setParams({
+                  portal: values.length ? (values as typeof params.portal) : null,
+                  page: 1,
+                })
+              }
+            />
+
             {filtersActive ? (
               <button
                 type="button"
@@ -277,6 +400,7 @@ export function MembersView({
                     q: null,
                     status: null,
                     employer: null,
+                    portal: null,
                     deps: null,
                     page: 1,
                   })
@@ -316,6 +440,7 @@ export function MembersView({
           data={page.rows}
           columns={columns}
           getRowId={(row) => row.id}
+          selectedIds={selection.ids}
           sorting={sorting}
           onSortingChange={onSortingChange}
           onRowClick={(row) =>
@@ -337,6 +462,57 @@ export function MembersView({
           }
         />
       </Panel>
+
+      <BulkActionBar
+        selectedCount={selectedCount}
+        totalMatching={page.total}
+        selectAllMatching={selection.allMatching}
+        onSelectAllMatching={() =>
+          setSelection((current) => ({
+            ...current,
+            allMatching: true,
+            ids: new Set<string>(),
+          }))
+        }
+        onClear={clearSelection}
+        actions={
+          canWrite
+            ? [
+                {
+                  id: "portal",
+                  label: "Ouvrir le portail",
+                  icon: Login01Icon,
+                  onRun: () =>
+                    setGranting({
+                      count: selectedCount,
+                      selection: selection.allMatching
+                        ? {
+                            matching: {
+                              search: query.search,
+                              status: query.status,
+                              employerId: query.employerId,
+                              withDependents: query.withDependents,
+                              portal: query.portal,
+                            },
+                            excludeIds: [...selection.ids],
+                          }
+                        : { memberIds: [...selection.ids] },
+                    }),
+                },
+              ]
+            : []
+        }
+      />
+
+      {granting ? (
+        <BulkPortalAccessDialog
+          firmSlug={firmSlug}
+          count={granting.count}
+          selection={granting.selection}
+          onClose={() => setGranting(null)}
+          onDone={clearSelection}
+        />
+      ) : null}
 
       {creating ? (
         <MemberDialog

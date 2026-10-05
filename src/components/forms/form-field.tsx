@@ -163,7 +163,9 @@ export function DangerButton({
 }) {
   return (
     <button
-      type="button"
+      // Without an onClick it is a form's submit button — the cancel and
+      // reject dialogs rely on that; with one, it must not submit anything.
+      type={onClick ? "button" : "submit"}
       onClick={onClick}
       disabled={pending || disabled}
       className={cn(

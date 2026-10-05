@@ -2187,7 +2187,7 @@ async function main() {
       number: true,
       memberId: true,
       settledAt: true,
-      insurerShare: true,
+      totalAmount: true,
     },
   })
   const vouchersByMember = new Map()
@@ -2252,7 +2252,7 @@ async function main() {
       contributionCount += 1
     }
 
-    // Consumption, debited at the IPM share (§11 Q9).
+    // Consumption, debited at the full amount (§11 Q9, revised 2026-10-05).
     for (const voucher of vouchersByMember.get(member.id) ?? []) {
       movements.push({
         date: voucher.settledAt ?? TODAY,
@@ -2260,7 +2260,7 @@ async function main() {
         sourceType: "VOUCHER",
         sourceId: voucher.id,
         credit: 0,
-        debit: Number(voucher.insurerShare),
+        debit: Number(voucher.totalAmount),
         note: `Bon ${voucher.number}`,
       })
       consumptionCount2 += 1

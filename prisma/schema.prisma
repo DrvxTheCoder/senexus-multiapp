@@ -2112,6 +2112,16 @@ model PortalAccount {
   status      PortalAccountStatus @default(INVITED)
   activatedAt DateTime?
   lastLoginAt DateTime?
+
+  /// Set when the participant asks for help from the login screen; cleared
+  /// when a gestionnaire issues an access code (or the participant logs in).
+  accessRequestedAt   DateTime?
+  /// One-time access code issued from the back office, for a participant who
+  /// cannot receive the SMS code. HMAC of the code, never the code itself;
+  /// single use, and a new one replaces the old.
+  accessCodeHash      String?
+  accessCodeExpiresAt DateTime?
+
   createdAt   DateTime            @default(now())
   updatedAt   DateTime            @updatedAt
 
@@ -2121,6 +2131,7 @@ model PortalAccount {
   notifications PortalNotification[]
 
   @@unique([firmId, phone])
+  @@index([firmId, accessRequestedAt])
   @@map("ipm_portal_accounts")
 }
 

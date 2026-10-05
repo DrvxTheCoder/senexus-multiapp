@@ -98,15 +98,14 @@ describe("withRunningBalance", () => {
 })
 
 describe("§11 Q9 — what a prise en charge debits", () => {
-  it("debits the IPM share by default, not the whole voucher", () => {
-    // The ticket modérateur is the member's own money and never passed through
-    // the institution; debiting the total overstates what it carries.
-    expect(DEFAULT_CONSUMPTION_BASIS).toBe("INSURER_SHARE")
-    expect(consumptionDebit(DEFAULT_CONSUMPTION_BASIS, 10_000, 8_000)).toBe(8_000)
+  it("debits the whole voucher by default, ticket modérateur included", () => {
+    // Revised 2026-10-05: the balance is consumption against cotisations.
+    expect(DEFAULT_CONSUMPTION_BASIS).toBe("TOTAL_AMOUNT")
+    expect(consumptionDebit(DEFAULT_CONSUMPTION_BASIS, 10_000, 8_000)).toBe(10_000)
   })
 
-  it("can be switched to the total, because the plan asks for the choice", () => {
-    expect(consumptionDebit("TOTAL_AMOUNT", 10_000, 8_000)).toBe(10_000)
+  it("can be switched back to the IPM share, because the plan asks for the choice", () => {
+    expect(consumptionDebit("INSURER_SHARE", 10_000, 8_000)).toBe(8_000)
   })
 })
 

@@ -133,6 +133,18 @@ export type MemberRecord = {
     version: number
     generatedAt: Date | null
   }
+  /** The participant's portal login, or null when none has been opened. */
+  portal: {
+    status: "INVITED" | "ACTIVE" | "LOCKED"
+    phone: string
+    invitedAt: Date
+    activatedAt: Date | null
+    lastLoginAt: Date | null
+    /** The participant asked for help from the login screen, not yet answered. */
+    accessRequestedAt: Date | null
+    /** An access code outstanding and not yet used or expired. */
+    accessCodeExpiresAt: Date | null
+  } | null
 }
 
 function toRateRows(
@@ -192,6 +204,17 @@ export async function getMemberRecord(
       },
       employee: {
         select: { id: true, matricule: true, firm: { select: { slug: true } } },
+      },
+      portalAccount: {
+        select: {
+          status: true,
+          phone: true,
+          createdAt: true,
+          activatedAt: true,
+          lastLoginAt: true,
+          accessRequestedAt: true,
+          accessCodeExpiresAt: true,
+        },
       },
       employer: {
         select: {
@@ -446,5 +469,20 @@ export async function getMemberRecord(
       version: member.card?.version ?? 0,
       generatedAt: member.card?.generatedAt ?? null,
     },
+    portal: member.portalAccount
+      ? {
+          status: member.portalAccount.status,
+          phone: member.portalAccount.phone,
+          invitedAt: member.portalAccount.createdAt,
+          activatedAt: member.portalAccount.activatedAt,
+          lastLoginAt: member.portalAccount.lastLoginAt,
+          accessRequestedAt: member.portalAccount.accessRequestedAt,
+          accessCodeExpiresAt:
+            member.portalAccount.accessCodeExpiresAt &&
+            member.portalAccount.accessCodeExpiresAt > on
+              ? member.portalAccount.accessCodeExpiresAt
+              : null,
+        }
+      : null,
   }
 }

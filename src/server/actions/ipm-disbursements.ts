@@ -19,6 +19,7 @@ import {
   type AuditFn,
 } from "@/server/actions/define-action"
 import type { FirmContext } from "@/server/auth/require-firm-access"
+import { consumptionDebit, DEFAULT_CONSUMPTION_BASIS } from "@/server/domain/ipm/ledger"
 import { split } from "@/server/domain/ipm/settlement"
 import { nextInSequence } from "@/server/domain/ipm/sequence"
 
@@ -374,14 +375,19 @@ export const reviewReimbursement = firmAction({
         },
       })
 
-      // And the register, debited at the IPM share (§11 Q9).
+      // And the register, at the consumption basis (§11 Q9, revised: the full
+      // amount) — the same rule as a bon.
       const current = await tx.ipmLedgerEntry.aggregate({
         where: { firmId: ctx.firmId, memberId: reimbursement.memberId },
         _sum: { credit: true, debit: true },
       })
       const before =
         Number(current._sum.credit ?? 0) - Number(current._sum.debit ?? 0)
-      const debit = Number(reimbursement.insurerShare)
+      const debit = consumptionDebit(
+        DEFAULT_CONSUMPTION_BASIS,
+        Number(reimbursement.totalAmount),
+        Number(reimbursement.insurerShare)
+      )
 
       await tx.ipmLedgerEntry.create({
         data: {

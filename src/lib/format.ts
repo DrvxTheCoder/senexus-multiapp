@@ -57,6 +57,14 @@ export function formatDate(value: Date | string | null | undefined): string {
   return formatDateFns(date, "dd/MM/yyyy", { locale: fr })
 }
 
+/** `02/01/2025 14:05` — for events where the hour matters (a request, an expiry). */
+export function formatDateTime(value: Date | string | null | undefined): string {
+  if (!value) return "—"
+  const date = typeof value === "string" ? new Date(value) : value
+  if (Number.isNaN(date.getTime())) return "—"
+  return formatDateFns(date, "dd/MM/yyyy HH:mm", { locale: fr })
+}
+
 /** `2 janv. 2025` — the form used in prose, summaries and footers. */
 export function formatDateProse(value: Date | string | null | undefined): string {
   if (!value) return "—"

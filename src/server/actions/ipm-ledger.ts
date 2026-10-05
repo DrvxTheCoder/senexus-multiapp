@@ -14,6 +14,7 @@ import {
   type LedgerType,
 } from "@/server/domain/ipm/ledger"
 import { nextInSequence } from "@/server/domain/ipm/sequence"
+import { topUpConsumptionDebits } from "@/server/ipm/consumption-topup"
 
 /**
  * Registre et facturation — the write layer.
@@ -428,12 +429,9 @@ const postConsumptionSchema = z.object({
 })
 
 /**
- * Debits a settled voucher to the participant's register.
- *
- * §11 Q9: the debit is the **IPM share**, not the total. The ticket modérateur
- * is the member's own money and never passed through the institution, so
- * debiting the whole voucher would make every balance overstate what the IPM
- * actually carries.
+ * Debits a settled voucher to the participant's register, at the basis
+ * `DEFAULT_CONSUMPTION_BASIS` names — the full amount since 2026-10-05
+ * (§11 Q9, revised).
  */
 export const postVoucherConsumption = firmAction({
   input: postConsumptionSchema,
@@ -518,6 +516,10 @@ export const recomputeBalances = firmAction({
   module: IPM_MODULE,
   revalidate: (input) => listPath(input.firmSlug, "cotisations"),
   handler: async ({ ctx, tx, audit }) => {
+    // First, anything posted under an earlier consumption basis is brought up
+    // to the current one — then the rebuild below folds it in.
+    const toppedUp = await topUpConsumptionDebits(tx, ctx.firmId, DEFAULT_CONSUMPTION_BASIS)
+
     const members = await tx.member.findMany({
       where: { firmId: ctx.firmId },
       select: {
@@ -585,10 +587,21 @@ export const recomputeBalances = firmAction({
       action: "RECOMPUTE_BALANCES",
       entity: "IPM_FIRM",
       entityId: ctx.firmId,
-      metadata: { members: members.length, corrected, runningBalances: running },
+      metadata: {
+        members: members.length,
+        corrected,
+        runningBalances: running,
+        toppedUpEntries: toppedUp.entries,
+        toppedUpAmount: toppedUp.amount,
+      },
     })
 
-    return { members: members.length, corrected, runningBalances: running }
+    return {
+      members: members.length,
+      corrected,
+      runningBalances: running,
+      toppedUp: toppedUp.entries,
+    }
   },
 })
 

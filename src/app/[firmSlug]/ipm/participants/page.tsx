@@ -11,7 +11,11 @@ import {
 } from "@/lib/queries/ipm/member-params"
 import { requireFirmPage } from "@/server/auth/firm-page"
 import { employerOptions } from "@/server/queries/ipm/employers"
-import { listMembers, memberSummary } from "@/server/queries/ipm/members"
+import {
+  listMembers,
+  memberSummary,
+  pendingAccessRequests,
+} from "@/server/queries/ipm/members"
 import { roleAtLeast } from "@/types/auth"
 
 export const metadata: Metadata = { title: "Participants" }
@@ -62,10 +66,11 @@ async function MembersPanel({
   const ctx = await requireFirmPage(firmSlug, { module: "ipm" })
   const query = toMemberQuery(loadMemberSearchParams(raw))
 
-  const [page, summary, employers] = await Promise.all([
+  const [page, summary, employers, accessRequests] = await Promise.all([
     listMembers(ctx, query),
     memberSummary(ctx),
     employerOptions(ctx),
+    pendingAccessRequests(ctx),
   ])
 
   return (
@@ -74,6 +79,7 @@ async function MembersPanel({
       page={page}
       summary={summary}
       employers={employers}
+      accessRequests={accessRequests}
       canWrite={roleAtLeast(ctx.role, "MANAGER")}
     />
   )

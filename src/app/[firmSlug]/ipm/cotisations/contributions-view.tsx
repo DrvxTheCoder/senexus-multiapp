@@ -65,10 +65,13 @@ export function ContributionsView({
 
   const recompute = useAction(recomputeBalances, {
     loading: "Recalcul des soldes…",
-    success: (data: { corrected: number; runningBalances: number }) =>
-      data.corrected === 0 && data.runningBalances === 0
+    success: (data: { corrected: number; runningBalances: number; toppedUp: number }) =>
+      data.corrected === 0 && data.runningBalances === 0 && data.toppedUp === 0
         ? "Tous les soldes étaient déjà exacts."
-        : `${formatNumber(data.corrected)} solde(s) et ${formatNumber(data.runningBalances)} report(s) corrigés.`,
+        : `${formatNumber(data.corrected)} solde(s) et ${formatNumber(data.runningBalances)} report(s) corrigés` +
+          (data.toppedUp
+            ? `, ${formatNumber(data.toppedUp)} consommation(s) complétée(s) au montant total.`
+            : "."),
   })
   const open = useAction(openLedger, {
     success: "Registre ouvert.",

@@ -412,7 +412,9 @@ function EmployerRateDialog({
   const startRate = own?.rate ?? plan?.rate ?? null
 
   const form = useForm({
-    resolver: zodResolver(setEmployerRateSchema) as never,
+    // raw: validate here, but submit what was typed. The schema turns 80 into
+    // 0.8, and the action parses again — a parsed value would arrive as 0.008.
+    resolver: zodResolver(setEmployerRateSchema, undefined, { raw: true }) as never,
     defaultValues: {
       firmSlug,
       employerId,

@@ -26,7 +26,9 @@ const RECEIPT_EXTENSION: Record<string, string> = {
 const RECEIPT_MAX_BYTES = 5 * 1024 * 1024
 
 /**
- * POST /api/portail/vouchers — multipart: `draft` (JSON) + `receipt` (image).
+ * POST /api/portail/vouchers — multipart: `draft` (JSON) + `receipt` (image,
+ * optional). A participant may skip the photo: the bon is then issued with a
+ * null `receiptUrl`, and the validation screen shows "Reçu indisponible".
  *
  * Order matters, and is the same as the photo upload's:
  *
@@ -34,8 +36,8 @@ const RECEIPT_MAX_BYTES = 5 * 1024 * 1024
  *   2. validate everything that can be validated **before** the upload — the
  *      draft, the amount, the file — so a request that was going to fail does
  *      not leave a file behind;
- *   3. upload the receipt outside any transaction: a slow file host must not
- *      hold a sequence row lock for its whole timeout;
+ *   3. upload the receipt, when there is one, outside any transaction: a
+ *      slow file host must not hold a sequence row lock for its whole timeout;
  *   4. issue, in one transaction.
  *
  * If step 4 fails the receipt stays on Zipline, orphaned. That is accepted.
@@ -73,34 +75,38 @@ export const POST = portalRoute(async (request) => {
   // Throws for a draft with no priced line and no total — before the upload.
   draftLines(draft)
 
-  const receipt = form.get("receipt")
-  if (!(receipt instanceof File) || receipt.size === 0) {
-    throw new PortalError(422, "RECEIPT_REQUIRED", "La photo du reçu est obligatoire.")
-  }
-  if (!RECEIPT_TYPES.includes(receipt.type)) {
+  // Absent, or an empty part (some clients send the field with no file):
+  // either way the participant skipped the photo.
+  const part = form.get("receipt")
+  const receipt = part instanceof File && part.size > 0 ? part : null
+  if (receipt && !RECEIPT_TYPES.includes(receipt.type)) {
     throw new PortalError(
       422,
       "RECEIPT_TYPE",
       "Le reçu doit être une photo (JPEG, PNG ou WebP)."
     )
   }
-  if (receipt.size > RECEIPT_MAX_BYTES) {
+  if (receipt && receipt.size > RECEIPT_MAX_BYTES) {
     throw new PortalError(422, "RECEIPT_TOO_LARGE", "La photo du reçu dépasse 5 Mo.")
   }
 
-  const uploaded = await uploadFile(receipt, {
-    folder: "ipm/receipts",
-    // The extension tells Zipline the type; the storage layer strips it from
-    // the name it sends, as Zipline appends its own.
-    filename: `${draft.clientRequestId}-${randomBytes(3).toString("hex")}.${RECEIPT_EXTENSION[receipt.type]}`,
-    maxBytes: RECEIPT_MAX_BYTES,
-    allowedTypes: RECEIPT_TYPES,
-  })
+  const receiptUrl = receipt
+    ? (
+        await uploadFile(receipt, {
+          folder: "ipm/receipts",
+          // The extension tells Zipline the type; the storage layer strips it
+          // from the name it sends, as Zipline appends its own.
+          filename: `${draft.clientRequestId}-${randomBytes(3).toString("hex")}.${RECEIPT_EXTENSION[receipt.type]}`,
+          maxBytes: RECEIPT_MAX_BYTES,
+          allowedTypes: RECEIPT_TYPES,
+        })
+      ).url
+    : null
 
   let voucherId: string
   try {
     const created = await db.$transaction((tx) =>
-      issuePortalVoucher(tx, principal, draft, uploaded.url)
+      issuePortalVoucher(tx, principal, draft, receiptUrl)
     )
     voucherId = created.id
   } catch (error) {
