@@ -4,10 +4,12 @@ import type { Prisma } from "@prisma/client"
 
 import { db } from "@/lib/db"
 import { beneficiaryTypeFor } from "@/server/domain/ipm/coverage"
+import { DEFAULT_VALIDATION_DAYS } from "@/server/domain/ipm/deferred-amount"
 import { toReviewSettings } from "@/server/domain/ipm/portal-review"
 import { tryResolveRate, type RateRow } from "@/server/domain/ipm/rates"
 import { memberCeilingsOn } from "@/server/queries/ipm/ceilings"
 import type { PortalPrincipal } from "@/server/portal/auth"
+import { prescriptionLink } from "@/server/portal/prescription"
 import type * as C from "@/server/portal/contract"
 
 /**
@@ -63,6 +65,10 @@ export const CONTRACT_VOUCHER_SELECT = {
   reviewFlags: true,
   reviewedAt: true,
   reviewReason: true,
+  deferredAmount: true,
+  prescriptionUrl: true,
+  amountSource: true,
+  validatedAt: true,
   createdAt: true,
 } satisfies Prisma.IpmVoucherSelect
 
@@ -73,7 +79,7 @@ export function toContractVoucher(row: VoucherRow): C.IpmVoucher {
     ...row,
     issueDate: row.issueDate.toISOString(),
     expiryDate: row.expiryDate.toISOString(),
-    totalAmount: Number(row.totalAmount),
+    totalAmount: row.totalAmount === null ? null : Number(row.totalAmount),
     insurerShare: Number(row.insurerShare),
     memberShare: Number(row.memberShare),
     appliedRate: Number(row.appliedRate),
@@ -81,6 +87,11 @@ export function toContractVoucher(row: VoucherRow): C.IpmVoucher {
     cancelledAt: iso(row.cancelledAt),
     ocrTotal: num(row.ocrTotal),
     reviewedAt: iso(row.reviewedAt),
+    validatedAt: iso(row.validatedAt),
+    // The stored URL is the storage host's. What leaves is a signed link to
+    // this API, minted here because the caller is the family's own session.
+    prescriptionUrl: row.prescriptionUrl ? prescriptionLink(row.id) : null,
+    adjustedByIpm: row.amountSource === "BACK_OFFICE",
     createdAt: row.createdAt.toISOString(),
     // Back-office user ids: nothing a participant can use. See contract.ts.
     issuedById: null,
@@ -516,7 +527,13 @@ export async function buildSnapshot(principal: PortalPrincipal): Promise<C.Db> {
     })),
     portalAccounts: [toContractAccount(account)],
     ceilings,
-    settings: { firmId, ...toReviewSettings(settings) },
+    settings: {
+      firmId,
+      ...toReviewSettings(settings),
+      pharmacyValidationDays: settings?.pharmacyValidationDays ?? DEFAULT_VALIDATION_DAYS,
+      pharmacyReviewThreshold:
+        settings?.pharmacyReviewThreshold == null ? null : Number(settings.pharmacyReviewThreshold),
+    },
     bookings: bookings.map((booking) => ({
       type: booking.type,
       serviceTypeId: booking.serviceTypeId,

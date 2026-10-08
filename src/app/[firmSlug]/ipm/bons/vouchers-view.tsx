@@ -11,6 +11,10 @@ import {
   Search01Icon,
 } from "@hugeicons/core-free-icons"
 
+import {
+  VoidPharmacyVoucherDialog,
+  VoucherAmountDialog,
+} from "@/app/[firmSlug]/ipm/bons/pharmacy-dialogs"
 import { CancelVoucherDialog } from "@/app/[firmSlug]/ipm/bons/voucher-dialogs"
 import { DatePicker } from "@/components/forms/date-picker"
 import { DataTable } from "@/components/data-table"
@@ -55,7 +59,8 @@ export type OpenVoucher = {
   providerName: string
   categoryLabel: string
   serviceTypeLabel: string
-  totalAmount: number
+  /** Null while a bon de pharmacie waits for its amount. */
+  totalAmount: number | null
   insurerShare: number
   memberShare: number
   appliedRate: number
@@ -71,6 +76,23 @@ export type OpenVoucher = {
   reviewFlags: string[]
   reviewReason: string | null
   reviewedAt: Date | null
+  /** Bon de pharmacie issued without an amount. */
+  deferredAmount: boolean
+  /** An ordonnance is attached; read through the authenticated route. */
+  hasPrescription: boolean
+  amountSource: "PROVIDER" | "BACK_OFFICE" | null
+  validatedAt: Date | null
+  validatedBy: string | null
+  invoice: { number: string; status: string } | null
+  amountChanges: {
+    id: string
+    kind: "VALIDATE" | "ADJUST" | "VOID"
+    previousAmount: number | null
+    newAmount: number | null
+    reason: string | null
+    createdAt: Date
+    actor: string
+  }[]
   lines: {
     id: string
     label: string
@@ -120,6 +142,11 @@ export function VouchersView({
   const query: VoucherQuery = toVoucherQuery(params)
 
   const [cancelling, setCancelling] = React.useState<OpenVoucher | null>(null)
+  const [pricing, setPricing] = React.useState<{
+    voucher: OpenVoucher
+    mode: "validate" | "adjust"
+  } | null>(null)
+  const [voiding, setVoiding] = React.useState<OpenVoucher | null>(null)
 
   const settle = useAction(settleVoucher, { success: "Bon réglé." })
 
@@ -211,6 +238,16 @@ export function VouchersView({
           page: null,
         }),
     })),
+    ...(params.flagged
+      ? [
+          {
+            key: "flagged",
+            label: "Revue",
+            value: "Signalés",
+            onRemove: () => void setParams({ flagged: null, page: null }),
+          },
+        ]
+      : []),
     ...(params.member
       ? [
           {
@@ -272,9 +309,12 @@ export function VouchersView({
         id: "totalAmount",
         header: "Total",
         enableSorting: true,
-        cell: ({ row }) => (
-          <span className="num">{formatCurrency(row.original.totalAmount)}</span>
-        ),
+        cell: ({ row }) =>
+          row.original.totalAmount === null ? (
+            <span className="text-[12px] text-ink-3">À saisir</span>
+          ) : (
+            <span className="num">{formatCurrency(row.original.totalAmount)}</span>
+          ),
       },
       {
         id: "insurerShare",
@@ -317,6 +357,18 @@ export function VouchersView({
             {row.original.lapsed ? (
               <StatusPill tone="alert">Périmé</StatusPill>
             ) : null}
+            {row.original.amountByIpm ? (
+              <StatusPill tone="brand">Saisi par l&apos;IPM</StatusPill>
+            ) : null}
+            {row.original.reviewFlags.length > 0 ? (
+              <span
+                title={row.original.reviewFlags
+                  .map((flag) => REVIEW_FLAG_LABELS[flag] ?? flag)
+                  .join(" · ")}
+              >
+                <StatusPill tone="signal">Signalé</StatusPill>
+              </span>
+            ) : null}
           </div>
         ),
       },
@@ -353,6 +405,11 @@ export function VouchersView({
         description="Un bon engage l'institution dès son émission : sa part est comptée dans les plafonds avant d'être facturée."
         padded={false}
         stats={[
+          {
+            label: "En attente de montant",
+            value: formatNumber(summary.awaitingAmount),
+            tone: summary.awaitingAmount > 0 ? "signal" : undefined,
+          },
           { label: "En circulation", value: formatNumber(summary.issued) },
           {
             label: "Engagé non réglé",
@@ -417,6 +474,28 @@ export function VouchersView({
               </button>
             ) : null}
           </div>
+
+          {/*
+            The two queues a gestionnaire works: bons de pharmacie nobody has
+            priced yet, and bons something flagged. Shortcuts onto the same
+            URL filters the facets write.
+          */}
+          <QuickToggle
+            active={
+              (params.status ?? []).length === 1 && params.status?.[0] === "AWAITING_AMOUNT"
+            }
+            onToggle={(on) =>
+              void setParams({ status: on ? ["AWAITING_AMOUNT"] : null, page: null })
+            }
+          >
+            En attente de montant
+          </QuickToggle>
+          <QuickToggle
+            active={Boolean(params.flagged)}
+            onToggle={(on) => void setParams({ flagged: on ? true : null, page: null })}
+          >
+            Signalés
+          </QuickToggle>
 
           <FacetFilter
             label="Statut"
@@ -508,6 +587,7 @@ export function VouchersView({
               provider: null,
               category: null,
               member: null,
+              flagged: null,
               from: null,
               to: null,
               page: null,
@@ -563,7 +643,13 @@ export function VouchersView({
                 href={voucherPdfUrl(firmSlug, open.id)}
                 label="Imprimer (3 exemplaires)"
               />
-              {!canWrite ? null : ["ISSUED", "PRESENTED"].includes(open.status) ? (
+              {canWrite && open.deferredAmount ? (
+                <PharmacyActions
+                  voucher={open}
+                  onPrice={(mode) => setPricing({ voucher: open, mode })}
+                  onVoid={() => setVoiding(open)}
+                />
+              ) : !canWrite ? null : ["ISSUED", "PRESENTED"].includes(open.status) ? (
                 <>
                   <Button
                     size="sm"
@@ -611,6 +697,31 @@ export function VouchersView({
         {open ? <VoucherDetail firmSlug={firmSlug} voucher={open} /> : null}
       </ResourceDrawer>
 
+      {pricing ? (
+        <VoucherAmountDialog
+          firmSlug={firmSlug}
+          voucher={{
+            id: pricing.voucher.id,
+            number: pricing.voucher.number,
+            totalAmount: pricing.voucher.totalAmount,
+          }}
+          mode={pricing.mode}
+          onClose={() => setPricing(null)}
+        />
+      ) : null}
+
+      {voiding ? (
+        <VoidPharmacyVoucherDialog
+          firmSlug={firmSlug}
+          voucher={{
+            id: voiding.id,
+            number: voiding.number,
+            validated: ["SETTLED", "INVOICED"].includes(voiding.status),
+          }}
+          onClose={() => setVoiding(null)}
+        />
+      ) : null}
+
       {cancelling ? (
         <CancelVoucherDialog
           firmSlug={firmSlug}
@@ -657,7 +768,11 @@ function VoucherDetail({
         </Fact>
       </dl>
 
-      {voucher.origin === "PORTAL" ? (
+      {voucher.deferredAmount ? (
+        <PharmacyPanel firmSlug={firmSlug} voucher={voucher} />
+      ) : null}
+
+      {voucher.origin === "PORTAL" && !voucher.deferredAmount ? (
         <div className="flex items-start gap-3 rounded-[7px] border border-line p-3">
           {voucher.receiptUrl ? (
             // A plain <img>, as for participant photos: the Zipline host comes
@@ -715,7 +830,14 @@ function VoucherDetail({
       </div>
 
       <dl className="space-y-1.5 border-t border-line pt-3 text-[13px]">
-        <Row label="Total" value={formatCurrency(voucher.totalAmount)} />
+        <Row
+          label="Total"
+          value={
+            voucher.totalAmount === null
+              ? "À saisir par la pharmacie"
+              : formatCurrency(voucher.totalAmount)
+          }
+        />
         <Row
           label="Part IPM"
           value={formatCurrency(voucher.insurerShare)}
@@ -764,6 +886,173 @@ function Row({
     <div className="flex justify-between">
       <dt className="text-ink-3">{label}</dt>
       <dd className={`num ${strong ? "font-semibold" : ""}`}>{value}</dd>
+    </div>
+  )
+}
+
+function QuickToggle({
+  active,
+  onToggle,
+  children,
+}: {
+  active: boolean
+  onToggle: (on: boolean) => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={() => onToggle(!active)}
+      className={`h-[29px] rounded-[7px] border px-2.5 text-[12.5px] ${
+        active ? "border-brand bg-brand-tint text-brand" : "border-line text-ink-2 hover:bg-sub"
+      }`}
+    >
+      {children}
+    </button>
+  )
+}
+
+const LOCKED_INVOICE = ["APPROVED", "PAID"]
+
+/**
+ * What the gestionnaire may do to a bon de pharmacie, by its state. The
+ * server decides again on submit; this only avoids offering what it would
+ * refuse.
+ */
+function PharmacyActions({
+  voucher,
+  onPrice,
+  onVoid,
+}: {
+  voucher: OpenVoucher
+  onPrice: (mode: "validate" | "adjust") => void
+  onVoid: () => void
+}) {
+  const locked = voucher.invoice !== null && LOCKED_INVOICE.includes(voucher.invoice.status)
+  const closed = ["CANCELLED", "REJECTED"].includes(voucher.status)
+  const validated = ["SETTLED", "INVOICED"].includes(voucher.status)
+
+  if (closed) {
+    return (
+      <span className="text-[12.5px] text-ink-3">
+        Annulé — {voucher.cancelReason ?? "sans motif"}
+      </span>
+    )
+  }
+  if (locked && voucher.invoice) {
+    return (
+      <span className="text-[12.5px] text-ink-3">
+        Sur la facture {voucher.invoice.number}, déjà{" "}
+        {voucher.invoice.status === "PAID" ? "réglée" : "approuvée"} : plus de modification.
+      </span>
+    )
+  }
+  return (
+    <>
+      <Button size="sm" onClick={() => onPrice(validated ? "adjust" : "validate")}>
+        {validated ? "Corriger le montant" : "Saisir le montant"}
+      </Button>
+      <Button size="sm" variant="destructive" onClick={onVoid}>
+        Annuler le bon
+      </Button>
+    </>
+  )
+}
+
+const CHANGE_LABELS: Record<OpenVoucher["amountChanges"][number]["kind"], string> = {
+  VALIDATE: "Validé",
+  ADJUST: "Corrigé",
+  VOID: "Annulé",
+}
+
+/**
+ * The ordonnance and the amount's history. The file is read through the
+ * session-checked route, never from storage directly; a PDF and a photo both
+ * render in the frame.
+ */
+function PharmacyPanel({ firmSlug, voucher }: { firmSlug: string; voucher: OpenVoucher }) {
+  const prescriptionHref = `/${firmSlug}/api/ipm/bons/${voucher.id}/prescription`
+  return (
+    <div className="space-y-3 rounded-[7px] border border-line p-3 text-[12.5px]">
+      <div className="flex items-center justify-between gap-2">
+        <p className="font-medium">Bon de pharmacie — montant saisi à la délivrance</p>
+        {voucher.amountSource === "BACK_OFFICE" ? (
+          <StatusPill tone="brand">Saisi par l&apos;IPM</StatusPill>
+        ) : null}
+      </div>
+
+      {voucher.hasPrescription ? (
+        <div>
+          <div className="mb-1 flex items-center justify-between">
+            <span className="text-ink-3">Ordonnance</span>
+            <a
+              href={prescriptionHref}
+              target="_blank"
+              rel="noreferrer"
+              className="text-brand hover:underline"
+            >
+              Ouvrir
+            </a>
+          </div>
+          <iframe
+            src={prescriptionHref}
+            title={`Ordonnance du bon ${voucher.number}`}
+            className="h-64 w-full rounded-[5px] border border-line bg-sub"
+          />
+        </div>
+      ) : (
+        <p className="text-ink-3">Aucune ordonnance jointe.</p>
+      )}
+
+      {voucher.validatedAt ? (
+        <p className="text-ink-2">
+          Validé le {formatDate(voucher.validatedAt)}
+          {voucher.validatedBy ? ` par ${voucher.validatedBy}` : ""}.
+        </p>
+      ) : (
+        <p className="text-ink-2">
+          En attente du montant de la pharmacie, jusqu&apos;au {formatDate(voucher.expiryDate)}.
+        </p>
+      )}
+
+      {voucher.reviewFlags.length ? (
+        <ul className="space-y-0.5 text-ink-2">
+          {voucher.reviewFlags.map((flag) => (
+            <li key={flag}>• {REVIEW_FLAG_LABELS[flag] ?? flag}</li>
+          ))}
+        </ul>
+      ) : null}
+
+      {voucher.amountChanges.length ? (
+        <table className="w-full">
+          <tbody>
+            {voucher.amountChanges.map((change) => (
+              <tr key={change.id} className="border-t border-line align-top">
+                <td className="py-1.5 pr-2 whitespace-nowrap text-ink-3">
+                  {formatDate(change.createdAt)}
+                </td>
+                <td className="py-1.5 pr-2">
+                  <span className="font-medium">{CHANGE_LABELS[change.kind]}</span>
+                  {change.kind !== "VOID" ? (
+                    <span className="num">
+                      {" "}
+                      {change.previousAmount !== null
+                        ? `${formatCurrency(change.previousAmount)} → `
+                        : ""}
+                      {change.newAmount !== null ? formatCurrency(change.newAmount) : ""}
+                    </span>
+                  ) : null}
+                  <div className="text-ink-3">
+                    {change.actor}
+                    {change.reason ? ` — ${change.reason}` : ""}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
     </div>
   )
 }

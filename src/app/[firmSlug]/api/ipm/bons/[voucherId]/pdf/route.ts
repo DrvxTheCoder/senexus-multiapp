@@ -63,7 +63,13 @@ export async function GET(
       issuer?.issuedBy?.signatureUrl,
     ])
 
-    const qr = await qrImage(`${appOrigin()}/v/${document.qrToken}`).catch(
+    // A bon de pharmacie à montant différé carries its own token, which the
+    // pharmacy scans in the portal to find the bon; every other bon, the
+    // bearer's verification link.
+    const qrContent = document.deferredAmount
+      ? document.qrToken
+      : `${appOrigin()}/v/${document.qrToken}`
+    const qr = await qrImage(qrContent).catch(
       // A QR that cannot be produced must not take the bon down with it. The
       // page simply prints without one.
       () => null

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -152,7 +153,14 @@ export function ProvidersView({
                   <tr key={provider.id} className="border-b border-line">
                     <td className="px-[15px] py-2.5">
                       <TwoFacts
-                        primary={provider.name}
+                        primary={
+                          <Link
+                            href={`/${firmSlug}/ipm/prestataires/${provider.id}`}
+                            className="hover:text-brand hover:underline"
+                          >
+                            {provider.name}
+                          </Link>
+                        }
                         secondary={
                           provider.specialtyLabel ??
                           provider.accountCode ??

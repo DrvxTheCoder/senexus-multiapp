@@ -1,8 +1,15 @@
 import "server-only"
 
+import { randomBytes } from "node:crypto"
+
 import type { IpmReviewFlag, Prisma } from "@prisma/client"
 
 import { ActionError } from "@/server/actions/define-action"
+import {
+  amountRequiredFor,
+  decideDeferredIssuance,
+  validationDeadline,
+} from "@/server/domain/ipm/deferred-amount"
 import {
   decideIssuance,
   expiryFor,
@@ -78,7 +85,7 @@ export type AllowedDecision = Extract<IssuanceDecision, { allowed: true }>
 
 /** What the caller decides once the rules have allowed the bon. */
 export type Admission = {
-  status: "ISSUED" | "PENDING_REVIEW"
+  status: "ISSUED" | "PENDING_REVIEW" | "AWAITING_AMOUNT"
   reviewFlags: IpmReviewFlag[]
 }
 
@@ -96,7 +103,19 @@ export type CreateVoucherInput = {
   providerId: string
   serviceTypeId: string
   issueDate: Date
+  /** Empty for a bon issued without an amount (`deferred`). */
   lines: VoucherLineInput[]
+  /**
+   * A bon de pharmacie issued without an amount: the ordonnance stands in for
+   * the receipt, and the pharmacy enters the amount when it validates. Only
+   * for a type `amountRequiredFor` lets go without one.
+   */
+  deferred?: {
+    prescriptionUrl: string
+    prescriptionHash: string
+    /** Days the pharmacy has to validate (IpmPortalSettings). */
+    validationDays: number
+  }
   /**
    * Called with the decision once it is known to be allowed, before anything
    * is written. Throws to stop, or says which status and flags to write.
@@ -105,11 +124,13 @@ export type CreateVoucherInput = {
     tx: Tx
     decision: AllowedDecision
     context: IssuanceContext
-    totalAmount: number
+    /** Null for a deferred bon. */
+    totalAmount: number | null
   }) => Promise<Admission>
   /** Portal-only columns. Ignored for a User actor. */
   portal?: {
-    entryMode: "SCAN" | "MANUAL"
+    /** Null for a bon de pharmacie, which has no receipt to scan or type. */
+    entryMode: "SCAN" | "MANUAL" | null
     receiptUrl: string | null
     receiptHash: string | null
     ocrTotal: number | null
@@ -123,7 +144,17 @@ export type CreatedVoucher = {
   reviewFlags: IpmReviewFlag[]
   decision: AllowedDecision
   context: IssuanceContext
-  totalAmount: number
+  totalAmount: number | null
+}
+
+/**
+ * The QR of a bon de pharmacie à montant différé. Unlike the bearer token the
+ * other bons carry, it names **this bon**: the pharmacist scans it to find the
+ * bon they are validating. Random and opaque — 144 bits, nothing derivable
+ * from the participant — and rotated to a dead token when the bon closes.
+ */
+export function newBonToken(): string {
+  return `BP.${randomBytes(18).toString("base64url")}`
 }
 
 /**
@@ -145,12 +176,20 @@ export async function createVoucher(
   input: CreateVoucherInput
 ): Promise<CreatedVoucher> {
   const { firmId, actor } = scope
-  const totalAmount = lineTotal(
-    input.lines.map((line) => ({
-      quantity: line.quantity,
-      unitPrice: line.unitPrice,
-    }))
-  )
+  const deferred = input.deferred ?? null
+  if (deferred && amountRequiredFor(input.type)) {
+    throw new ActionError(
+      "Seul un bon de pharmacie peut être émis sans montant."
+    )
+  }
+  const totalAmount = deferred
+    ? null
+    : lineTotal(
+        input.lines.map((line) => ({
+          quantity: line.quantity,
+          unitPrice: line.unitPrice,
+        }))
+      )
 
   const context = await gatherIssuanceFacts(
     { firmId },
@@ -159,14 +198,16 @@ export async function createVoucher(
       dependentId: input.dependentId,
       providerId: input.providerId,
       serviceTypeId: input.serviceTypeId,
-      totalAmount,
+      totalAmount: totalAmount ?? 0,
       on: input.issueDate,
     },
     tx
   )
   if (!context) throw new VoucherInputNotFoundError()
 
-  const decision = decideIssuance(context.facts)
+  const decision = deferred
+    ? decideDeferredIssuance(context.facts)
+    : decideIssuance(context.facts)
   // What is never possible, for anyone, is proceeding past a refusal.
   if (!decision.allowed) throw new IssuanceRefusedError(decision.refusals)
 
@@ -189,23 +230,28 @@ export async function createVoucher(
       serviceTypeId: input.serviceTypeId,
       categoryId: context.categoryId,
       issueDate: input.issueDate,
-      expiryDate: expiryFor(input.type, input.issueDate),
+      expiryDate: deferred
+        ? validationDeadline(input.issueDate, deferred.validationDays)
+        : expiryFor(input.type, input.issueDate),
       status: admission.status,
+      // A deferred bon carries no amount and commits nothing until validated.
       totalAmount,
-      insurerShare: decision.split.insurerShare,
-      memberShare: decision.split.memberShare,
+      insurerShare: deferred ? 0 : decision.split.insurerShare,
+      memberShare: deferred ? 0 : decision.split.memberShare,
       // Frozen. A later edit to a barème must not reprice a bon already in
       // somebody's hand.
       appliedRate: context.facts.rate!,
       rateSource: context.rateSource ?? "PLAN",
-      qrToken: issueToken(
-        {
-          kind: "member",
-          firmCode: firmCode(firmId),
-          matricule: context.memberMatricule,
-        },
-        verificationSecret()
-      ),
+      qrToken: deferred
+        ? newBonToken()
+        : issueToken(
+            {
+              kind: "member",
+              firmCode: firmCode(firmId),
+              matricule: context.memberMatricule,
+            },
+            verificationSecret()
+          ),
       issuedById: actor.kind === "user" ? actor.userId : null,
       origin: actor.kind === "portal" ? "PORTAL" : "BACKOFFICE",
       issuedByPortalAccountId:
@@ -220,9 +266,29 @@ export async function createVoucher(
             clientRequestId: portal.clientRequestId,
           }
         : {}),
+      ...(deferred
+        ? {
+            deferredAmount: true,
+            prescriptionUrl: deferred.prescriptionUrl,
+            prescriptionHash: deferred.prescriptionHash,
+          }
+        : {}),
     },
     select: { id: true, number: true },
   })
+
+  // Nothing is counted for a deferred bon until it is validated: no line, no
+  // consumption. See `server/ipm/voucher-amount.ts`.
+  if (deferred || totalAmount === null) {
+    return {
+      voucher,
+      status: admission.status,
+      reviewFlags: admission.reviewFlags,
+      decision,
+      context,
+      totalAmount,
+    }
+  }
 
   await tx.ipmVoucherLine.createMany({
     data: input.lines.map((line) => ({
@@ -280,7 +346,7 @@ export type ClosedVoucher = {
  * bearer's — this token exists to fail, and it should carry nothing if it
  * leaks.
  */
-function deadToken(firmId: string): string {
+export function deadToken(firmId: string): string {
   return issueToken(
     {
       kind: "member",
@@ -303,6 +369,7 @@ async function loadForClose(tx: Tx, firmId: string, voucherId: string) {
       memberId: true,
       origin: true,
       issuedByPortalAccountId: true,
+      deferredAmount: true,
     },
   })
   if (!voucher) throw new ActionError("Bon introuvable.")
@@ -362,6 +429,14 @@ export async function cancelVoucherCore(
   if (voucher.status === "INVOICED") {
     throw new ActionError(
       "Ce bon est rattaché à une facture prestataire : il ne peut plus être annulé."
+    )
+  }
+  // A validated bon de pharmacie has posted to the register and may sit on an
+  // invoice; releasing only its consumption here would leave both behind.
+  // Its annulation goes through `voidDeferredVoucher`, which undoes all three.
+  if (voucher.deferredAmount && voucher.status === "SETTLED") {
+    throw new ActionError(
+      "Ce bon de pharmacie est validé : annulez-le depuis ses actions IPM, qui reprennent aussi le solde et la facture."
     )
   }
 

@@ -198,3 +198,100 @@ export async function memberOptions(
     })),
   }))
 }
+
+/* ==========================================================================
+ * Fiche prestataire — accès au portail
+ * ========================================================================== */
+
+export type ProviderAccessRecord = {
+  id: string
+  name: string
+  legacyCode: string | null
+  specialtyLabel: string | null
+  accredited: boolean
+  status: string
+  address: string | null
+  phone: string | null
+  account: {
+    username: string
+    isActive: boolean
+    mustChangePassword: boolean
+    lastLoginAt: Date | null
+    lockedUntil: Date | null
+    createdAt: Date
+  } | null
+  /** Bons de pharmacie: waiting for this provider, and validated this month. */
+  pharmacy: {
+    awaiting: number
+    validatedThisMonth: number
+    validatedAmountThisMonth: number
+  }
+}
+
+export async function providerAccessRecord(
+  ctx: FirmContext,
+  providerId: string
+): Promise<ProviderAccessRecord | null> {
+  const now = new Date()
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+
+  const provider = await db.ipmProvider.findFirst({
+    where: { id: providerId, firmId: ctx.firmId },
+    select: {
+      id: true,
+      name: true,
+      legacyCode: true,
+      accredited: true,
+      status: true,
+      address: true,
+      phone: true,
+      specialty: { select: { label: true } },
+      account: {
+        select: {
+          username: true,
+          isActive: true,
+          mustChangePassword: true,
+          lastLoginAt: true,
+          lockedUntil: true,
+          createdAt: true,
+        },
+      },
+    },
+  })
+  if (!provider) return null
+
+  const [awaiting, month] = await Promise.all([
+    db.ipmVoucher.count({
+      where: { firmId: ctx.firmId, providerId, status: "AWAITING_AMOUNT" },
+    }),
+    // The same predicate as the pharmacy's own monthly figure.
+    db.ipmVoucher.aggregate({
+      where: {
+        firmId: ctx.firmId,
+        providerId,
+        deferredAmount: true,
+        status: { in: ["SETTLED", "INVOICED"] },
+        validatedAt: { gte: monthStart },
+      },
+      _count: { _all: true },
+      _sum: { totalAmount: true },
+    }),
+  ])
+
+  return {
+    id: provider.id,
+    name: provider.name,
+    legacyCode: provider.legacyCode,
+    specialtyLabel: provider.specialty?.label ?? null,
+    accredited: provider.accredited,
+    status: provider.status,
+    address: provider.address,
+    phone: provider.phone,
+    account: provider.account,
+    pharmacy: {
+      awaiting,
+      validatedThisMonth: month._count._all,
+      validatedAmountThisMonth: Number(month._sum.totalAmount ?? 0),
+    },
+  }
+}

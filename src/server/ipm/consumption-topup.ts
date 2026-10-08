@@ -24,6 +24,11 @@ type Tx = Prisma.TransactionClient
  * by source, and only a shortfall is written. A source with a REVERSAL is left
  * alone — it was taken back, there is nothing to top up.
  *
+ * An ADJUSTMENT against a bon (its amount changed after validation, see
+ * `server/ipm/voucher-amount.ts`) is part of what is posted for it: the net of
+ * debits and credits is what is compared, or a corrected bon would be topped
+ * up straight back to the amount it was corrected from.
+ *
  * Does not maintain `balanceAfter` or the cached balance: the caller rebuilds
  * both afterwards, which it has to do anyway since these entries land in past
  * periods.
@@ -36,7 +41,7 @@ export async function topUpConsumptionDebits(
   const posted = await tx.ipmLedgerEntry.findMany({
     where: {
       firmId,
-      type: { in: ["CONSUMPTION", "REVERSAL"] },
+      type: { in: ["CONSUMPTION", "ADJUSTMENT", "REVERSAL"] },
       sourceType: { in: ["VOUCHER", "REIMBURSEMENT"] },
       sourceId: { not: null },
     },
@@ -47,6 +52,7 @@ export async function topUpConsumptionDebits(
       sourceType: true,
       sourceId: true,
       debit: true,
+      credit: true,
       periodYear: true,
       periodMonth: true,
       note: true,
@@ -81,7 +87,7 @@ export async function topUpConsumptionDebits(
         note: row.note,
       } satisfies Source)
     if (row.type === "REVERSAL") source.reversed = true
-    else source.debited += Number(row.debit)
+    else source.debited += Number(row.debit) - Number(row.credit)
     sources.set(key, source)
   }
 

@@ -644,3 +644,48 @@ Decided, and worth knowing:
   plafond lives on a rate row.
 - The formules dialog now has the monthly plafond and is seeded from the row it edits. Before, saving
   a taux there silently erased that row's plafonds.
+
+
+---
+
+## Q30 — Bon de pharmacie à montant différé · `DECIDED` — validated by the pharmacy, counted at validation
+
+The pharmacy gives a receipt only once paid, so a participant cannot state the amount of a bon de
+pharmacie. Since migration `20261008120000_add_deferred_pharmacy_vouchers` such a bon is issued
+**without an amount** (`AWAITING_AMOUNT`, `totalAmount` null, `deferredAmount` true) with the
+ordonnance attached, and the pharmacy enters the global amount from its own portal session.
+
+Decided, and worth knowing:
+
+- **Nothing is reserved while the bon waits.** No consumption row, no ledger entry, no invoice line:
+  the plafond, the participant's balance and the provider's invoice move **at validation**. Two bons
+  waiting at once can therefore both validate; the second simply finds less plafond left. Reserving
+  an unknown amount would have meant reserving a guess.
+- **The plafond caps instead of refusing.** At validation the IPM covers up to what is left under the
+  plafonds (per act, month, year — the IPM's fixed amounts, not the cotisations) and the participant
+  owes the rest, flagged `CEILING_CAPPED`. Issuance still refuses when the plafond is already
+  exhausted. The taux is the one frozen at issue.
+- **Validation = `SETTLED`, `settledAt` = `validatedAt`.** So the existing invoice pipeline bills a
+  validated bon in the month it was validated, from the voucher row's current amount.
+- **One function writes the consequences.** `server/ipm/voucher-amount.ts` — pharmacy validation,
+  back-office validation, correction, void — changes only the voucher row, then `syncVoucherEffects`
+  rewrites the consumption row, the single global line, the register (CONSUMPTION at validation,
+  ADJUSTMENT for a correction, REVERSAL on a void) and, if the bon is on an invoice still `RECEIVED`
+  or `CHECKED`, its invoice line and the invoice's matched total. An `APPROVED` or `PAID` invoice
+  freezes the bon. `topUpConsumptionDebits` now counts ADJUSTMENT entries, or "Recalculer" would undo
+  a correction.
+- **A warning does not hold the bon.** A receipt bon with an issuance warning waits for a
+  gestionnaire; a bon de pharmacie must be validatable at the counter, so it is issued and flagged
+  `ISSUANCE_WARNING` instead. Eligibility is not re-checked at validation.
+- **The QR names the bon.** Deferred bons carry a random per-bon token (`BP.…`) rather than the
+  bearer token of Q27; the pharmacy looks the bon up by it. Rotated to the dead token on cancel/expiry.
+- **Provider login** is code prestataire + password, its own table (`ProviderAccount`, `username`
+  unique across the database — one firm runs the module), its own sessions (`ProviderSession`) and
+  its own secret (`PROVIDER_TOKEN_SECRET`). Bearer token, not a cookie: the portal is another origin.
+- **The ordonnance** is on Zipline under a random 128-bit name; its URL never leaves the server. The
+  API hands out ten-minute signed links to `/api/portail/prescriptions/{id}`, minted only for the
+  family's or the bound pharmacy's session; the back office streams it behind its session.
+- **Expiry** is written by `POST /api/cron/expire-vouchers` (`CRON_SECRET`), but nothing depends on
+  it running: validation refuses on the date, and the screens read an overdue bon as expired.
+- `pharmacyValidationDays` (7) and `pharmacyReviewThreshold` live on `IpmPortalSettings`, with no
+  screen yet — like the other review settings.

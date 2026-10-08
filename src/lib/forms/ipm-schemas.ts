@@ -564,6 +564,64 @@ export const cancelVoucherSchema = z.object({
 })
 
 /* ==========================================================================
+ * Bon de pharmacie à montant différé — actions du gestionnaire
+ * ========================================================================== */
+
+/** Whole francs: FCFA has no subunit, and the domain refuses anything else. */
+const pharmacyAmount = z.coerce
+  .number({ message: "Montant requis." })
+  .int("Montant en francs entiers.")
+  .positive("Le montant doit être supérieur à zéro.")
+  .max(100_000_000, "Montant trop élevé.")
+
+const motive = z.string().trim().min(3, "Motif requis.").max(300)
+
+/** Enter the amount on the pharmacy's behalf, or correct a validated one. */
+export const voucherAmountSchema = z.object({
+  ...firmScoped,
+  voucherId: z.string().min(1),
+  amount: pharmacyAmount,
+  reason: motive,
+})
+
+export const voucherAmountPreviewSchema = z.object({
+  ...firmScoped,
+  voucherId: z.string().min(1),
+  amount: pharmacyAmount,
+})
+
+export const voidVoucherSchema = z.object({
+  ...firmScoped,
+  voucherId: z.string().min(1),
+  reason: motive,
+})
+
+/* ==========================================================================
+ * Accès prestataire
+ * ========================================================================== */
+
+export const providerCredentialsSchema = z.object({
+  ...firmScoped,
+  providerId: z.string().min(1),
+  /** The code prestataire. Defaults to the provider's legacy code. */
+  code: z
+    .string()
+    .trim()
+    .min(2, "Code requis.")
+    .max(40)
+    .regex(/^[A-Za-z0-9_-]+$/, "Lettres, chiffres, tirets uniquement."),
+})
+
+export const providerAccountSchema = z.object({
+  ...firmScoped,
+  providerId: z.string().min(1),
+})
+
+export const providerAccountActiveSchema = providerAccountSchema.extend({
+  active: z.boolean(),
+})
+
+/* ==========================================================================
  * Validation des bons du portail
  * ========================================================================== */
 

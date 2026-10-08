@@ -88,7 +88,10 @@ export type VoucherDocument = {
   }
   service: { category: string; type: string }
 
-  totalAmount: number
+  /** Null while a bon de pharmacie waits for the pharmacy to enter it. */
+  totalAmount: number | null
+  /** Issued without an amount: the QR names the bon, for the pharmacy. */
+  deferredAmount: boolean
   insurerShare: number
   memberShare: number
   appliedRate: number
@@ -126,6 +129,7 @@ export async function voucherDocument(
       memberShare: true,
       appliedRate: true,
       qrToken: true,
+      deferredAmount: true,
       dependentId: true,
       issuedBy: { select: { name: true, email: true } },
       member: {
@@ -223,7 +227,8 @@ export async function voucherDocument(
       type: voucher.serviceType.label,
     },
 
-    totalAmount: Number(voucher.totalAmount),
+    totalAmount: voucher.totalAmount === null ? null : Number(voucher.totalAmount),
+    deferredAmount: voucher.deferredAmount,
     insurerShare: Number(voucher.insurerShare),
     memberShare: Number(voucher.memberShare),
     appliedRate: Number(voucher.appliedRate),

@@ -337,7 +337,7 @@ export const settleVoucher = firmAction({
   handler: async ({ input, ctx, tx, audit }) => {
     const voucher = await tx.ipmVoucher.findFirst({
       where: { id: input.voucherId, firmId: ctx.firmId },
-      select: { id: true, number: true, status: true },
+      select: { id: true, number: true, status: true, deferredAmount: true },
     })
     if (!voucher) throw new ActionError("Bon introuvable.")
     if (voucher.status === "CANCELLED") {
@@ -351,6 +351,13 @@ export const settleVoucher = firmAction({
     }
     if (voucher.status === "REJECTED") {
       throw new ActionError("Ce bon a été refusé.")
+    }
+    // A bon de pharmacie is settled by entering its amount, never by this
+    // button: there is nothing to settle until somebody says how much.
+    if (voucher.deferredAmount) {
+      throw new ActionError(
+        "Ce bon attend son montant : saisissez-le depuis « Valider le montant »."
+      )
     }
 
     await tx.ipmVoucher.update({

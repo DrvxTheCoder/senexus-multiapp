@@ -353,6 +353,7 @@ async function main() {
   await db.portalNotification.deleteMany({ where: { firmId: ipmFirm.id } })
   await db.ipmConsumption.deleteMany({ where: { firmId: ipmFirm.id } })
   await db.ipmVoucherLine.deleteMany({ where: { firmId: ipmFirm.id } })
+  await db.ipmVoucherAmountChange.deleteMany({ where: { firmId: ipmFirm.id } })
   await db.ipmVoucher.deleteMany({ where: { firmId: ipmFirm.id } })
   await db.portalAccount.deleteMany({ where: { firmId: ipmFirm.id } })
   await db.ipmMemberCeiling.deleteMany({ where: { firmId: ipmFirm.id } })
@@ -360,6 +361,8 @@ async function main() {
   await db.ipmPortalSettings.deleteMany({ where: { firmId: ipmFirm.id } })
   await db.ipmAgreement.deleteMany({ where: { firmId: ipmFirm.id } })
   await db.ipmProviderBranch.deleteMany({ where: { firmId: ipmFirm.id } })
+  // Sessions go with their account (cascade).
+  await db.providerAccount.deleteMany({ where: { firmId: ipmFirm.id } })
   await db.ipmProvider.deleteMany({ where: { firmId: ipmFirm.id } })
   await db.ipmSequence.deleteMany({ where: { firmId: ipmFirm.id } })
   await db.ipmMemberCard.deleteMany({ where: { firmId: ipmFirm.id } })
@@ -1482,12 +1485,20 @@ async function main() {
     })
   }
 
+  // The categories of the IPM's own provider list (2026). Hôpital also holds
+  // the cabinets and plateaux médicaux the list files under hôpitaux, Clinique
+  // the cabinets it files under cliniques.
   const SPECIALTIES_IPM = [
     [1, "Pharmacie", "401100"],
-    [2, "Médecine générale", "401200"],
+    [2, "Hôpital", "401200"],
     [3, "Clinique", "401300"],
-    [4, "Optique", "401400"],
-    [5, "Laboratoire", "401500"],
+    [4, "Imagerie", "401400"],
+    [5, "Dentiste", "401500"],
+    [6, "Opticien", "401600"],
+    [7, "Ophtalmologue", "401700"],
+    [8, "Laboratoire d'analyses", "401800"],
+    [9, "Pédiatre", "401900"],
+    [10, "Gynécologue", "402000"],
   ]
   for (const [code, label, accountCode] of SPECIALTIES_IPM) {
     await db.ipmProviderSpecialty.create({
@@ -1517,57 +1528,183 @@ async function main() {
   )
 
   // ---- IPM: prestataires --------------------------------------------------
-  // One is deliberately left un-agréé and one suspended, so the issuance
-  // controls have something real to refuse rather than only a happy path.
-  const PROVIDERS_IPM = [
-    ["Pharmacie Guédiawaye", "Pharmacie", true, "ACTIVE", true],
-    ["Pharmacie du Point E", "Pharmacie", true, "ACTIVE", true],
-    ["Clinique du Cap", "Clinique", true, "ACTIVE", true],
-    ["Cabinet Dr Ndiaye", "Médecine générale", true, "ACTIVE", false],
-    ["Optique Sahm", "Optique", true, "ACTIVE", true],
-    ["Laboratoire Bio24", "Laboratoire", true, "ACTIVE", false],
-    ["Pharmacie Mbao", "Pharmacie", false, "ACTIVE", false],
-    ["Clinique Keur Massar", "Clinique", true, "SUSPENDED", false],
-  ]
+  // The IPM's own list — « Liste des prestataires de soins IPM Tawfeikh 2026 »
+  // (Excel, mise à jour de septembre 2026, transmise par la gestionnaire) —
+  // verbatim: names as written, missing addresses and phones left null, and
+  // two numbers kept as one string (the model has a single phone field).
+  //
+  // The code is the code prestataire, and the pharmacy's portal login: stable,
+  // one per row. Known quirks of the source, kept as given:
+  //   - PHA-007 and PHA-014 are both « Pharmacie Sicap Mbao » (two branches?);
+  //   - PHA-008 and PHA-010 carry the same phones (likely a copy-paste);
+  //   - CLI-010 « KOTTI » and CLI-013 « KOTI » are probably one clinic;
+  //   - GYN-002 and CLI-024 are probably the same Dr Racine Ly.
+  //
+  // Every provider on the list is under convention for 2026, so each gets an
+  // ACTIVE agreement over the year — a bon issued against it raises no
+  // « convention échue » warning.
+  const PROVIDERS_IPM = {
+    Pharmacie: [
+      ["PHA-001", "Pharmacie Albis", "Fass Mbao", "77 651 47 01"],
+      ["PHA-002", "Pharmacie Dakaroise", "Place de l'indépendance", "33 821 10 64"],
+      ["PHA-003", "Pharmacie Thiaroye Sur Mer", "Thiaroye", "77 600 83 62"],
+      ["PHA-004", "Pharmacie Ndour", "Ngabou", "77 638 12 23"],
+      ["PHA-005", "Pharmacie Silly Kassa", "Rufisque", "77 534 76 54"],
+      ["PHA-006", "Pharmacie Bator Tandine", "Rufisque", "77 573 15 81"],
+      ["PHA-007", "Pharmacie Sicap Mbao", "Passerelles Sicap Mbao", "33 834 52 46"],
+      ["PHA-008", "Pharmacie LGI", "LGI Mbao", "33 834 14 73 / 77 068 67 67"],
+      ["PHA-009", "Pharmacie Rolland", "35,Rue Abdou Karim Bourgi", "33 821 78 10"],
+      ["PHA-010", "Pharmacie Darou Habibi", "Camp Pénal Liberté 6", "33 834 14 73 / 77 068 67 67"],
+      ["PHA-011", "Pharmacie Guiguon", "Ville", "33 823 33 03"],
+      ["PHA-012", "Pharmacie Ngor Oasis", "Ngor-Dakar", "33 820 39 00"],
+      ["PHA-013", "Pharmacie Sonatel 1", "Sud-Foire derrière Samu Municipal", "33 827 21 22"],
+      ["PHA-014", "Pharmacie Sicap Mbao", "Sicap Mbao", "77 514 95 66"],
+      ["PHA-015", "Pharmacie Demba Koita", "Cité Keur Gorgui", "33 825 79 79"],
+      ["PHA-016", "Pharmacie Mame Oumy Gueye", "Sacré-Cœur 3", "33 825 59 99"],
+      ["PHA-017", "Pharmacie AICHA", "Rufisque", "77 644 81 51"],
+      ["PHA-018", "Pharmacie Mbotti POM", "Gueule tapée", "33 821 14 02"],
+      ["PHA-019", "Pharmacie El Mansour", "Grand DAKAR", "33 824 91 25"],
+      ["PHA-020", "Pharmacie El Hadji Ndiaré", "Cité Keur Gorgui", "33 824 00 84"],
+      ["PHA-021", "Pharmacie Birane Ly", "Keur Massar", null],
+      ["PHA-022", "Pharmacie Bakh Yaye", null, null],
+      ["PHA-023", "Pharmacie DADYBA", null, null],
+    ],
+    Hôpital: [
+      ["HOP-001", "Hopital Youssou Mbergane", "Rufisque", "77 855 60 07"],
+      ["HOP-002", "Hopital Masroor", "Rufisque Ouest", "33 959 49 86 / 76 630 76 78"],
+      ["HOP-003", "Hopital Principal de Dakar", "1 Av Nelson Mandela, Ville", "33 859 30 30"],
+      ["HOP-004", "Centre Hospitalier National Matlaboul Fawzeyni", "Touba Dianatou", "33 974 05 47"],
+      ["HOP-005", "Cabinet Médical Darou Salam", "Mbacké", "78 620 78 05"],
+      ["HOP-006", "Hopital Militaire de Ouakam", "Ouakam", "33 820 54 14"],
+      ["HOP-007", "Hopital Fann", "Av Cheikh Anta Diop", "76 623 80 39"],
+      ["HOP-008", "Hopital Guedj", "Rufisque", "77 433 04 43"],
+      ["HOP-009", "Cabinet Médical Matlaboul Chifa", "Keur Massar", "77 420 48 57"],
+      ["HOP-010", "Plateau Médical Du Lac", null, null],
+      ["HOP-011", "Plateau Médical Cheikhal Islam Baye Niass", "Sacré-Cœur 3", "33 842 07 61"],
+    ],
+    Clinique: [
+      ["CLI-001", "Clinique Tawfeikh", "Ngabou", "77 726 71 84"],
+      ["CLI-002", "La Croix Bleue", "Castor", "33 824 51 82"],
+      ["CLI-003", "Clinique Suma Assistance", "Sicap Sacré-Cœur 3", "33 824 24 18"],
+      ["CLI-004", "Urgences Solutions Médicales", "Sacré-Cœur 3", "33 069 98 97 / 77 367 75 49"],
+      ["CLI-005", "Clinique de l'amitié", "Hlm grand yoff", "33 869 64 90"],
+      ["CLI-006", "Clinique Bakeline", "Touba Ngabou", "77 398 23 58"],
+      ["CLI-007", "Clinique El Hadj Ibrahima Niass", "Keur Massar", "77 451 54 44"],
+      ["CLI-008", "Clinique de l'Océan", "Corniche Ouest", "33 825 69 37"],
+      ["CLI-009", "Clinique Maimouna", "Rufisque", "33 836 05 33"],
+      ["CLI-010", "Clinique KOTTI", null, null],
+      ["CLI-011", "Clinique Diamila", "Tambacounda", "77 624 26 78"],
+      ["CLI-012", "Polyclinique de l'amitié et de l'alliance P2A", "Yoff cité Djily Mbaye", "77 870 39 11"],
+      ["CLI-013", "Clinique KOTI", "Liberté 6", "33 867 45 00"],
+      ["CLI-014", "Cabinet Adja Boury", "yoff", "77 651 71 42"],
+      ["CLI-015", "Clinique Rahma", "Mermoz", "33 825 98 30"],
+      ["CLI-016", "Clinique M2R Mouhamed Rassoul Rufisque", "Rufisque", null],
+      ["CLI-017", "Clinique Kermel", null, null],
+      ["CLI-018", "Centre Médical CLEO", null, null],
+      ["CLI-019", "Clinique Thierno Kandji", null, null],
+      ["CLI-020", "Cabinet Gyneplus", null, null],
+      ["CLI-021", "Clinique Casahous", null, null],
+      ["CLI-022", "Clinique de le Conception", null, null],
+      ["CLI-023", "Cabinet Médical CHEZ MON KINE", null, null],
+      ["CLI-024", "Cabinet Médical Dr Racine Ly", null, null],
+      ["CLI-025", "Cabinet Médical NEMA", null, null],
+    ],
+    Imagerie: [["IMG-001", "BIPA", "Sahm, Rufique, Golf", "77 313 69 46"]],
+    Dentiste: [
+      ["DEN-001", "Cabinet Dentaire Firdaws", "Rufisque", "77 267 18 86"],
+      ["DEN-002", "Clinique Dentaire diarama", "Zone Industrielle", "77 640 79 59"],
+      ["DEN-003", "Clinique Dentaire Beautiful Smile", "Rond Point JVC", "33 864 61 72"],
+      ["DEN-004", "Cabinet Dentaire Dr Aissatou Diagne", "70, Boulevard de la République", "33 821 71 79"],
+      ["DEN-005", "Clinique Dentaire Precious Smile", "Pikine Icotaf (près du stade, face station ORYX", "76 192 45 50"],
+      ["DEN-006", "Clinique Dentaire APEX", "Point E 2 rue Fatick", "33 860 67 69"],
+      ["DEN-007", "Cabinet Dentaire Yaye Latyre", "Nord-Foire derrière Youm Youm", "33 820 87 99 / 78 283 99 56"],
+      ["DEN-008", "Clinique dentaire Mourad", null, null],
+    ],
+    Opticien: [
+      ["OPT-001", "SENEGOPT", "Av Lamine Gueye x Félix Faure", "77 512 13 67"],
+      ["OPT-002", "Darou Moukhty Lunettes", "Ville / Sacré-Cœur 3", "77 559 01 70"],
+      ["OPT-003", "Opticalia", "Yoff en face Casino du Cap", "78 455 75 28"],
+      ["OPT-004", "Nabil Optique", "HLM 3 villa n°951, Avenue Cheikh Ahmadou Bamba à côté de l'Église Saint-Maurice des Hlm.", "77 800 31 53"],
+      ["OPT-005", "Optic Prestige", null, null],
+    ],
+    Ophtalmologue: [
+      ["OPH-001", "Rio Vision", "Rufisque dérrière la station SHELL", "78 460 07 07"],
+      ["OPH-002", "Colaser", "Rue Aamadou Assane Ndoye Dkr", "33 821 50 51 / 33 823 91 93"],
+    ],
+    "Laboratoire d'analyses": [
+      ["LAB-001", "Solabsen", "VILLE", "33 821 33 14"],
+      ["LAB-002", "Institut Pasteur", "VILLE", "77 632 61 05"],
+      ["LAB-003", "NURBIO", "Parcelles Assainies", "76 210 79 12"],
+    ],
+    Pédiatre: [
+      ["PED-001", "Pédiatrie 24", "VDN sipres en face hypermarché", "77 811 21 01"],
+      ["PED-002", "Clinique la Sagesse", "Thiès", "33 951 45 45"],
+      ["PED-003", "Cabinet Médical Mamadingdingu Gassama", "Rufisque", "78 600 67 67"],
+      ["PED-004", "Albert Royer", "Av Cheikh Anta Diop", "77 558 70 71"],
+    ],
+    Gynécologue: [
+      ["GYN-001", "Cabinet Dr Ralia FATTAH", "VILLE", "33 842 69 42"],
+      ["GYN-002", "Cabinet Dr Racine Ly", null, null],
+    ],
+  }
+
+  // Every seeded prestataire can sign in to the portal with its code and this
+  // password. A demo value, not a secret: override with SEED_PROVIDER_PASSWORD.
+  const PROVIDER_DEMO_PASSWORD = process.env.SEED_PROVIDER_PASSWORD || "Prestataire2026"
+  const providerPasswordHash = await hash(PROVIDER_DEMO_PASSWORD, 10)
 
   const providers = []
-  let agreementCount = 0
-  for (const [index, spec] of PROVIDERS_IPM.entries()) {
-    const [name, specialtyLabel, accredited, status, withAgreement] = spec
-    const provider = await db.ipmProvider.create({
-      data: {
-        firmId: ipmFirm.id,
-        name,
-        specialtyId: specialtyByLabel[specialtyLabel] ?? null,
-        legacyCode: String(100 + index),
-        accountCode: `401${String(index + 1).padStart(3, "0")}`,
-        address: pick(CITIES),
-        phone: `+221 33 ${int(100, 999)} ${int(10, 99)} ${int(10, 99)}`,
-        accredited,
-        status,
-        paymentTermDays: 60,
-      },
-      select: { id: true, name: true, accredited: true, status: true },
-    })
-
-    if (withAgreement) {
+  const perSpecialty = {}
+  let providerIndex = 0
+  for (const [specialtyLabel, rows] of Object.entries(PROVIDERS_IPM)) {
+    for (const [code, name, address, phone] of rows) {
+      providerIndex += 1
+      const provider = await db.ipmProvider.create({
+        data: {
+          firmId: ipmFirm.id,
+          name,
+          specialtyId: specialtyByLabel[specialtyLabel] ?? null,
+          legacyCode: code,
+          accountCode: `401${String(providerIndex).padStart(3, "0")}`,
+          address,
+          phone,
+          accredited: true,
+          status: "ACTIVE",
+          paymentTermDays: 60,
+        },
+        select: { id: true, name: true, accredited: true, status: true, legacyCode: true },
+      })
       await db.ipmAgreement.create({
         data: {
           firmId: ipmFirm.id,
           providerId: provider.id,
-          reference: `CONV-${String(index + 1).padStart(3, "0")}`,
-          startDate: addDays(TODAY, -int(200, 900)),
-          endDate: addDays(TODAY, int(120, 700)),
-          negotiatedRate: chance(0.5) ? 0.05 : null,
+          reference: `CONV-2026-${code}`,
+          startDate: new Date("2026-01-01T00:00:00.000Z"),
+          endDate: new Date("2026-12-31T23:59:59.000Z"),
           status: "ACTIVE",
         },
       })
-      agreementCount += 1
+      const account = await db.providerAccount.create({
+        data: {
+          firmId: ipmFirm.id,
+          providerId: provider.id,
+          username: code,
+          passwordHash: providerPasswordHash,
+          mustChangePassword: false,
+          createdById: owner.id,
+        },
+        select: { id: true },
+      })
+      providers.push({ ...provider, code, specialtyLabel, accountId: account.id })
+      perSpecialty[specialtyLabel] = (perSpecialty[specialtyLabel] ?? 0) + 1
     }
-    providers.push(provider)
   }
+  const providerByCode = (code) => providers.find((p) => p.code === code)
   console.log(
-    `  ${providers.length} prestataires (${providers.filter((p) => p.accredited).length} agréés), ${agreementCount} conventions`
+    `  ${providers.length} prestataires (${Object.entries(perSpecialty)
+      .map(([label, n]) => `${label} ${n}`)
+      .join(", ")}), une convention 2026 et un accès portail chacun` +
+      ` — mot de passe démo « ${PROVIDER_DEMO_PASSWORD} »`
   )
 
   // ---- IPM: bons ----------------------------------------------------------
@@ -1577,6 +1714,12 @@ async function main() {
   const issuable = providers.filter(
     (p) => p.accredited && p.status === "ACTIVE"
   )
+  // A bon goes to a provider that dispenses it: a pharmacie bon to a pharmacy,
+  // a consultation or soins bon to anyone but a pharmacy or an optician.
+  const issuableFor = {
+    PHARMACIE: issuable.filter((p) => p.specialtyLabel === "Pharmacie"),
+    CARE: issuable.filter((p) => !["Pharmacie", "Opticien"].includes(p.specialtyLabel)),
+  }
   // Ordered explicitly. Postgres returns rows in whatever order it likes, and
   // this list drives a deterministic RNG — an unordered read makes the whole
   // seed produce a different database on every run.
@@ -1690,7 +1833,9 @@ async function main() {
     const resolved = rateFor(member, serviceType.categoryId, beneficiaryType)
     if (!resolved) continue
 
-    const provider = pick(issuable)
+    const provider = pick(
+      categoryCode === "PHARMACIE" ? issuableFor.PHARMACIE : issuableFor.CARE
+    )
     const issueDate = addDays(TODAY, -int(0, 330))
     const type = VOUCHER_TYPE_BY_CATEGORY[categoryCode]
     sequences[type] += 1
@@ -1828,9 +1973,22 @@ async function main() {
   // portal bon of either is refused with NO_RATE — offered, but honest.
   const PORTAL_BOOKINGS = [
     ["PHARMACY", "Pharmacie — médicaments", ["Pharmacie"]],
-    ["OPTICAL", "Optique — monture et verres", ["Optique"]],
-    ["GUARANTEE", "Analyses de laboratoire", ["Clinique", "Laboratoire", "Médecine générale"]],
-    ["HOSPITALIZATION", "Hospitalisation médicale", ["Clinique"]],
+    ["OPTICAL", "Optique — monture et verres", ["Opticien", "Ophtalmologue"]],
+    [
+      "GUARANTEE",
+      "Analyses de laboratoire",
+      [
+        "Hôpital",
+        "Clinique",
+        "Imagerie",
+        "Dentiste",
+        "Ophtalmologue",
+        "Laboratoire d'analyses",
+        "Pédiatre",
+        "Gynécologue",
+      ],
+    ],
+    ["HOSPITALIZATION", "Hospitalisation médicale", ["Hôpital", "Clinique"]],
   ]
   for (const [type, serviceLabel, specialtyLabels] of PORTAL_BOOKINGS) {
     const serviceType = serviceTypes.find((s) => s.label === serviceLabel)
@@ -1914,7 +2072,6 @@ async function main() {
     }
   }
 
-  const providerNamed = (name) => providers.find((p) => p.name === name)
   const serviceTypeLabelled = (label) => serviceTypes.find((s) => s.label === label)
   const pharmacy = serviceTypeLabelled("Pharmacie — médicaments")
   const lab = serviceTypeLabelled("Analyses de laboratoire")
@@ -1923,34 +2080,34 @@ async function main() {
   // the index of an ayant droit.
   const PORTAL_BONS = [
     {
-      account: 0, who: 0, type: "GUARANTEE", serviceType: lab, provider: "Clinique du Cap",
+      account: 0, who: 0, type: "GUARANTEE", serviceType: lab, provider: "LAB-002",
       hours: 5, status: "PENDING_REVIEW", flags: ["ABOVE_THRESHOLD"],
       lines: [["Bilan pré-opératoire complet", 1, 145_000], ["Échographie abdominale", 1, 40_000]],
     },
     {
-      account: 1, who: null, type: "PHARMACY", serviceType: pharmacy, provider: "Pharmacie du Point E",
+      account: 1, who: null, type: "PHARMACY", serviceType: pharmacy, provider: "PHA-002",
       hours: 3, status: "PENDING_REVIEW", flags: ["ISSUANCE_WARNING"],
       // No lines: the participant only had the receipt total.
       lines: [], total: 23_500,
     },
     {
-      account: 1, who: 0, type: "PHARMACY", serviceType: pharmacy, provider: "Pharmacie Guédiawaye",
+      account: 1, who: 0, type: "PHARMACY", serviceType: pharmacy, provider: "PHA-009",
       hours: 26, status: "ISSUED", flags: ["AMOUNT_UNUSUAL"],
       lines: [["Insuline glargine (stylo x5)", 1, 48_500], ["Bandelettes glycémie (50)", 1, 14_000]],
     },
     {
-      account: 2, who: null, type: "PHARMACY", serviceType: pharmacy, provider: "Pharmacie du Point E",
+      account: 2, who: null, type: "PHARMACY", serviceType: pharmacy, provider: "PHA-002",
       hours: 50, status: "ISSUED", flags: ["SAME_DAY_DUPLICATE"], reviewed: true,
       lines: [["Amoxicilline 1 g (boîte de 14)", 1, 4_850], ["Paracétamol 500 mg", 2, 1_200]],
     },
     {
-      account: 2, who: 0, type: "GUARANTEE", serviceType: lab, provider: "Clinique du Cap",
+      account: 2, who: 0, type: "GUARANTEE", serviceType: lab, provider: "CLI-001",
       hours: 72, status: "REJECTED", flags: ["ABOVE_THRESHOLD", "OCR_MISMATCH"],
       reason: "Le montant saisi ne correspond pas au reçu (98 500 F lus). Refaites la demande avec le bon total.",
       lines: [["Analyses de laboratoire", 1, 165_000]],
     },
     {
-      account: 3, who: null, type: "PHARMACY", serviceType: pharmacy, provider: "Pharmacie Guédiawaye",
+      account: 3, who: null, type: "PHARMACY", serviceType: pharmacy, provider: "PHA-012",
       hours: 30, status: "CANCELLED", flags: [],
       cancelReason: "Ordonnance finalement non délivrée.",
       lines: [["Sirop antitussif", 1, 3_900], ["Doliprane enfant 2,4 %", 1, 2_150]],
@@ -1966,7 +2123,7 @@ async function main() {
     const dependent = spec.who === null ? null : member.dependents[spec.who]
     const beneficiaryType = dependent ? dependent.relation : "MEMBER"
     const resolved = rateFor(member, spec.serviceType.categoryId, beneficiaryType)
-    const provider = providerNamed(spec.provider)
+    const provider = providerByCode(spec.provider)
     if (!resolved || !provider) continue
 
     const lines = spec.lines.length
@@ -2074,6 +2231,167 @@ async function main() {
     portalVoucherCount += 1
   }
 
+  // ---- bons de pharmacie à montant différé ---------------------------------
+  // The core flow: issued with the ordonnance and no amount, the pharmacy
+  // scans the QR and enters the amount. One of each state a demo walks
+  // through. A validated bon is SETTLED, so the register below posts it like
+  // any other settled bon; the per-bon QR token is what the pharmacy scans.
+  //
+  //   - waiting for the pharmacy (fresh, then due tomorrow);
+  //   - waiting past its deadline — reads « Périmé » until the expiry job runs;
+  //   - validated by the pharmacy from its portal session;
+  //   - validated, then corrected by the gestionnaire (« ajusté par IPM »).
+  const DEFERRED_BONS = [
+    { account: 0, who: null, provider: "PHA-001", hours: 2, state: "AWAITING" },
+    { account: 3, who: 0, provider: "PHA-002", hours: 24 * 6, state: "AWAITING" },
+    { account: 2, who: null, provider: "PHA-009", hours: 24 * 9, state: "OVERDUE" },
+    { account: 1, who: null, provider: "PHA-002", hours: 24 * 3, state: "VALIDATED", amount: 18_750 },
+    {
+      account: 0, who: 0, provider: "PHA-012", hours: 24 * 5, state: "ADJUSTED",
+      amount: 12_400, adjustedTo: 14_900,
+      reason: "Reçu présenté par la pharmacie : un médicament omis à la saisie.",
+    },
+  ]
+  let deferredCount = 0
+  for (const [index, spec] of DEFERRED_BONS.entries()) {
+    const account = portalAccounts[spec.account]
+    if (!account || !pharmacy) continue
+    const { member } = account
+    const dependent = spec.who === null ? null : member.dependents[spec.who]
+    const beneficiaryType = dependent ? dependent.relation : "MEMBER"
+    const resolved = rateFor(member, pharmacy.categoryId, beneficiaryType)
+    const provider = providerByCode(spec.provider)
+    if (!resolved || !provider) continue
+
+    sequences.PHARMACY += 1
+    const number = `${PREFIX.PHARMACY}${String(sequences.PHARMACY).padStart(6, "0")}`
+    const issueDate = hoursAgo(spec.hours)
+    const voucherId = `seed_ipm_deferred_voucher_${index}`
+    const beneficiaryName = dependent
+      ? `${dependent.person.lastName.toUpperCase()} ${dependent.person.firstName}`
+      : `${member.person.lastName.toUpperCase()} ${member.person.firstName}`
+    const prescription = await seedPrescription(voucherId, { beneficiaryName, date: issueDate })
+
+    const validated = spec.state === "VALIDATED" || spec.state === "ADJUSTED"
+    const finalAmount = spec.adjustedTo ?? spec.amount ?? null
+    const insurerShare = validated ? Math.ceil(finalAmount * resolved.rate) : 0
+    const validatedAt = validated ? hoursAgo(spec.hours - 3) : null
+
+    await db.ipmVoucher.create({
+      data: {
+        id: voucherId,
+        firmId: ipmFirm.id,
+        number,
+        type: "PHARMACY",
+        memberId: member.id,
+        dependentId: dependent?.id ?? null,
+        beneficiaryType,
+        beneficiaryName,
+        providerId: provider.id,
+        serviceTypeId: pharmacy.id,
+        categoryId: pharmacy.categoryId,
+        issueDate,
+        // The settings' 7 days.
+        expiryDate: addDays(issueDate, 7),
+        status: validated ? "SETTLED" : "AWAITING_AMOUNT",
+        totalAmount: finalAmount,
+        insurerShare,
+        memberShare: validated ? finalAmount - insurerShare : 0,
+        appliedRate: resolved.rate,
+        rateSource: resolved.source,
+        qrToken: `BP.seed${index}${SEED_RUN}`,
+        settledAt: validatedAt,
+        origin: "PORTAL",
+        issuedByPortalAccountId: account.id,
+        clientRequestId: `seed-deferred-${index}`,
+        deferredAmount: true,
+        prescriptionUrl: prescription?.url ?? null,
+        prescriptionHash: prescription?.hash ?? null,
+        amountEnteredAt: validated ? hoursAgo(spec.hours - (spec.adjustedTo ? 30 : 3)) : null,
+        amountSource: validated ? (spec.adjustedTo ? "BACK_OFFICE" : "PROVIDER") : null,
+        validatedByProviderAccountId: validated ? provider.accountId : null,
+        validatedAt,
+        validationKey: validated ? `seed-validation-${index}` : null,
+        lines: validated
+          ? {
+              create: [
+                {
+                  firmId: ipmFirm.id,
+                  label: "Montant global (pharmacie)",
+                  quantity: 1,
+                  unitPrice: finalAmount,
+                  amount: finalAmount,
+                },
+              ],
+            }
+          : undefined,
+      },
+    })
+
+    if (validated) {
+      await db.ipmConsumption.create({
+        data: {
+          firmId: ipmFirm.id,
+          beneficiaryRef: dependent ? `dependent:${dependent.id}` : `member:${member.id}`,
+          memberId: member.id,
+          categoryId: pharmacy.categoryId,
+          periodYear: validatedAt.getFullYear(),
+          periodMonth: validatedAt.getMonth() + 1,
+          voucherId,
+          amount: finalAmount,
+          insurerShare,
+        },
+      })
+      await db.ipmVoucherAmountChange.create({
+        data: {
+          firmId: ipmFirm.id,
+          voucherId,
+          kind: "VALIDATE",
+          newAmount: spec.amount,
+          newInsurerShare: Math.ceil(spec.amount * resolved.rate),
+          providerAccountId: provider.accountId,
+          createdAt: validatedAt,
+        },
+      })
+      await db.portalNotification.create({
+        data: {
+          firmId: ipmFirm.id,
+          portalAccountId: account.id,
+          voucherId,
+          kind: "VOUCHER_VALIDATED",
+          createdAt: validatedAt,
+        },
+      })
+      if (spec.adjustedTo) {
+        const adjustedAt = hoursAgo(spec.hours - 30)
+        await db.ipmVoucherAmountChange.create({
+          data: {
+            firmId: ipmFirm.id,
+            voucherId,
+            kind: "ADJUST",
+            previousAmount: spec.amount,
+            newAmount: spec.adjustedTo,
+            previousInsurerShare: Math.ceil(spec.amount * resolved.rate),
+            newInsurerShare: insurerShare,
+            userId: owner.id,
+            reason: spec.reason,
+            createdAt: adjustedAt,
+          },
+        })
+        await db.portalNotification.create({
+          data: {
+            firmId: ipmFirm.id,
+            portalAccountId: account.id,
+            voucherId,
+            kind: "VOUCHER_ADJUSTED",
+            createdAt: adjustedAt,
+          },
+        })
+      }
+    }
+    deferredCount += 1
+  }
+
   // ---- the three plafond levels, one family each ---------------------------
   // Family 0 gets a plafond particulier, family 1's employer a dérogation;
   // 2 and 3 keep the formule's. Pharmacie in all cases, so the portal's
@@ -2135,7 +2453,8 @@ async function main() {
   totals.portalVouchers = portalVoucherCount
   console.log(
     `  ${portalAccounts.length} comptes portail, ${portalVoucherCount} bons portail, ${receiptCount} reçus téléversés` +
-      (receiptCount === 0 ? " (pas de Zipline : receiptUrl laissé vide)" : "")
+      (receiptCount === 0 ? " (pas de Zipline : receiptUrl laissé vide)" : "") +
+      `, ${deferredCount} bons de pharmacie à montant différé`
   )
 
   // The sequences continue where the fixtures stopped, so the first bon issued
@@ -2700,6 +3019,65 @@ async function seedReceipt(clientRequestId, { provider, date, lines, total }) {
     return url ? url.replace(/^http:\/\//, "https://") : null
   } catch (error) {
     console.warn(`  reçu ${clientRequestId} non téléversé (${error.message}) — sans reçu`)
+    return null
+  }
+}
+
+/**
+ * An ordonnance for a seeded bon de pharmacie, uploaded like the API does it:
+ * under a random name (the URL is the only thing protecting it) and never
+ * shown to a client — the app streams it. Null without Zipline, as for the
+ * receipts: every screen tolerates a bon with no file.
+ */
+async function seedPrescription(voucherId, { beneficiaryName, date }) {
+  const base = process.env.ZIPLINE_URL?.replace(/\/$/, "")
+  const token = process.env.ZIPLINE_TOKEN
+  if (!base || !token) return null
+
+  try {
+    const { createHash, randomBytes } = await import("node:crypto")
+    const { default: sharp } = await import("sharp")
+    const esc = (text) =>
+      String(text).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c])
+    const when = date.toLocaleDateString("fr-FR", { timeZone: "Africa/Dakar" })
+    const items = ["Amoxicilline 1 g — 1 cp x 2/j, 7 jours", "Paracétamol 1 g — si douleur", "Oméprazole 20 mg — 1 gél/j, 14 jours"]
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="560" height="420" font-family="Georgia, DejaVu Serif, serif">
+      <rect width="100%" height="100%" fill="#fdfcf8"/>
+      <text x="40" y="60" font-size="22" font-weight="bold">Dr A. Sarr — Médecine générale</text>
+      <text x="40" y="88" font-size="14" fill="#555">Dakar — Sénégal</text>
+      <text x="520" y="60" font-size="14" text-anchor="end">${esc(when)}</text>
+      <text x="40" y="140" font-size="16">Patient : ${esc(beneficiaryName)}</text>
+      <text x="280" y="190" font-size="24" font-weight="bold" text-anchor="middle">ORDONNANCE</text>
+      ${items.map((item, i) => `<text x="60" y="${240 + i * 34}" font-size="16">${esc(item)}</text>`).join("")}
+      <text x="520" y="390" font-size="14" text-anchor="end" fill="#555">Signature et cachet</text>
+    </svg>`
+    const png = await sharp(Buffer.from(svg)).png().toBuffer()
+
+    const body = new FormData()
+    body.append("file", new Blob([png], { type: "image/png" }), `${voucherId}.png`)
+    const response = await fetch(`${base}/api/upload`, {
+      method: "POST",
+      headers: {
+        Authorization: token,
+        "x-zipline-filename": `ipm_prescriptions_${randomBytes(16).toString("hex")}`,
+      },
+      body,
+    })
+    if (!response.ok) {
+      console.warn(`  ordonnance ${voucherId} refusée par Zipline (${response.status}) — sans fichier`)
+      return null
+    }
+    const payload = await response.json()
+    const first = payload.files?.[0]
+    const url = typeof first === "string" ? first : first?.url
+    return url
+      ? {
+          url: url.replace(/^http:\/\//, "https://"),
+          hash: createHash("sha256").update(png).digest("hex"),
+        }
+      : null
+  } catch (error) {
+    console.warn(`  ordonnance ${voucherId} non téléversée (${error.message}) — sans fichier`)
     return null
   }
 }

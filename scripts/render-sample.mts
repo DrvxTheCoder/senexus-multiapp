@@ -63,6 +63,7 @@ const voucher: VoucherDocument = {
   },
   service: { category: "Pharmacie", type: "Médicaments prescrits" },
   totalAmount: 47500,
+  deferredAmount: false,
   insurerShare: 38000,
   memberShare: 9500,
   appliedRate: 0.8,

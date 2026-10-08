@@ -8,49 +8,52 @@ datasource db {
 }
 
 model User {
-  id                  String                  @id @default(cuid())
-  name                String?
-  email               String                  @unique
-  emailVerified       DateTime?
-  image               String?
+  id                      String                   @id @default(cuid())
+  name                    String?
+  email                   String                   @unique
+  emailVerified           DateTime?
+  image                   String?
   /// Signature manuscrite scannée, fond transparent de préférence.
   ///
   /// Apposée sur les documents que cette personne vise — VISA DIRECTION et
   /// VISA COMPTABILITÉ sur un bon de décaissement. Stockée, jamais dessinée :
   /// une signature générée n'engage personne.
-  signatureUrl        String?
-  passwordHash        String?
-  createdAt           DateTime                @default(now())
-  updatedAt           DateTime                @updatedAt
-  recordedAbsences    Absence[]
-  accounts            Account[]
-  auditLogs           AuditLog[]
-  generatedReports    ClientQuarterlyReport[]
-  dashboards          DashboardView[]
-  uploadedDocuments   EmployeeDocument[]      @relation("DocumentUploader")
-  verifiedDocuments   EmployeeDocument[]      @relation("DocumentVerifier")
-  approvedTransfers   EmployeeTransfer[]      @relation("TransferApprover")
-  requestedTransfers  EmployeeTransfer[]      @relation("TransferRequester")
-  employees           Employee[]
-  reviewedLeaves      LeaveRequest[]
-  approvedMissions    Mission[]
-  approvedPayslips    Payslip[]
-  sessions            Session[]
-  clientAssignments   UserClientAssignment[]
-  userFirms           UserFirm[]
-  ipmContributions    IpmMemberContribution[] @relation("IpmContributionAuthor")
-  ipmCards            IpmMemberCard[]         @relation("IpmCardAuthor")
-  ipmVouchersIssued   IpmVoucher[]            @relation("IpmVoucherIssuer")
-  ipmVouchersSettled  IpmVoucher[]            @relation("IpmVoucherSettler")
-  ipmLedgerEntries    IpmLedgerEntry[]        @relation("IpmLedgerAuthor")
-  ipmInvoiceStatuses  IpmEmployerInvoice[]    @relation("IpmInvoiceStatusAuthor")
-  ipmInvoicesChecked  IpmProviderInvoice[]    @relation("IpmProviderInvoiceChecker")
-  ipmReimbReviewed    IpmReimbursement[]      @relation("IpmReimbursementReviewer")
-  ipmDisbEntered      IpmDisbursement[]       @relation("IpmDisbursementAuthor")
-  ipmDisbApproved     IpmDisbursement[]       @relation("IpmDisbursementApprover")
-  ipmDisbAccounting   IpmDisbursement[]       @relation("IpmDisbursementAccountant")
-  ipmVouchersReviewed IpmVoucher[]            @relation("IpmVoucherReviewer")
-  ipmCeilingsAuthored IpmMemberCeiling[]      @relation("IpmMemberCeilingAuthor")
+  signatureUrl            String?
+  passwordHash            String?
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  recordedAbsences        Absence[]
+  accounts                Account[]
+  auditLogs               AuditLog[]
+  generatedReports        ClientQuarterlyReport[]
+  dashboards              DashboardView[]
+  uploadedDocuments       EmployeeDocument[]       @relation("DocumentUploader")
+  verifiedDocuments       EmployeeDocument[]       @relation("DocumentVerifier")
+  approvedTransfers       EmployeeTransfer[]       @relation("TransferApprover")
+  requestedTransfers      EmployeeTransfer[]       @relation("TransferRequester")
+  employees               Employee[]
+  reviewedLeaves          LeaveRequest[]
+  approvedMissions        Mission[]
+  approvedPayslips        Payslip[]
+  sessions                Session[]
+  clientAssignments       UserClientAssignment[]
+  userFirms               UserFirm[]
+  ipmContributions        IpmMemberContribution[]  @relation("IpmContributionAuthor")
+  ipmCards                IpmMemberCard[]          @relation("IpmCardAuthor")
+  ipmVouchersIssued       IpmVoucher[]             @relation("IpmVoucherIssuer")
+  ipmVouchersSettled      IpmVoucher[]             @relation("IpmVoucherSettler")
+  ipmLedgerEntries        IpmLedgerEntry[]         @relation("IpmLedgerAuthor")
+  ipmInvoiceStatuses      IpmEmployerInvoice[]     @relation("IpmInvoiceStatusAuthor")
+  ipmInvoicesChecked      IpmProviderInvoice[]     @relation("IpmProviderInvoiceChecker")
+  ipmReimbReviewed        IpmReimbursement[]       @relation("IpmReimbursementReviewer")
+  ipmDisbEntered          IpmDisbursement[]        @relation("IpmDisbursementAuthor")
+  ipmDisbApproved         IpmDisbursement[]        @relation("IpmDisbursementApprover")
+  ipmDisbAccounting       IpmDisbursement[]        @relation("IpmDisbursementAccountant")
+  ipmVouchersReviewed     IpmVoucher[]             @relation("IpmVoucherReviewer")
+  ipmCeilingsAuthored     IpmMemberCeiling[]       @relation("IpmMemberCeilingAuthor")
+  ipmVouchersValidated    IpmVoucher[]             @relation("IpmVoucherValidator")
+  ipmAmountChanges        IpmVoucherAmountChange[] @relation("IpmAmountChangeAuthor")
+  providerAccountsCreated ProviderAccount[]        @relation("ProviderAccountCreator")
 
   @@map("users")
 }
@@ -180,6 +183,9 @@ model Firm {
   portalNotifications     PortalNotification[]
   ipmPortalBookings       IpmPortalBooking[]
   ipmMemberCeilings       IpmMemberCeiling[]
+  // Bon de pharmacie à montant différé, et l'accès prestataire.
+  ipmVoucherAmountChanges IpmVoucherAmountChange[]
+  providerAccounts        ProviderAccount[]
 
   @@map("firms")
 }
@@ -1397,6 +1403,7 @@ model IpmProvider {
   agreements   IpmAgreement[]
   vouchers     IpmVoucher[]
   invoices     IpmProviderInvoice[]
+  account      ProviderAccount?
 
   @@unique([firmId, legacyCode])
   @@index([firmId, status, accredited])
@@ -1464,6 +1471,11 @@ enum IpmVoucherType {
 /// Replaces the legacy OK/KO pair, which cannot tell "issued" from "rejected"
 /// and leaves the counter guessing (plan §4.6).
 enum IpmVoucherStatus {
+  /// Bon de pharmacie émis sans montant: the pharmacy only gives a receipt
+  /// once paid, so the participant attaches the ordonnance and the pharmacist
+  /// enters the amount when they validate. Commits nothing until then — no
+  /// consumption, no ledger entry, no invoice line.
+  AWAITING_AMOUNT
   /// Portail: above the review threshold (or carrying an issuance warning),
   /// waiting for the gestionnaire. Its share is already reserved.
   PENDING_REVIEW
@@ -1490,6 +1502,21 @@ enum IpmVoucherEntryMode {
   MANUAL
 }
 
+/// Who entered the amount of a bon de pharmacie à montant différé.
+enum IpmVoucherAmountSource {
+  /// The bound pharmacy, from its own session.
+  PROVIDER
+  /// A gestionnaire, on the pharmacy's behalf or as a correction.
+  BACK_OFFICE
+}
+
+/// What a row of `IpmVoucherAmountChange` records.
+enum IpmVoucherAmountChangeKind {
+  VALIDATE
+  ADJUST
+  VOID
+}
+
 /// Why a portal bon needs a gestionnaire's look.
 enum IpmReviewFlag {
   ABOVE_THRESHOLD
@@ -1500,6 +1527,13 @@ enum IpmReviewFlag {
   /// `decideIssuance` raised a warning. A participant cannot "confirm anyway"
   /// the way an operator can, so the bon waits for someone who can.
   ISSUANCE_WARNING
+  /// Bon de pharmacie validated above `pharmacyReviewThreshold`. It still
+  /// counts; the flag only asks for a look.
+  AMOUNT_ABOVE_THRESHOLD
+  /// The IPM share was capped by the remaining plafond at validation.
+  CEILING_CAPPED
+  /// The same ordonnance file is attached to another live bon.
+  PRESCRIPTION_REUSED
 }
 
 /// Bon de prise en charge.
@@ -1530,11 +1564,14 @@ model IpmVoucher {
   expiryDate DateTime
   status     IpmVoucherStatus @default(ISSUED)
 
-  totalAmount  Decimal @default(0) @db.Decimal(12, 2)
-  insurerShare Decimal @default(0) @db.Decimal(12, 2)
-  memberShare  Decimal @default(0) @db.Decimal(12, 2)
+  /// Null only on a bon de pharmacie whose amount was never entered
+  /// (AWAITING_AMOUNT, or expired / cancelled before it was). Every other bon
+  /// carries one — enforced by the domain (`amountRequiredFor`), not only here.
+  totalAmount  Decimal? @default(0) @db.Decimal(12, 2)
+  insurerShare Decimal  @default(0) @db.Decimal(12, 2)
+  memberShare  Decimal  @default(0) @db.Decimal(12, 2)
   /// The resolved taux, frozen. Fraction, never a percentage.
-  appliedRate  Decimal @db.Decimal(5, 4)
+  appliedRate  Decimal  @db.Decimal(5, 4)
   /// Where the rate came from, so a settlement can be explained years later.
   rateSource   String
 
@@ -1572,10 +1609,31 @@ model IpmVoucher {
   /// bon already written instead of issuing a second one.
   clientRequestId         String?
 
+  // Montant différé (bon de pharmacie) ---------------------------------------
+  /// Issued without an amount; the pharmacy (or a gestionnaire) enters it.
+  /// Stays true after validation: it is what the back-office override acts on.
+  deferredAmount               Boolean                 @default(false)
+  /// Zipline URL of the ordonnance. Never sent to a client: every reader goes
+  /// through an authenticated route that streams the file.
+  prescriptionUrl              String?
+  /// SHA-256 of the uploaded file, hex.
+  prescriptionHash             String?
+  amountEnteredAt              DateTime?
+  amountSource                 IpmVoucherAmountSource?
+  validatedByProviderAccountId String?
+  validatedByUserId            String?
+  validatedAt                  DateTime?
+  /// Idempotency key of the validation that set the amount: a retry with the
+  /// same key answers the same split; any other attempt is ALREADY_VALIDATED.
+  validationKey                String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   firm                  Firm                     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  validatedByProvider   ProviderAccount?         @relation(fields: [validatedByProviderAccountId], references: [id])
+  validatedByUser       User?                    @relation("IpmVoucherValidator", fields: [validatedByUserId], references: [id])
+  amountChanges         IpmVoucherAmountChange[]
   issuedByPortalAccount PortalAccount?           @relation(fields: [issuedByPortalAccountId], references: [id])
   reviewedBy            User?                    @relation("IpmVoucherReviewer", fields: [reviewedById], references: [id])
   notifications         PortalNotification[]
@@ -1597,6 +1655,9 @@ model IpmVoucher {
   @@index([firmId, providerId, status])
   @@index([firmId, receiptHash])
   @@index([firmId, origin, status])
+  @@index([firmId, qrToken])
+  @@index([firmId, providerId, validatedAt])
+  @@index([firmId, prescriptionHash])
   @@map("ipm_vouchers")
 }
 
@@ -1617,6 +1678,37 @@ model IpmVoucherLine {
 
   @@index([firmId, voucherId])
   @@map("ipm_voucher_lines")
+}
+
+/// Every amount a bon de pharmacie à montant différé has carried, and who set
+/// it. Written in the transaction that changes the bon, by the one function
+/// that does (`server/ipm/voucher-amount.ts`). The actor is a provider account
+/// or a back-office user — exactly one of them — which is why this is not
+/// `AuditLog`: that table requires a User.
+model IpmVoucherAmountChange {
+  id        String                     @id @default(cuid())
+  firmId    String
+  voucherId String
+  kind      IpmVoucherAmountChangeKind
+
+  previousAmount       Decimal? @db.Decimal(12, 2)
+  newAmount            Decimal? @db.Decimal(12, 2)
+  previousInsurerShare Decimal? @db.Decimal(12, 2)
+  newInsurerShare      Decimal? @db.Decimal(12, 2)
+
+  providerAccountId String?
+  userId            String?
+  /// Mandatory for a back-office change; null for a pharmacy's validation.
+  reason            String?
+  createdAt         DateTime @default(now())
+
+  firm            Firm             @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  voucher         IpmVoucher       @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  providerAccount ProviderAccount? @relation(fields: [providerAccountId], references: [id])
+  user            User?            @relation("IpmAmountChangeAuthor", fields: [userId], references: [id])
+
+  @@index([firmId, voucherId, createdAt])
+  @@map("ipm_voucher_amount_changes")
 }
 
 /// Consommation — plan §4.7.
@@ -2098,6 +2190,12 @@ enum PortalAccountStatus {
 enum PortalNotificationKind {
   VOUCHER_APPROVED
   VOUCHER_REJECTED
+  /// A bon de pharmacie received its amount (from the pharmacy or the IPM).
+  VOUCHER_VALIDATED
+  /// The IPM changed the amount of a validated bon.
+  VOUCHER_ADJUSTED
+  /// The IPM voided a bon.
+  VOUCHER_VOIDED
 }
 
 /// The participant's login. Deliberately not a User: no UserFirm, no route
@@ -2122,8 +2220,8 @@ model PortalAccount {
   accessCodeHash      String?
   accessCodeExpiresAt DateTime?
 
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   firm          Firm                 @relation(fields: [firmId], references: [id], onDelete: Cascade)
   member        Member               @relation(fields: [memberId], references: [id], onDelete: Cascade)
@@ -2137,12 +2235,17 @@ model PortalAccount {
 
 /// Review policy for portal bons, one row per IPM.
 model IpmPortalSettings {
-  firmId                String  @id
+  firmId                  String   @id
   /// FCFA. Above it (or above the ratio below, whichever is lower) a bon waits.
-  reviewThresholdAmount Decimal @default(100000) @db.Decimal(12, 2)
-  reviewThresholdRatio  Decimal @default(0.5) @db.Decimal(5, 4)
-  unusualAmountMultiple Decimal @default(3) @db.Decimal(5, 2)
-  ocrMismatchTolerance  Decimal @default(0.15) @db.Decimal(5, 4)
+  reviewThresholdAmount   Decimal  @default(100000) @db.Decimal(12, 2)
+  reviewThresholdRatio    Decimal  @default(0.5) @db.Decimal(5, 4)
+  unusualAmountMultiple   Decimal  @default(3) @db.Decimal(5, 2)
+  ocrMismatchTolerance    Decimal  @default(0.15) @db.Decimal(5, 4)
+  /// Days a bon de pharmacie may wait for its amount before it expires.
+  pharmacyValidationDays  Int      @default(7)
+  /// FCFA. A pharmacy amount above it still validates and counts, flagged
+  /// AMOUNT_ABOVE_THRESHOLD. Null: no flag.
+  pharmacyReviewThreshold Decimal? @db.Decimal(12, 2)
 
   firm Firm @relation(fields: [firmId], references: [id], onDelete: Cascade)
 
@@ -2227,4 +2330,62 @@ model IpmMemberCeiling {
 
   @@index([firmId, memberId, categoryId, validFrom])
   @@map("ipm_member_ceilings")
+}
+
+// ============================================================================
+// IPM — ACCÈS PRESTATAIRE
+// ============================================================================
+
+/// The pharmacy's login on the portal: one per provider. Deliberately neither
+/// a User (no route into the back office) nor a PortalAccount (no family).
+/// Authenticates against /api/portail/prestataire with a bearer token signed
+/// by its own secret, and every request re-reads this row — deactivating it,
+/// or resetting its password, takes effect on the next call.
+model ProviderAccount {
+  id                 String    @id @default(cuid())
+  firmId             String
+  providerId         String    @unique
+  /// The code prestataire. Unique across the database, because the login is
+  /// code + password with no firm: only one firm runs the module today.
+  username           String    @unique
+  /// bcrypt, as `User.passwordHash`.
+  passwordHash       String
+  /// Set by a temporary password (creation or reset); cleared by the change.
+  mustChangePassword Boolean   @default(true)
+  isActive           Boolean   @default(true)
+  lastLoginAt        DateTime?
+  failedAttempts     Int       @default(0)
+  lockedUntil        DateTime?
+  passwordChangedAt  DateTime?
+  createdById        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  firm              Firm                     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  provider          IpmProvider              @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  createdBy         User?                    @relation("ProviderAccountCreator", fields: [createdById], references: [id])
+  sessions          ProviderSession[]
+  vouchersValidated IpmVoucher[]
+  amountChanges     IpmVoucherAmountChange[]
+
+  @@index([firmId])
+  @@map("ipm_provider_accounts")
+}
+
+/// A provider session. The token carries this row's id; the row is what makes
+/// a logout, a password reset or a deactivation revoke it at once. Separate
+/// from the back office's `Session` and from the participant's stateless token.
+model ProviderSession {
+  id         String    @id @default(cuid())
+  accountId  String
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  lastSeenAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  account ProviderAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, revokedAt])
+  @@map("ipm_provider_sessions")
 }

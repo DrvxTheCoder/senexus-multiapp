@@ -394,7 +394,14 @@ function VoucherPage({
       <TotalsBlock
         palette={colors}
         rows={[
-          { label: "Montant total", value: fcfa(document.totalAmount) },
+          {
+            label: "Montant total",
+            // A bon de pharmacie is printed before the pharmacy has priced it.
+            value:
+              document.totalAmount === null
+                ? "À saisir par la pharmacie"
+                : fcfa(document.totalAmount),
+          },
           {
             label: `Part IPM (${percent(document.appliedRate)})`,
             value: fcfa(document.insurerShare),

@@ -5,6 +5,7 @@ import { z } from "zod"
 
 import { db } from "@/lib/db"
 import { ActionError } from "@/server/actions/define-action"
+import { participantMayCancel } from "@/server/domain/ipm/deferred-amount"
 import { decideIssuance } from "@/server/domain/ipm/issuance"
 import {
   decideReview,
@@ -126,7 +127,7 @@ export function draftLines(
  * time: the mapping is configuration, and the one that counts is the current
  * one, not whatever the portal cached in its snapshot.
  */
-async function resolveBooking(
+export async function resolveBooking(
   client: Tx | typeof db,
   firmId: string,
   type: ParsedDraft["type"],
@@ -317,7 +318,7 @@ export async function previewPortalVoucher(
  * Émission
  * ========================================================================== */
 
-function notFound(): PortalError {
+export function notFound(): PortalError {
   return new PortalError(
     404,
     "NOT_FOUND",
@@ -388,7 +389,8 @@ export async function issuePortalVoucher(
               dependentId: draft.dependentId,
               providerId: draft.providerId,
               context,
-              totalAmount,
+              // Never null here: a bon with a receipt is issued with lines.
+              totalAmount: totalAmount ?? 0,
               receiptHash: draft.receiptHash,
               ocrTotal: draft.ocrTotal,
               on,
@@ -416,8 +418,9 @@ export async function issuePortalVoucher(
 
 /**
  * The participant may cancel their own bon while nobody has acted on it yet —
- * issued or still pending. The family check comes first, so a bon of another
- * family is a 403 whatever its state.
+ * issued, still pending, or a bon de pharmacie still waiting for its amount.
+ * The family check comes first, so a bon of another family is a 403 whatever
+ * its state.
  */
 export async function cancelPortalVoucher(
   tx: Tx,
@@ -433,7 +436,7 @@ export async function cancelPortalVoucher(
   if (voucher.memberId !== principal.memberId) {
     throw new PortalError(403, "FORBIDDEN", "Ce bon n'appartient pas à votre famille.")
   }
-  if (voucher.status !== "ISSUED" && voucher.status !== "PENDING_REVIEW") {
+  if (!participantMayCancel(voucher.status)) {
     throw new PortalError(
       409,
       "NOT_CANCELLABLE",

@@ -157,4 +157,8 @@ export const FLAG_LABELS: Record<IpmReviewFlag, string> = {
   OCR_MISMATCH: "Montant différent de celui lu sur le reçu",
   // Not in the portal's copy: added with this schema, see IpmReviewFlag.
   ISSUANCE_WARNING: "Avertissement à l'émission (cotisations en retard ou convention échue)",
+  // Bon de pharmacie à montant différé — set at validation, never blocking.
+  AMOUNT_ABOVE_THRESHOLD: "Montant pharmacie au-dessus du seuil de revue",
+  CEILING_CAPPED: "Part IPM limitée par le plafond restant",
+  PRESCRIPTION_REUSED: "Ordonnance déjà jointe à un autre bon",
 }

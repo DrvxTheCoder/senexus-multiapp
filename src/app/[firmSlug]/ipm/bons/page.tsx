@@ -5,6 +5,7 @@ import { VouchersView } from "@/app/[firmSlug]/ipm/bons/vouchers-view"
 import { Panel } from "@/components/panel"
 import { TableSkeleton } from "@/components/primitives"
 import { TopBar } from "@/components/shell/top-bar"
+import { db } from "@/lib/db"
 import {
   loadVoucherSearchParams,
   toVoucherQuery,
@@ -70,6 +71,16 @@ async function VouchersPanel({
   // The drawer is part of the URL, so its contents are fetched on the server
   // like everything else — opening one is a navigation, not a client fetch.
   const open = parsed.open ? await getVoucher(ctx, parsed.open) : null
+  // An approved or paid invoice freezes the bon: the drawer offers no
+  // correction then, and the server would refuse one anyway.
+  const invoice = open?.providerInvoiceId
+    ? await db.ipmProviderInvoice.findFirst({
+        where: { id: open.providerInvoiceId, firmId: ctx.firmId },
+        select: { number: true, status: true },
+      })
+    : null
+  const who = (user: { name: string | null; email: string } | null) =>
+    user ? (user.name ?? user.email) : null
 
   return (
     <VouchersView
@@ -91,7 +102,7 @@ async function VouchersPanel({
               providerName: open.provider.name,
               categoryLabel: open.category.label,
               serviceTypeLabel: open.serviceType.label,
-              totalAmount: Number(open.totalAmount),
+              totalAmount: open.totalAmount === null ? null : Number(open.totalAmount),
               insurerShare: Number(open.insurerShare),
               memberShare: Number(open.memberShare),
               appliedRate: Number(open.appliedRate),
@@ -107,6 +118,30 @@ async function VouchersPanel({
               reviewFlags: open.reviewFlags,
               reviewReason: open.reviewReason,
               reviewedAt: open.reviewedAt,
+              deferredAmount: open.deferredAmount,
+              hasPrescription: Boolean(open.prescriptionUrl),
+              amountSource: open.amountSource,
+              validatedAt: open.validatedAt,
+              validatedBy:
+                who(open.validatedByUser) ??
+                (open.validatedByProvider
+                  ? `Pharmacie (${open.validatedByProvider.username})`
+                  : null),
+              invoice: invoice ? { number: invoice.number, status: invoice.status } : null,
+              amountChanges: open.amountChanges.map((change) => ({
+                id: change.id,
+                kind: change.kind,
+                previousAmount:
+                  change.previousAmount === null ? null : Number(change.previousAmount),
+                newAmount: change.newAmount === null ? null : Number(change.newAmount),
+                reason: change.reason,
+                createdAt: change.createdAt,
+                actor:
+                  who(change.user) ??
+                  (change.providerAccount
+                    ? `Pharmacie (${change.providerAccount.username})`
+                    : "—"),
+              })),
               lines: open.lines.map((line) => ({
                 id: line.id,
                 label: line.label,

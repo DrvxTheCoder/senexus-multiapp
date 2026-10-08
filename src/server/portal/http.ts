@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client"
 import { z } from "zod"
 
 import { ActionError } from "@/server/actions/define-action"
+import { VoucherAmountError, type AmountErrorCode } from "@/server/ipm/voucher-amount"
 import { IssuanceRefusedError } from "@/server/ipm/voucher-writes"
 import type { ApiError } from "@/server/portal/contract"
 import { StorageError } from "@/server/storage/zipline"
@@ -103,9 +104,22 @@ function zodFields(error: z.ZodError): Record<string, string[]> {
   return fields
 }
 
+const AMOUNT_STATUS: Partial<Record<AmountErrorCode, number>> = {
+  NOT_FOUND: 404,
+  WRONG_PROVIDER: 403,
+  INVALID_AMOUNT: 422,
+  NOT_DEFERRED: 422,
+  REASON_REQUIRED: 422,
+}
+
 export function toErrorResponse(error: unknown): Response {
   if (error instanceof PortalError) {
     return errorResponse(error.status, error.code, error.message, error.details, error.headers)
+  }
+  // The bon amount path: its codes are the contract's (ALREADY_VALIDATED,
+  // EXPIRED, WRONG_PROVIDER, INVALID_AMOUNT…), a conflict unless listed.
+  if (error instanceof VoucherAmountError) {
+    return errorResponse(AMOUNT_STATUS[error.code] ?? 409, error.code, error.message)
   }
   if (error instanceof IssuanceRefusedError) {
     return errorResponse(422, "ISSUANCE_REFUSED", error.message, {

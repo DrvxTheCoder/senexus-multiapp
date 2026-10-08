@@ -42,6 +42,24 @@
  *   - `Member.currentBalance` is debited by each bon's `totalAmount`, no longer
  *     its `insurerShare`. Plafonds are unchanged: they still cap the IPM share.
  *
+ * Change 2026-10-08 — bon de pharmacie à montant différé, and the provider API:
+ *   - `IpmVoucherStatus` gains `AWAITING_AMOUNT`: a pharmacy bon issued with
+ *     no amount, waiting for the pharmacy to enter it. `EXPIRED` is now used:
+ *     a bon nobody validated within `pharmacyValidationDays`;
+ *   - `IpmVoucher.totalAmount` is **nullable** — null exactly while a pharmacy
+ *     bon has no amount. New fields: `deferredAmount`, `prescriptionUrl`,
+ *     `amountSource`, `validatedAt`, `adjustedByIpm`;
+ *   - `prescriptionUrl` is a signed link to this API, valid ten minutes —
+ *     never a storage URL. Fetch the snapshot (or the bon) again for a new one;
+ *   - `IpmReviewFlag` gains `AMOUNT_ABOVE_THRESHOLD`, `CEILING_CAPPED`,
+ *     `PRESCRIPTION_REUSED`; `PortalNotificationKind` gains
+ *     `VOUCHER_VALIDATED`, `VOUCHER_ADJUSTED`, `VOUCHER_VOIDED`;
+ *   - `IpmPortalSettings` gains `pharmacyValidationDays`,
+ *     `pharmacyReviewThreshold`;
+ *   - participant: `POST /api/portail/voucher/preview|issue|cancel`;
+ *   - provider: `/api/portail/prestataire/*` — its own login and its own
+ *     bearer token, which no participant route accepts (nor the reverse).
+ *
  * Nothing in this file may import server code: it is plain types.
  */
 
@@ -69,6 +87,8 @@ export type Gender = "MALE" | "FEMALE" | "OTHER"
 export type IpmVoucherType = "PHARMACY" | "OPTICAL" | "GUARANTEE" | "HOSPITALIZATION"
 
 export type IpmVoucherStatus =
+  /** Bon de pharmacie issued without an amount; the pharmacy enters it. */
+  | "AWAITING_AMOUNT"
   | "PENDING_REVIEW"
   | "ISSUED"
   | "PRESENTED"
@@ -89,9 +109,23 @@ export type IpmReviewFlag =
   | "OCR_MISMATCH"
   /** `decideIssuance` raised a warning; the bon waits for a gestionnaire. */
   | "ISSUANCE_WARNING"
+  /** Pharmacy amount above the review threshold. Counted anyway. */
+  | "AMOUNT_ABOVE_THRESHOLD"
+  /** The IPM share was limited by the remaining plafond. */
+  | "CEILING_CAPPED"
+  /** The ordonnance file is attached to another live bon. */
+  | "PRESCRIPTION_REUSED"
 
 export type PortalAccountStatus = "INVITED" | "ACTIVE" | "LOCKED"
-export type PortalNotificationKind = "VOUCHER_APPROVED" | "VOUCHER_REJECTED"
+export type PortalNotificationKind =
+  | "VOUCHER_APPROVED"
+  | "VOUCHER_REJECTED"
+  /** A pharmacy bon received its amount. */
+  | "VOUCHER_VALIDATED"
+  /** The IPM changed the amount of a validated bon. */
+  | "VOUCHER_ADJUSTED"
+  /** The IPM voided a bon. */
+  | "VOUCHER_VOIDED"
 
 /* ------------------------------------------------------------------------ */
 /* Models                                                                   */
@@ -302,7 +336,9 @@ export type IpmVoucher = {
   issueDate: ISODate
   expiryDate: ISODate
   status: IpmVoucherStatus
-  totalAmount: number
+  /** Null while a pharmacy bon waits for its amount (and if it never got one). */
+  totalAmount: number | null
+  /** Zero until a pharmacy bon is validated. */
   insurerShare: number
   memberShare: number
   appliedRate: number
@@ -331,8 +367,19 @@ export type IpmVoucher = {
   /** Shown to the participant when a bon is refused. */
   reviewReason: string | null
 
+  /** Issued without an amount (bon de pharmacie). */
+  deferredAmount: boolean
+  /** Signed link, valid ten minutes; null when the bon has no ordonnance. */
+  prescriptionUrl: string | null
+  amountSource: IpmVoucherAmountSource | null
+  validatedAt: ISODate | null
+  /** The amount was entered or changed by the IPM rather than the pharmacy. */
+  adjustedByIpm: boolean
+
   createdAt: ISODate
 }
+
+export type IpmVoucherAmountSource = "PROVIDER" | "BACK_OFFICE"
 
 export type IpmVoucherLine = {
   id: string
@@ -375,6 +422,10 @@ export type IpmPortalSettings = {
   reviewThresholdRatio: number
   unusualAmountMultiple: number
   ocrMismatchTolerance: number
+  /** Days a pharmacy has to validate a bon before it expires. */
+  pharmacyValidationDays: number
+  /** Above it a pharmacy amount is flagged (never refused). Null: no flag. */
+  pharmacyReviewThreshold: number | null
 }
 
 /** Everything the portal's pages read, scoped to one family. */
@@ -483,3 +534,157 @@ export type PortalNotification = {
   }
 }
 export type NotificationsResponse = { notifications: PortalNotification[] }
+
+/* ------------------------------------------------------------------------ */
+/* Bon de pharmacie à montant différé — participant                         */
+
+/**
+ * `beneficiaryRef` is `member:<memberId>` (the participant) or
+ * `dependent:<dependentId>` (an ayant droit of the same family). `category` is
+ * the bon type; only `PHARMACY` may be issued without an amount — any other
+ * answers 422 `CATEGORY_NOT_DEFERRED` (use `POST /api/portail/vouchers`).
+ */
+export type PharmacyVoucherRequest = {
+  beneficiaryRef: string
+  category: IpmVoucherType
+  providerId: string
+}
+
+/** POST /api/portail/voucher/preview — eligibility only, no amount, no split. */
+export type PharmacyPreviewResponse = {
+  allowed: boolean
+  refusals: string[]
+  warnings: string[]
+  /** The taux that will apply, as a fraction. Null when refused for want of one. */
+  rate: number | null
+  /** What is left under the plafonds for the IPM share; null = no plafond. */
+  remainingCeiling: number | null
+  /** Days the pharmacy will have to validate. */
+  validationDays: number
+}
+
+/**
+ * POST /api/portail/voucher/issue — multipart: `request` (JSON
+ * `PharmacyVoucherRequest & { clientRequestId?: string }`) + `prescription`
+ * (JPEG, PNG, WebP or PDF, 5 Mo max). 201 when created; 200 with the same body
+ * when `clientRequestId` was already used by this account.
+ */
+export type PharmacyIssueResponse = {
+  voucherId: string
+  number: string
+  /** What the QR encodes; the pharmacy scans it. */
+  qrToken: string
+  status: "AWAITING_AMOUNT"
+  /** Deadline for the pharmacy to validate. */
+  expiresAt: ISODate
+}
+
+/** POST /api/portail/voucher/cancel — answers `CreateVoucherResponse`. */
+export type PharmacyCancelRequest = { voucherId: string; reason?: string }
+
+/* ------------------------------------------------------------------------ */
+/* Prestataire                                                              */
+
+/**
+ * Error codes of the provider routes, beyond `INVALID_INPUT`:
+ *   - 401 `INVALID_CREDENTIALS` — wrong code or password (one sentence for both)
+ *   - 401 `UNAUTHENTICATED` — no token, bad token, session closed
+ *   - 403 `PASSWORD_CHANGE_REQUIRED` — temporary password: change it first
+ *   - 429 `ACCOUNT_LOCKED` — too many failures; `Retry-After` in seconds
+ *   - 403 `WRONG_PROVIDER` — the bon is bound to another pharmacy
+ *   - 404 `NOT_FOUND`
+ *   - 409 `ALREADY_VALIDATED`, 409 `EXPIRED`, 409 `CANCELLED`
+ *   - 422 `INVALID_AMOUNT` — not a whole, positive number of francs
+ *   - 422 `NOT_DEFERRED` — not a pharmacy bon awaiting its amount
+ */
+
+/** POST /api/portail/prestataire/login */
+export type ProviderLoginRequest = { code: string; password: string }
+export type ProviderLoginResponse = {
+  /** Bearer token for every other provider route. */
+  token: string
+  expiresAt: ISODate
+  /** True after a creation or reset: only change-password works until then. */
+  mustChangePassword: boolean
+  provider: { id: string; name: string; code: string }
+}
+
+/** POST /api/portail/prestataire/change-password → `{ mustChangePassword: false }` */
+export type ProviderChangePasswordRequest = { currentPassword: string; newPassword: string }
+
+/** GET /api/portail/prestataire/voucher/lookup?token=… */
+export type ProviderVoucherLookup = {
+  voucherId: string
+  number: string
+  beneficiaryName: string
+  issuedAt: ISODate
+  expiresAt: ISODate
+  /** `AWAITING_AMOUNT` past its deadline reads `EXPIRED`. */
+  status: IpmVoucherStatus
+  /** Signed link, valid ten minutes. */
+  prescriptionUrl: string | null
+}
+
+export type ProviderAmountFlag = "CEILING_CAPPED" | "AMOUNT_ABOVE_THRESHOLD"
+
+/** POST /api/portail/prestataire/voucher/validate/preview */
+export type ProviderAmountPreviewRequest = { voucherId: string; amount: number }
+export type ProviderAmountPreviewResponse = {
+  voucherId: string
+  amount: number
+  ipmShare: number
+  participantShare: number
+  /** Fraction. */
+  rate: number
+  /** Null when no plafond applies. */
+  remainingCeiling: number | null
+  flags: ProviderAmountFlag[]
+}
+
+/**
+ * POST /api/portail/prestataire/voucher/validate. `idempotencyKey`: 8–64 of
+ * `[A-Za-z0-9_-]`, new per validation attempt and reused on retry. A retry with
+ * the same key answers 200 with `replayed: true`.
+ */
+export type ProviderValidateRequest = { voucherId: string; amount: number; idempotencyKey: string }
+export type ProviderValidateResponse = {
+  voucherId: string
+  number: string
+  status: IpmVoucherStatus
+  amount: number
+  ipmShare: number
+  participantShare: number
+  flags: ProviderAmountFlag[]
+  validatedAt: ISODate | null
+  replayed: boolean
+}
+
+export type ProviderVoucherItem = {
+  voucherId: string
+  reference: string
+  beneficiaryName: string
+  validatedAt: ISODate
+  /** Current amount — after any IPM correction. */
+  amount: number
+  ipmShare: number
+  participantShare: number
+  adjustedByIpm: boolean
+}
+
+/** GET /api/portail/prestataire/vouchers?month=YYYY-MM (default: this month) */
+export type ProviderVoucherListResponse = {
+  items: ProviderVoucherItem[]
+  kpi: { month: string; totalAmount: number; count: number }
+}
+
+/** GET /api/portail/prestataire/vouchers/{voucherId} */
+export type ProviderVoucherDetail = Omit<ProviderVoucherItem, "validatedAt" | "amount"> & {
+  status: IpmVoucherStatus
+  issuedAt: ISODate
+  expiresAt: ISODate
+  /** Null until validated. */
+  validatedAt: ISODate | null
+  /** Null until validated. */
+  amount: number | null
+  prescriptionUrl: string | null
+}

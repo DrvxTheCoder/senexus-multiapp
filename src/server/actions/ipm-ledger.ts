@@ -11,15 +11,15 @@ import {
   consumptionDebit,
   DEFAULT_CONSUMPTION_BASIS,
   reaffiliationEntries,
-  type LedgerType,
 } from "@/server/domain/ipm/ledger"
 import { nextInSequence } from "@/server/domain/ipm/sequence"
 import { topUpConsumptionDebits } from "@/server/ipm/consumption-topup"
+import { postLedgerEntry } from "@/server/ipm/ledger-writes"
 
 /**
  * Registre et facturation — the write layer.
  *
- * Every entry goes through `post`, which is the only function in the codebase
+ * Every entry goes through `postLedgerEntry`, the only function in the codebase
  * that inserts into the register. That is deliberate: `balanceAfter` and the
  * cached `Member.currentBalance` are derived values, and letting two call
  * sites maintain them is how they diverge. One door, and the door does the
@@ -35,73 +35,6 @@ const firmScoped = { firmSlug: z.string().min(1) }
 
 function listPath(firmSlug: string, ...rest: string[]): string {
   return [`/${firmSlug}/ipm`, ...rest].join("/")
-}
-
-type Tx = Prisma.TransactionClient
-
-/**
- * Posts one entry and advances the derived values.
- *
- * Reads the current balance from the register itself rather than from the
- * cache, so a stale cache cannot propagate into the next `balanceAfter`.
- */
-async function post(
-  tx: Tx,
-  args: {
-    firmId: string
-    memberId: string
-    periodYear: number
-    periodMonth: number
-    type: LedgerType
-    sourceType: "OPENING" | "INVOICE" | "VOUCHER" | "REIMBURSEMENT" | "MANUAL"
-    sourceId?: string | null
-    credit?: number
-    debit?: number
-    note?: string | null
-    createdById?: string | null
-  }
-): Promise<{ id: string; balanceAfter: number }> {
-  const credit = args.credit ?? 0
-  const debit = args.debit ?? 0
-
-  if (credit > 0 && debit > 0) {
-    throw new ActionError(
-      "Une écriture porte un crédit ou un débit, jamais les deux."
-    )
-  }
-
-  const current = await tx.ipmLedgerEntry.aggregate({
-    where: { firmId: args.firmId, memberId: args.memberId },
-    _sum: { credit: true, debit: true },
-  })
-  const balanceBefore =
-    Number(current._sum.credit ?? 0) - Number(current._sum.debit ?? 0)
-  const balanceAfter = balanceBefore + credit - debit
-
-  const entry = await tx.ipmLedgerEntry.create({
-    data: {
-      firmId: args.firmId,
-      memberId: args.memberId,
-      periodYear: args.periodYear,
-      periodMonth: args.periodMonth,
-      type: args.type,
-      sourceType: args.sourceType,
-      sourceId: args.sourceId ?? null,
-      credit,
-      debit,
-      balanceAfter,
-      note: args.note ?? null,
-      createdById: args.createdById ?? null,
-    },
-    select: { id: true },
-  })
-
-  await tx.member.update({
-    where: { id: args.memberId },
-    data: { currentBalance: balanceAfter, balanceAsOf: new Date() },
-  })
-
-  return { id: entry.id, balanceAfter }
 }
 
 /* ==========================================================================
@@ -152,7 +85,7 @@ export const openLedger = firmAction({
     }
 
     const asOf = toDate(input.asOf)
-    const entry = await post(tx, {
+    const entry = await postLedgerEntry(tx, {
       firmId: ctx.firmId,
       memberId: member.id,
       periodYear: asOf.getFullYear(),
@@ -212,7 +145,7 @@ export const adjustLedger = firmAction({
     }
 
     const asOf = toDate(input.asOf)
-    const entry = await post(tx, {
+    const entry = await postLedgerEntry(tx, {
       firmId: ctx.firmId,
       memberId: member.id,
       periodYear: asOf.getFullYear(),
@@ -362,7 +295,7 @@ export const closeMonth = firmAction({
         // Idempotence: a member already credited for this period is left
         // alone, so a re-run cannot double a cotisation.
         if (member.ledgerEntries.length === 0) {
-          await post(tx, {
+          await postLedgerEntry(tx, {
             firmId: ctx.firmId,
             memberId: member.id,
             periodYear: year,
@@ -473,7 +406,7 @@ export const postVoucherConsumption = firmAction({
       Number(voucher.insurerShare)
     )
 
-    const entry = await post(tx, {
+    const entry = await postLedgerEntry(tx, {
       firmId: ctx.firmId,
       memberId: voucher.memberId,
       periodYear: on.getFullYear(),
@@ -696,7 +629,7 @@ export const resetLedgerOnReaffiliation = firmAction({
     const entries = reaffiliationEntries(Number(member.currentBalance), asOf)
 
     for (const row of entries) {
-      await post(tx, {
+      await postLedgerEntry(tx, {
         firmId: ctx.firmId,
         memberId: member.id,
         periodYear: asOf.getFullYear(),

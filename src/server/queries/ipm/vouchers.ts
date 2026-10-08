@@ -86,10 +86,21 @@ export async function gatherIssuanceFacts(
     serviceTypeId: string
     totalAmount: number
     on?: Date
+    /**
+     * A bon being re-priced (a bon de pharmacie at validation, or when its
+     * amount is corrected): its own consumption row must not count against
+     * the plafond it is measured under.
+     */
+    excludeVoucherId?: string
   },
   client: Prisma.TransactionClient | typeof db = db
 ): Promise<IssuanceContext | null> {
   const on = input.on ?? new Date()
+  // `voucherId <> x` alone would also drop the rows with no bon at all — the
+  // remboursements — which count against the same plafonds.
+  const notThisVoucher: Prisma.IpmConsumptionWhereInput = input.excludeVoucherId
+    ? { OR: [{ voucherId: null }, { voucherId: { not: input.excludeVoucherId } }] }
+    : {}
 
   const [member, provider, serviceType] = await Promise.all([
     client.member.findFirst({
@@ -221,6 +232,7 @@ export async function gatherIssuanceFacts(
           categoryId: serviceType.categoryId,
           periodYear: year,
           periodMonth: month,
+          ...notThisVoucher,
         },
         _sum: { insurerShare: true },
       }),
@@ -230,6 +242,7 @@ export async function gatherIssuanceFacts(
           beneficiaryRef: ref,
           categoryId: serviceType.categoryId,
           periodYear: year,
+          ...notThisVoucher,
         },
         _sum: { insurerShare: true },
       }),
@@ -240,6 +253,7 @@ export async function gatherIssuanceFacts(
           dependentId: dependent?.id ?? null,
           categoryId: serviceType.categoryId,
           status: { notIn: ["CANCELLED", "EXPIRED", "REJECTED"] },
+          ...(input.excludeVoucherId ? { id: { not: input.excludeVoucherId } } : {}),
         },
         orderBy: { issueDate: "desc" },
         select: { issueDate: true },
@@ -320,13 +334,19 @@ export type VoucherRow = {
   memberMatricule: string
   providerName: string
   categoryLabel: string
-  totalAmount: number
+  /** Null while a bon de pharmacie waits for its amount. */
+  totalAmount: number | null
   insurerShare: number
   memberShare: number
   appliedRate: number
   origin: "BACKOFFICE" | "PORTAL"
   /** True when the bon is past its expiry and still in circulation. */
   lapsed: boolean
+  /** Issued without an amount (bon de pharmacie). */
+  deferredAmount: boolean
+  /** The amount was entered or corrected by the IPM. */
+  amountByIpm: boolean
+  reviewFlags: string[]
 }
 
 function where(q: VoucherQuery, ctx: FirmContext): Prisma.IpmVoucherWhereInput {
@@ -350,6 +370,7 @@ function where(q: VoucherQuery, ctx: FirmContext): Prisma.IpmVoucherWhereInput {
   if (q.providerId?.length) clauses.providerId = { in: q.providerId }
   if (q.categoryId?.length) clauses.categoryId = { in: q.categoryId }
   if (q.memberId) clauses.memberId = q.memberId
+  if (q.flagged) clauses.reviewFlags = { isEmpty: false }
 
   if (q.from || q.to) {
     clauses.issueDate = {
@@ -497,6 +518,9 @@ export async function listVouchers(
         memberShare: true,
         appliedRate: true,
         origin: true,
+        deferredAmount: true,
+        amountSource: true,
+        reviewFlags: true,
         member: { select: { matricule: true } },
         provider: { select: { name: true } },
         category: { select: { label: true } },
@@ -518,16 +542,20 @@ export async function listVouchers(
       memberMatricule: row.member.matricule,
       providerName: row.provider.name,
       categoryLabel: row.category.label,
-      totalAmount: Number(row.totalAmount),
+      totalAmount: row.totalAmount === null ? null : Number(row.totalAmount),
       insurerShare: Number(row.insurerShare),
       memberShare: Number(row.memberShare),
       appliedRate: Number(row.appliedRate),
       origin: row.origin,
       // Derived, never stored: a bon does not lapse by being written to, it
-      // lapses by a date passing.
+      // lapses by a date passing. A bon de pharmacie waiting past its deadline
+      // too, before the expiry job writes EXPIRED.
       lapsed:
         row.expiryDate < now &&
-        ["ISSUED", "PRESENTED"].includes(row.status),
+        ["ISSUED", "PRESENTED", "AWAITING_AMOUNT"].includes(row.status),
+      deferredAmount: row.deferredAmount,
+      amountByIpm: row.amountSource === "BACK_OFFICE",
+      reviewFlags: row.reviewFlags,
     })),
     total,
     page: q.page,
@@ -538,6 +566,8 @@ export async function listVouchers(
 }
 
 export type VoucherSummary = {
+  /** Bons de pharmacie waiting for their amount. */
+  awaitingAmount: number
   issued: number
   settled: number
   /** Insurer share committed but not yet settled — the open exposure. */
@@ -549,7 +579,10 @@ export async function voucherSummary(ctx: FirmContext): Promise<VoucherSummary> 
   const now = new Date()
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
 
-  const [issued, settled, outstanding, month] = await Promise.all([
+  const [awaitingAmount, issued, settled, outstanding, month] = await Promise.all([
+    db.ipmVoucher.count({
+      where: { firmId: ctx.firmId, status: "AWAITING_AMOUNT" },
+    }),
     db.ipmVoucher.count({
       where: { firmId: ctx.firmId, status: { in: ["ISSUED", "PRESENTED"] } },
     }),
@@ -571,6 +604,7 @@ export async function voucherSummary(ctx: FirmContext): Promise<VoucherSummary> 
   ])
 
   return {
+    awaitingAmount,
     issued,
     settled,
     outstanding: Number(outstanding._sum.insurerShare ?? 0),
@@ -604,6 +638,28 @@ export async function getVoucher(ctx: FirmContext, voucherId: string) {
       reviewFlags: true,
       reviewReason: true,
       reviewedAt: true,
+      deferredAmount: true,
+      // Whether there is one — never the storage URL itself, which the page
+      // must not see. The drawer reads it through the authenticated route.
+      prescriptionUrl: true,
+      amountSource: true,
+      validatedAt: true,
+      providerInvoiceId: true,
+      validatedByUser: { select: { name: true, email: true } },
+      validatedByProvider: { select: { username: true } },
+      amountChanges: {
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          kind: true,
+          previousAmount: true,
+          newAmount: true,
+          reason: true,
+          createdAt: true,
+          user: { select: { name: true, email: true } },
+          providerAccount: { select: { username: true } },
+        },
+      },
       member: {
         select: {
           id: true,
