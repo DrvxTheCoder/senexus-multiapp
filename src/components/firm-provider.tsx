@@ -12,6 +12,10 @@ export type FirmContextValue = {
   /** Normalised hex, or null when the firm has no usable brand colour. */
   themeHex: string | null
   modules: string[]
+  /** False for a firm hors RH: no tableau de bord, no décisions. */
+  hr: boolean
+  /** The firm's home page — see `firmHomeHref`. */
+  homeHref: string
   role: FirmRole
   /** Every firm the caller belongs to, for the firm switcher, with its mark. */
   memberships: {
@@ -21,6 +25,7 @@ export type FirmContextValue = {
     role: string
     logo: string | null
     themeColor: string | null
+    homeHref: string
   }[]
   user: { id: string; name: string | null; email: string }
 }

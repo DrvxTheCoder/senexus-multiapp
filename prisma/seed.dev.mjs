@@ -244,6 +244,8 @@ const IPM_FIRM = {
   themeColor: "#0b5d53",
   /** Not `documents`: that module is employee documents and depends on hr. */
   modules: ["ipm"],
+  /** Not an HR firm: its home is the IPM — see `Firm.homeModule`. */
+  homeModule: "ipm",
 }
 
 const DOCUMENT_TYPES = [
@@ -308,6 +310,12 @@ async function main() {
     console.log(`Created firm ${IPM_FIRM.displayName}.`)
   }
   const ipmFirm = bySlug[IPM_FIRM.slug]
+  // Hors RH: no tableau de bord or décisions, home on the IPM. Re-applied on an
+  // existing database too, so a seed run on an older one picks it up.
+  await db.firm.update({
+    where: { id: ipmFirm.id },
+    data: { homeModule: IPM_FIRM.homeModule },
+  })
 
   // The second firm was seeded as `senexus-consulting` before the real name was
   // confirmed. Left behind it becomes a third firm full of stale fixtures that
@@ -2479,9 +2487,9 @@ async function main() {
   //     insertion order, so a recompute finds nothing to correct;
   //   - a prise en charge debits the **IPM share**, not the voucher total
   //     (§11 Q9);
-  //   - a tenth of participants are deliberately left **without an OPENING
-  //     entry**, because that is the real state at switchover and the screens
-  //     exist to surface it (§11 Q11, still unanswered).
+  //   - every participant gets an OPENING entry, dated before the simulated
+  //     history, so the relevé's solde initial reconciles on every line. The
+  //     unopened-register warning is covered by tests, not by demo data.
   console.log("\nRegistre participant")
 
   const ledgerMembers = await db.member.findMany({
@@ -2527,10 +2535,7 @@ async function main() {
   for (const [index, member] of ledgerMembers.entries()) {
     const movements = []
 
-    // One in ten is left unopened on purpose — the switchover state the
-    // Cotisations screen is built to report.
-    const opened = index % 10 !== 0
-    if (opened) {
+    {
       const openingAmount = chance(0.25)
         ? -int(5, 60) * 1000 // a participant who arrives in debt
         : int(0, 120) * 1000
@@ -2624,9 +2629,6 @@ async function main() {
 
   console.log(
     `  ${ledgerRows.length} écritures — ${openingCount} ouvertures, ${contributionCount} cotisations, ${consumptionCount2} consommations`
-  )
-  console.log(
-    `  ${ledgerMembers.length - openingCount} registres volontairement non ouverts (état réel à la bascule)`
   )
 
   // ---- IPM: factures employeur -------------------------------------------

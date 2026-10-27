@@ -10,6 +10,7 @@ import { Panel } from "@/components/panel"
 import { Avatar, StatusPill, TwoFacts } from "@/components/primitives"
 import { TopBar } from "@/components/shell/top-bar"
 import { db } from "@/lib/db"
+import { firmHomeHref } from "@/lib/firm-home"
 import { formatDate, formatDays, formatNumber, initials } from "@/lib/format"
 import { requireFirmPage } from "@/server/auth/firm-page"
 import type { FirmContext } from "@/server/auth/require-firm-access"
@@ -42,9 +43,9 @@ export default async function TransfersPage({
   return (
     <>
       <TopBar
-        homeHref={`/${firmSlug}/dashboard`}
+        homeHref={firmHomeHref(ctx.firm)}
         crumbs={[
-          { label: ctx.firm.name, href: `/${firmSlug}/dashboard` },
+          { label: ctx.firm.name, href: firmHomeHref(ctx.firm) },
           { label: "RH" },
           { label: "Transferts" },
         ]}

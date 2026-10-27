@@ -4,6 +4,7 @@ import { z } from "zod"
 
 import { db } from "@/lib/db"
 import { effectiveStatus, monthBounds, monthOf } from "@/server/domain/ipm/deferred-amount"
+import { parseVoucherNumber } from "@/server/domain/ipm/issuance"
 import {
   previewProviderValidation,
   validateDeferredAmount,
@@ -52,15 +53,24 @@ export const validateRequestSchema = amountRequestSchema.extend({
     .regex(/^[A-Za-z0-9_-]{8,64}$/, "Clé d'idempotence invalide (8 à 64 caractères)."),
 })
 
+/**
+ * `token` is what the QR holds, or the bon's number (BPI005492) typed when the
+ * scan fails. A number is guessable, so it is looked up among this pharmacy's
+ * own bons only: another pharmacy's number is the same 404 as none, where its
+ * unguessable QR token may say WRONG_PROVIDER.
+ */
 export async function lookupVoucher(
   principal: ProviderPrincipal,
   token: string,
   now: Date = new Date()
 ): Promise<ProviderVoucherLookup> {
+  const byNumber = parseVoucherNumber(token) !== null
   const voucher = await db.ipmVoucher.findFirst({
     where: {
       firmId: principal.firmId,
-      qrToken: token,
+      ...(byNumber
+        ? { number: token.trim().toUpperCase(), providerId: principal.providerId }
+        : { qrToken: token }),
       deferredAmount: true,
       // A closed bon carries a shared dead token; it must never resolve.
       status: { notIn: ["CANCELLED", "REJECTED"] },

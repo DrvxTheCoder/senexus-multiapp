@@ -7,6 +7,7 @@ import { TopBar } from "@/components/shell/top-bar"
 import { ROLE_LABELS } from "@/components/shell/role-labels"
 import { ChangePasswordForm, ProfileForm } from "@/app/[firmSlug]/settings/profile/profile-forms"
 import { db } from "@/lib/db"
+import { firmHomeHref } from "@/lib/firm-home"
 import { formatDateProse } from "@/lib/format"
 import { requireFirmPage } from "@/server/auth/firm-page"
 import { resolveUserFirms } from "@/server/firms/resolve-firm"
@@ -45,9 +46,9 @@ export default async function ProfilePage({
   return (
     <>
       <TopBar
-        homeHref={`/${firmSlug}/dashboard`}
+        homeHref={firmHomeHref(ctx.firm)}
         crumbs={[
-          { label: ctx.firm.name, href: `/${firmSlug}/dashboard` },
+          { label: ctx.firm.name, href: firmHomeHref(ctx.firm) },
           { label: "Compte" },
           { label: "Profil" },
         ]}

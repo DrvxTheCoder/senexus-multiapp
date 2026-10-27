@@ -15,6 +15,7 @@ import { requireFirmPage } from "@/server/auth/firm-page"
 import { listContracts, contractSummary } from "@/server/queries/contracts"
 import { listSavedViews } from "@/server/queries/saved-views"
 import { isScoped } from "@/server/queries/scope"
+import { firmHomeHref } from "@/lib/firm-home"
 
 export const metadata: Metadata = { title: "Contrats" }
 
@@ -37,9 +38,9 @@ export default async function ContractsPage({
   return (
     <>
       <TopBar
-        homeHref={`/${firmSlug}/dashboard`}
+        homeHref={firmHomeHref(ctx.firm)}
         crumbs={[
-          { label: ctx.firm.name, href: `/${firmSlug}/dashboard` },
+          { label: ctx.firm.name, href: firmHomeHref(ctx.firm) },
           { label: "RH" },
           { label: "Contrats" },
         ]}

@@ -20,6 +20,7 @@ import {
 } from "@/server/queries/leaves"
 import { isScoped } from "@/server/queries/scope"
 import { roleAtLeast } from "@/types/auth"
+import { firmHomeHref } from "@/lib/firm-home"
 
 export const metadata: Metadata = { title: "Congés" }
 
@@ -34,9 +35,9 @@ export default async function LeavesPage({
   return (
     <>
       <TopBar
-        homeHref={`/${firmSlug}/dashboard`}
+        homeHref={firmHomeHref(ctx.firm)}
         crumbs={[
-          { label: ctx.firm.name, href: `/${firmSlug}/dashboard` },
+          { label: ctx.firm.name, href: firmHomeHref(ctx.firm) },
           { label: "RH" },
           { label: "Congés" },
         ]}

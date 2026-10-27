@@ -132,7 +132,7 @@ export function CommandPalette() {
     // Same rule as the server-side search: every word has to match, so
     // "gestion paie" finds "Gestion de la paie" instead of nothing.
     const words = searchTerms(term.toLowerCase())
-    return visibleNavItems(firm.modules)
+    return visibleNavItems(firm.modules, { hr: firm.hr })
       .filter((item) => {
         const label = item.label.toLowerCase()
         return words.every((word) => label.includes(word))
@@ -145,7 +145,7 @@ export function CommandPalette() {
         href: `/${firm.slug}${item.href}`,
         icon: item.icon,
       }))
-  }, [term, firm.modules, firm.slug])
+  }, [term, firm.modules, firm.hr, firm.slug])
 
   type Row =
     | { key: string; section: string; hit: SearchHit }

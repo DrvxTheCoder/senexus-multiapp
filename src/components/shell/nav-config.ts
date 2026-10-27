@@ -49,6 +49,11 @@ export type NavGroup = {
   label: string
   /** `null` for groups that are not gated on a module. */
   module: string | null
+  /**
+   * Shown only to HR firms (`Firm.homeModule` null). The workspace pages read
+   * employees and contracts, so a firm hors RH would only ever see them empty.
+   */
+  hrOnly?: boolean
   /** Rendered as a collapsible section; single-item groups render flat. */
   collapsible: boolean
   icon?: IconSvgElement
@@ -60,6 +65,7 @@ export const NAV_GROUPS: NavGroup[] = [
     id: "workspace",
     label: "Espace de travail",
     module: null,
+    hrOnly: true,
     collapsible: false,
     items: [
       {
@@ -152,16 +158,29 @@ export const NAV_GROUPS: NavGroup[] = [
   },
 ]
 
+export type NavOptions = {
+  /** Whether the firm is an HR firm — see `isHrFirm`. Defaults to true. */
+  hr?: boolean
+}
+
 /** Groups the firm actually has, with their items. Empty groups are dropped. */
-export function visibleNavGroups(enabledModules: string[]): NavGroup[] {
+export function visibleNavGroups(
+  enabledModules: string[],
+  { hr = true }: NavOptions = {}
+): NavGroup[] {
   return NAV_GROUPS.filter(
     (group) => group.module === null || enabledModules.includes(group.module)
-  ).filter((group) => group.items.length > 0)
+  )
+    .filter((group) => hr || !group.hrOnly)
+    .filter((group) => group.items.length > 0)
 }
 
 /** Flat list of every reachable item — used by the command palette. */
-export function visibleNavItems(enabledModules: string[]): NavItem[] {
-  return visibleNavGroups(enabledModules).flatMap((group) => group.items)
+export function visibleNavItems(
+  enabledModules: string[],
+  options: NavOptions = {}
+): NavItem[] {
+  return visibleNavGroups(enabledModules, options).flatMap((group) => group.items)
 }
 
 /**

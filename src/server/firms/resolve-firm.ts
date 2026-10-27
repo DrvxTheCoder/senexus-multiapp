@@ -3,6 +3,7 @@ import "server-only"
 import { cache } from "react"
 
 import { db } from "@/lib/db"
+import { firmHomeHref } from "@/lib/firm-home"
 
 export type ResolvedFirm = {
   id: string
@@ -13,9 +14,17 @@ export type ResolvedFirm = {
   /** Raw column value. Validate with `parseFirmTheme` before use — the live
    *  data contains both hex and colour names. */
   themeColor: string | null
+  /** `null` for an HR firm — see `isHrFirm` and `firmHomeHref`. */
+  homeModule: string | null
   /** Slugs of the modules enabled for this firm. */
   modules: string[]
 }
+
+/** The modules a firm actually has: enabled for it, and active globally. */
+const ENABLED_MODULES = {
+  where: { isEnabled: true, module: { isActive: true } },
+  select: { module: { select: { slug: true } } },
+} as const
 
 /**
  * §3.1 — the firm is resolved exactly once per request, in the layout.
@@ -35,10 +44,8 @@ export const resolveFirmBySlug = cache(
         holdingId: true,
         logo: true,
         themeColor: true,
-        firmModules: {
-          where: { isEnabled: true, module: { isActive: true } },
-          select: { module: { select: { slug: true } } },
-        },
+        homeModule: true,
+        firmModules: ENABLED_MODULES,
       },
     })
 
@@ -76,6 +83,8 @@ export type UserFirmSummary = {
   /** Empty string in the live data means "no logo", so it is normalised away. */
   logo: string | null
   themeColor: string | null
+  /** Where a link to this firm lands: its dashboard, or its home module. */
+  homeHref: string
 }
 
 /**
@@ -99,6 +108,8 @@ export const resolveUserFirms = cache(
             name: true,
             logo: true,
             themeColor: true,
+            homeModule: true,
+            firmModules: ENABLED_MODULES,
           },
         },
       },
@@ -112,6 +123,11 @@ export const resolveUserFirms = cache(
       role: row.role,
       logo: row.firm.logo?.trim() ? row.firm.logo : null,
       themeColor: row.firm.themeColor,
+      homeHref: firmHomeHref({
+        slug: row.firm.slug,
+        homeModule: row.firm.homeModule,
+        modules: row.firm.firmModules.map((fm) => fm.module.slug),
+      }),
     }))
   }
 )

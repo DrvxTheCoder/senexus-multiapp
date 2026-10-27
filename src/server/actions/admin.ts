@@ -82,6 +82,35 @@ async function defaultHoldingId(tx: Prisma.TransactionClient): Promise<string> {
   return holding.id
 }
 
+/**
+ * What `homeModule` means for a Prisma `data` object: `undefined` leaves the
+ * column alone, `""` makes the firm an HR firm again, anything else must be a
+ * module that exists. Not necessarily enabled — a firm is created before its
+ * modules are switched on, and `firmHomeHref` copes with a disabled one.
+ */
+async function homeModuleData(
+  tx: Prisma.TransactionClient,
+  value: string | undefined
+): Promise<string | null | undefined> {
+  if (value === undefined) return undefined
+  if (value === "") return null
+  if (value === HR_MODULE_SLUG) {
+    throw new ActionError("Une filiale hors RH ne peut pas avoir RH pour accueil.", {
+      homeModule: ["Choisissez un autre module."],
+    })
+  }
+  const known = await tx.module.findUnique({
+    where: { slug: value },
+    select: { id: true },
+  })
+  if (!known) {
+    throw new ActionError("Module inconnu.", {
+      homeModule: ["Module inconnu."],
+    })
+  }
+  return value
+}
+
 export const createFirm = holdingAction({
   input: createFirmSchema,
   revalidate: ADMIN_PATHS,
@@ -105,6 +134,7 @@ export const createFirm = holdingAction({
         letterhead: imageData(input.letterhead) ?? null,
         stamp: imageData(input.stamp) ?? null,
         themeColor: input.themeColor || null,
+        homeModule: (await homeModuleData(tx, input.homeModule)) ?? null,
       },
       select: { id: true, slug: true },
     })
@@ -117,7 +147,11 @@ export const createFirm = holdingAction({
       action: "CREATE",
       entity: "FIRM",
       entityId: firm.id,
-      metadata: { name: input.name, slug: input.slug },
+      metadata: {
+        name: input.name,
+        slug: input.slug,
+        homeModule: input.homeModule || null,
+      },
     })
 
     return firm
@@ -156,6 +190,7 @@ export const updateFirm = holdingAction({
         slug: input.slug,
         ...images,
         themeColor: input.themeColor || null,
+        homeModule: await homeModuleData(tx, input.homeModule),
       },
     })
 
@@ -169,7 +204,11 @@ export const updateFirm = holdingAction({
       action: "UPDATE",
       entity: "FIRM",
       entityId: input.id,
-      metadata: { name: input.name, slug: input.slug },
+      metadata: {
+        name: input.name,
+        slug: input.slug,
+        homeModule: input.homeModule || null,
+      },
     })
   },
 })

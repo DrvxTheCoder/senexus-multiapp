@@ -164,7 +164,7 @@ export function UserMenu({ collapsed }: { collapsed: boolean }) {
               key={membership.firmId}
               className="gap-2.5 py-1.5"
               render={
-                <Link href={`/${membership.firmSlug}/dashboard`}>
+                <Link href={membership.homeHref}>
                   <FirmLogo
                     name={membership.firmName}
                     logo={membership.logo}

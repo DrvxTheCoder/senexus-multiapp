@@ -1,5 +1,6 @@
 import type { Metadata } from "next"
 import Link from "next/link"
+import { redirect } from "next/navigation"
 import { Suspense } from "react"
 import { format } from "date-fns"
 import { fr } from "date-fns/locale"
@@ -15,6 +16,7 @@ import { Panel, type PanelStat } from "@/components/panel"
 import { StatusPill, TagCode } from "@/components/primitives"
 import { TopBar } from "@/components/shell/top-bar"
 import { clientDotVar } from "@/lib/client-color"
+import { firmHomeHref, isHrFirm } from "@/lib/firm-home"
 import { formatCurrencyCompact, formatDays, formatNumber } from "@/lib/format"
 import { contractsHref } from "@/lib/queries/contract-params"
 import { employeesHref } from "@/lib/queries/employee-params"
@@ -50,6 +52,9 @@ export default async function DashboardPage({
 }: PageProps<"/[firmSlug]/dashboard">) {
   const { firmSlug } = await params
   const ctx = await requireFirmPage(firmSlug)
+  // Redirected rather than 404'd: a bookmark from before the firm was marked
+  // hors RH should still land somewhere useful.
+  if (!isHrFirm(ctx.firm)) redirect(firmHomeHref(ctx.firm))
 
   return (
     <>

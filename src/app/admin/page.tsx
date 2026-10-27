@@ -6,6 +6,7 @@ import { Panel } from "@/components/panel"
 import { FirmLogo } from "@/components/firm-logo"
 import { StatusPill, TagCode } from "@/components/primitives"
 import { db } from "@/lib/db"
+import { firmHomeHref } from "@/lib/firm-home"
 import { formatDateProse, formatNumber } from "@/lib/format"
 import { requireHoldingAccess } from "@/server/auth/require-firm-access"
 
@@ -38,6 +39,7 @@ export default async function AdminPage() {
             slug: true,
             logo: true,
             themeColor: true,
+            homeModule: true,
             _count: {
               select: {
                 employees: true,
@@ -174,7 +176,11 @@ export default async function AdminPage() {
                       />
                       <div className="min-w-0 flex-1">
                         <Link
-                          href={`/${firm.slug}/dashboard`}
+                          href={firmHomeHref({
+                            slug: firm.slug,
+                            homeModule: firm.homeModule,
+                            modules: firm.firmModules.map((entry) => entry.module.slug),
+                          })}
                           className="text-[13px] font-medium hover:text-brand"
                         >
                           {firm.name}

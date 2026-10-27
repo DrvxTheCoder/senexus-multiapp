@@ -81,6 +81,13 @@ export const firmSchema = z.object({
     .regex(/^[A-Z]{1,4}$/, "1 à 4 lettres, par exemple CI ou SP.")
     .or(z.literal(""))
     .optional(),
+  /**
+   * `""` : filiale RH, accueil sur le tableau de bord. Un slug de module :
+   * filiale hors RH — pas de tableau de bord ni de décisions, accueil sur ce
+   * module. Voir `Firm.homeModule`. The action checks the slug names a module
+   * that exists; it need not be enabled yet, since a new firm has none.
+   */
+  homeModule: z.string().trim().max(64).optional(),
 })
 
 export type FirmInput = z.infer<typeof firmSchema>

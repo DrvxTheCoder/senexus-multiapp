@@ -77,6 +77,21 @@ describe("the IPM gate", () => {
   })
 })
 
+describe("the HR workspace", () => {
+  it("drops the tableau de bord and décisions for a firm hors RH", () => {
+    expect(
+      visibleNavGroups(["ipm"], { hr: false }).map((group) => group.id)
+    ).toEqual(["ipm", "account"])
+    const items = visibleNavItems(["ipm"], { hr: false }).map((item) => item.href)
+    expect(items).not.toContain("/dashboard")
+    expect(items).not.toContain("/decisions")
+  })
+
+  it("keeps them by default, so a caller that forgets the flag changes nothing", () => {
+    expect(groupIds(["ipm"])).toContain("workspace")
+  })
+})
+
 describe("visibleNavItems", () => {
   it("is the flattening of the visible groups, in order", () => {
     const modules = ["hr", "ipm"]

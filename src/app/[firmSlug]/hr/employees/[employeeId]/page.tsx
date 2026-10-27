@@ -36,6 +36,7 @@ import { roleAtLeast } from "@/types/auth"
 import { INTERIM_CEILING_DAYS } from "@/server/domain/interim-ceiling"
 import { getEmployeeRecord } from "@/server/queries/employee-record"
 import { employeeIdSequence } from "@/server/queries/employees"
+import { firmHomeHref } from "@/lib/firm-home"
 
 export const metadata: Metadata = { title: "Fiche employé" }
 
@@ -246,9 +247,9 @@ export default async function EmployeePage({
   return (
     <>
       <TopBar
-        homeHref={`/${firmSlug}/dashboard`}
+        homeHref={firmHomeHref(ctx.firm)}
         crumbs={[
-          { label: ctx.firm.name, href: `/${firmSlug}/dashboard` },
+          { label: ctx.firm.name, href: firmHomeHref(ctx.firm) },
           { label: "RH" },
           { label: "Employés", href: `/${firmSlug}/hr/employees${listSuffix}` },
           { label: `${employee.firstName} ${employee.lastName}` },

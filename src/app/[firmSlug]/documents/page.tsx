@@ -12,6 +12,7 @@ import {
   listDocuments,
 } from "@/server/queries/documents"
 import { isScoped } from "@/server/queries/scope"
+import { firmHomeHref } from "@/lib/firm-home"
 
 export const metadata: Metadata = { title: "Documents" }
 
@@ -32,9 +33,9 @@ export default async function DocumentsPage({
   return (
     <>
       <TopBar
-        homeHref={`/${firmSlug}/dashboard`}
+        homeHref={firmHomeHref(ctx.firm)}
         crumbs={[
-          { label: ctx.firm.name, href: `/${firmSlug}/dashboard` },
+          { label: ctx.firm.name, href: firmHomeHref(ctx.firm) },
           { label: "Documents" },
         ]}
       />

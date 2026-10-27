@@ -30,7 +30,7 @@ async function contextFor(
 ): Promise<FirmContext> {
   const firm = await db.firm.findUniqueOrThrow({
     where: { slug },
-    select: { id: true, slug: true, name: true, holdingId: true, logo: true, themeColor: true },
+    select: { id: true, slug: true, name: true, holdingId: true, logo: true, themeColor: true, homeModule: true },
   })
   return {
     userId: "harness",

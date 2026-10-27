@@ -425,6 +425,7 @@ export function VouchersView({
           canWrite ? (
             <Button
               size="sm"
+              nativeButton={false}
               render={
                 <Link href={`/${firmSlug}/ipm/bons/nouveau`}>
                   <HugeiconsIcon icon={PlusSignIcon} size={13} />

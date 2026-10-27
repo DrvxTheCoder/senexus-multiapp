@@ -125,6 +125,12 @@ model Firm {
   letterhead            String?
   /// Cachet / tampon apposé au bas des documents signés.
   stamp                 String?
+  /// Module servant de page d'accueil d'une filiale hors RH (`Module.slug`).
+  ///
+  /// `null` : filiale RH, dont l'accueil est le tableau de bord et qui a la
+  /// file des décisions. Une valeur retire ces deux pages — elles ne lisent que
+  /// des employés et des contrats — et envoie l'accueil sur ce module.
+  homeModule            String?
   createdAt             DateTime                @default(now())
   updatedAt             DateTime                @updatedAt
   logo                  String?

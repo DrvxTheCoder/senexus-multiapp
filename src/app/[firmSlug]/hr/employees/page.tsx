@@ -16,6 +16,7 @@ import { employeeSummary, listEmployees } from "@/server/queries/employees"
 import { listSavedViews } from "@/server/queries/saved-views"
 import { isScoped } from "@/server/queries/scope"
 import { roleAtLeast } from "@/types/auth"
+import { firmHomeHref } from "@/lib/firm-home"
 
 export const metadata: Metadata = { title: "Employés" }
 
@@ -30,9 +31,9 @@ export default async function EmployeesPage({
   return (
     <>
       <TopBar
-        homeHref={`/${firmSlug}/dashboard`}
+        homeHref={firmHomeHref(ctx.firm)}
         crumbs={[
-          { label: ctx.firm.name, href: `/${firmSlug}/dashboard` },
+          { label: ctx.firm.name, href: firmHomeHref(ctx.firm) },
           { label: "RH" },
           { label: "Employés" },
         ]}

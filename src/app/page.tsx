@@ -34,7 +34,7 @@ export default async function RootPage() {
   )
 
   if (firms.length === 1 && !canAdminister) {
-    redirect(`/${firms[0].firmSlug}/dashboard`)
+    redirect(firms[0].homeHref)
   }
 
   if (firms.length === 0 && !canAdminister) {
@@ -103,7 +103,7 @@ export default async function RootPage() {
           {firms.map((firm) => (
             <li key={firm.firmId}>
               <Link
-                href={`/${firm.firmSlug}/dashboard`}
+                href={firm.homeHref}
                 className="flex h-full items-center gap-3 rounded-panel border border-line bg-surface px-4 py-3.5 transition-colors hover:border-line-2 hover:bg-sub"
               >
                 <FirmLogo

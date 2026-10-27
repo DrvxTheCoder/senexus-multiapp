@@ -53,6 +53,7 @@ export default async function DisbursementsPage({
           <Button
             size="sm"
             variant="outline"
+            nativeButton={false}
             render={
               <Link
                 href={`/${firmSlug}/ipm/decaissements/export?from=${year}-01-01&to=${year}-12-31`}

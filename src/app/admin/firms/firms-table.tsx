@@ -11,14 +11,14 @@ import {
   PlusSignIcon,
 } from "@hugeicons/core-free-icons"
 
-import type { AdminFirm } from "@/app/admin/firms/page"
+import type { AdminFirm, HomeModuleOption } from "@/app/admin/firms/page"
 import { FirmLogo } from "@/components/firm-logo"
 import {
   AssetField,
   assetFrom,
   type AssetValue,
 } from "@/components/forms/asset-field"
-import { FieldGrid } from "@/components/forms/controls"
+import { FieldGrid, SelectField } from "@/components/forms/controls"
 import { resolveAssets } from "@/components/forms/resolve-asset"
 import {
   Field,
@@ -59,7 +59,13 @@ import { createFirm, deleteFirm, updateFirm } from "@/server/actions/admin"
  *   every employee, contract, document and audit row the firm owns; the legacy
  *   console did it behind an ordinary confirm dialog.
  */
-export function FirmsTable({ firms }: { firms: AdminFirm[] }) {
+export function FirmsTable({
+  firms,
+  homeModules,
+}: {
+  firms: AdminFirm[]
+  homeModules: HomeModuleOption[]
+}) {
   const [editing, setEditing] = React.useState<AdminFirm | null>(null)
   const [creating, setCreating] = React.useState(false)
   const [deleting, setDeleting] = React.useState<AdminFirm | null>(null)
@@ -116,8 +122,13 @@ export function FirmsTable({ firms }: { firms: AdminFirm[] }) {
                         themeColor={firm.themeColor}
                       />
                       <div className="min-w-0">
-                        <div className="truncate text-[13px] font-medium">
-                          {firm.name}
+                        <div className="flex items-center gap-1.5">
+                          <span className="truncate text-[13px] font-medium">
+                            {firm.name}
+                          </span>
+                          {firm.homeModule ? (
+                            <StatusPill tone="muted">hors RH</StatusPill>
+                          ) : null}
                         </div>
                         <div className="mono truncate text-[11.5px] text-ink-3">
                           {firm.slug}
@@ -179,12 +190,14 @@ export function FirmsTable({ firms }: { firms: AdminFirm[] }) {
         open={creating}
         onOpenChange={setCreating}
         firm={null}
+        homeModules={homeModules}
         key={`create-${creating}`}
       />
       <FirmDialog
         open={editing !== null}
         onOpenChange={(open) => !open && setEditing(null)}
         firm={editing}
+        homeModules={homeModules}
         key={editing?.id ?? "edit"}
       />
       <DeleteFirmDialog
@@ -225,7 +238,7 @@ function IconButton({
 
 /* -------------------------------------------------------------------------- */
 
-type FirmTab = "IDENTITY" | "DOCUMENTS"
+type FirmTab = "IDENTITY" | "HOME" | "DOCUMENTS"
 
 /**
  * The two panels, and which fields live on each.
@@ -244,6 +257,11 @@ const FIRM_TABS: {
     id: "IDENTITY",
     label: "Identité",
     fields: ["name", "slug", "matriculePrefix", "themeColor", "logo"],
+  },
+  {
+    id: "HOME",
+    label: "Accueil",
+    fields: ["homeModule"],
   },
   {
     id: "DOCUMENTS",
@@ -286,10 +304,12 @@ function FirmDialog({
   open,
   onOpenChange,
   firm,
+  homeModules,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   firm: AdminFirm | null
+  homeModules: HomeModuleOption[]
 }) {
   const router = useRouter()
   const isEdit = firm !== null
@@ -304,6 +324,7 @@ function FirmDialog({
       slug: firm?.slug ?? "",
       themeColor: firm?.themeColor?.startsWith("#") ? firm.themeColor : "",
       matriculePrefix: firm?.prefixIsDefault ? "" : (firm?.matriculePrefix ?? ""),
+      homeModule: firm?.homeModule ?? "",
     },
   })
 
@@ -363,6 +384,7 @@ function FirmDialog({
 
   const errors = form.formState.errors
   const themeColor = form.watch("themeColor")
+  const homeModule = form.watch("homeModule") ?? ""
 
   // Derived, never stored: an error that has just been corrected must stop
   // being pointed at without anything having to clear a flag.
@@ -521,6 +543,19 @@ function FirmDialog({
                 </Field>
               </FieldGrid>
             </>
+          ) : tab === "HOME" ? (
+            <HomeFields
+              value={homeModule}
+              onChange={(next) =>
+                form.setValue("homeModule", next, {
+                  shouldDirty: true,
+                  shouldValidate: true,
+                })
+              }
+              options={homeModules}
+              enabledModules={firm?.modules ?? []}
+              error={errors.homeModule?.message}
+            />
           ) : (
             <>
               <p className="text-[12.5px] text-ink-3">
@@ -584,6 +619,86 @@ function FirmDialog({
         </form>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * RH ou hors RH.
+ *
+ * Every firm used to land on the tableau de bord and carry the décisions
+ * queue, both of which read nothing but employees, contracts and the interim
+ * ceiling. For a firm that runs the IPM they were two empty pages in front of
+ * the one module it uses. Marking a firm hors RH removes them and sends its
+ * home to a module instead.
+ *
+ * One stored value, `homeModule`, behind two controls: `""` is RH, and picking
+ * "Hors RH" preselects the IPM when it exists, since that is the case this was
+ * built for.
+ */
+function HomeFields({
+  value,
+  onChange,
+  options,
+  enabledModules,
+  error,
+}: {
+  value: string
+  onChange: (value: string) => void
+  options: HomeModuleOption[]
+  enabledModules: string[]
+  error?: string
+}) {
+  const hr = value === ""
+  const notEnabled = !hr && !enabledModules.includes(value)
+
+  return (
+    <div className="space-y-3">
+      <div className="space-y-1.5">
+        <p className="text-[12.5px] font-medium">Type d&apos;entreprise</p>
+        <SegmentedControl
+          ariaLabel="Type d'entreprise"
+          value={hr ? "HR" : "OTHER"}
+          onChange={(next) => {
+            if (next === "HR") return onChange("")
+            const preferred =
+              options.find((option) => option.slug === "ipm") ?? options[0]
+            onChange(preferred?.slug ?? "")
+          }}
+          options={[
+            { value: "HR", label: "Ressources humaines" },
+            { value: "OTHER", label: "Hors RH" },
+          ]}
+        />
+      </div>
+
+      <p className="text-[12.5px] text-ink-3">
+        {hr
+          ? "L'accueil est le tableau de bord, et la file des décisions est proposée dans le menu. Les deux suivent l'effectif, les contrats et le plafond de l'intérim."
+          : "Pas de tableau de bord ni de décisions : sans effectif, ils resteraient vides. L'accueil de l'entreprise est le module choisi ci-dessous."}
+      </p>
+
+      {!hr ? (
+        <SelectField
+          id="homeModule"
+          label="Module d'accueil"
+          required
+          value={value}
+          onChange={onChange}
+          options={options.map((option) => ({
+            value: option.slug,
+            label: option.name,
+          }))}
+          hint={
+            notEnabled
+              ? "Ce module n'est pas encore activé pour cette entreprise : activez-le dans Modules, sinon l'accueil se replie sur le premier module activé."
+              : "La page ouverte en arrivant sur l'entreprise."
+          }
+          error={error}
+        />
+      ) : null}
+    </div>
   )
 }
 

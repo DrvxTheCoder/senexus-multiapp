@@ -5,6 +5,7 @@ import { Panel } from "@/components/panel"
 import { StatusPill, TagCode } from "@/components/primitives"
 import { TopBar } from "@/components/shell/top-bar"
 import { db } from "@/lib/db"
+import { firmHomeHref } from "@/lib/firm-home"
 import { formatDateProse, formatNumber } from "@/lib/format"
 import { requireFirmPage } from "@/server/auth/firm-page"
 import { buildFirmTheme, normaliseThemeColor } from "@/server/firms/theme"
@@ -85,9 +86,9 @@ export default async function SettingsPage({
   return (
     <>
       <TopBar
-        homeHref={`/${firmSlug}/dashboard`}
+        homeHref={firmHomeHref(ctx.firm)}
         crumbs={[
-          { label: ctx.firm.name, href: `/${firmSlug}/dashboard` },
+          { label: ctx.firm.name, href: firmHomeHref(ctx.firm) },
           { label: "Paramètres" },
         ]}
       />

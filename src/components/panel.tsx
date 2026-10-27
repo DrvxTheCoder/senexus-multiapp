@@ -248,3 +248,22 @@ export function Panel({
     </section>
   )
 }
+
+/**
+ * The placeholder a dashboard panel streams in behind. Same frame and header
+ * rhythm as the panel it stands for, so nothing jumps when the data lands.
+ */
+export function PanelSkeleton({ height }: { height: number }) {
+  return (
+    <div
+      aria-hidden
+      className="animate-pulse rounded-panel border border-line bg-surface"
+      style={{ height }}
+    >
+      <div className="border-b border-line px-[15px] py-3">
+        <div className="h-2.5 w-40 rounded-sm bg-sunken" />
+        <div className="mt-2 h-2 w-64 rounded-sm bg-sunken/70" />
+      </div>
+    </div>
+  )
+}

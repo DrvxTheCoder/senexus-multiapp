@@ -1,5 +1,7 @@
 import "server-only"
 
+import { Prisma } from "@prisma/client"
+
 import { db } from "@/lib/db"
 import type { FirmContext } from "@/server/auth/require-firm-access"
 import {
@@ -9,6 +11,7 @@ import {
   type LedgerEntry,
   type LedgerIncoherence,
 } from "@/server/domain/ipm/ledger"
+import { searchWhere } from "@/server/queries/search-where"
 
 /**
  * Le registre, et le relevé par employeur — plan §4.8bis et §4.8quater.
@@ -120,39 +123,120 @@ export type StatementLine = {
   matricule: string
   memberName: string
   dependentCount: number
+  /** Balance carried into the period, opening figure included. */
+  startBalance: number
   contributions: number
   consumption: number
-  balance: number
-  /** True when this member's register was never opened. */
+  /** Manual adjustments and reversals not tied to a bon or an invoice. */
+  adjustments: number
+  /** Balance at the end of the period — not today's balance. */
+  endBalance: number
+  /** True when this member's register was not opened by the end of the period. */
   unopened: boolean
   /** True when the member is past the employer's debt ceiling. */
   overDebtCeiling: boolean
 }
+
+type StatementFigures = Pick<
+  StatementLine,
+  "startBalance" | "contributions" | "consumption" | "adjustments" | "endBalance"
+>
 
 export type EmployerStatement = {
   employerId: string
   employerName: string
   from: { year: number; month: number }
   to: { year: number; month: number }
+  /** One page of the participants matching the search; totals cover all. */
   lines: StatementLine[]
-  totals: {
+  /** Participants matching the search — what the pages are cut from. */
+  matching: number
+  page: number
+  perPage: number
+  pageCount: number
+  totals: StatementFigures & {
     members: number
-    contributions: number
-    consumption: number
-    balance: number
     /** Cotisations ÷ consommation. Null when nothing was consumed. */
     ratio: number | null
   }
   debtCeiling: number | null
   unopenedCount: number
+  overCeilingCount: number
 }
+
+type RawFigures = {
+  startBalance: Prisma.Decimal | null
+  contributions: Prisma.Decimal | null
+  consumption: Prisma.Decimal | null
+  adjustments: Prisma.Decimal | null
+  endBalance: Prisma.Decimal | null
+}
+
+/**
+ * The per-member figures of a relevé, as a CTE named `figures`.
+ *
+ * Every line reconciles on its own: start + cotisations − consommation ±
+ * ajustements = end. Entries after the period are left out, so a relevé for
+ * janvier–mars says the same thing in March and in December; a closing balance
+ * that kept moving after the period ended would not be the period's balance.
+ *
+ * The register has no day resolution, so periods compare as month indices.
+ * The opening figure belongs to the start balance even when the register was
+ * opened inside the period: it is a balance carried over, not money paid in,
+ * and counting it as a cotisation would inflate the ratio. A bon's corrections
+ * and voids carry the bon as source, so they net against its consumption and
+ * the column reads as what was actually consumed.
+ */
+function statementFigures(
+  firmId: string,
+  members: Prisma.Sql,
+  fromKey: number,
+  toKey: number
+) {
+  const key = Prisma.sql`(l."periodYear" * 12 + l."periodMonth")`
+  const inPeriod = Prisma.sql`${key} >= ${fromKey} AND l."type" <> 'OPENING'`
+  const net = Prisma.sql`(l."credit" - l."debit")`
+
+  return Prisma.sql`
+    WITH figures AS (
+      SELECT
+        l."memberId",
+        SUM(CASE WHEN NOT (${inPeriod}) THEN ${net} ELSE 0 END) AS "startBalance",
+        SUM(CASE WHEN ${inPeriod} AND l."sourceType" = 'INVOICE'
+          THEN ${net} ELSE 0 END) AS "contributions",
+        SUM(CASE WHEN ${inPeriod} AND l."sourceType" IN ('VOUCHER', 'REIMBURSEMENT')
+          THEN -${net} ELSE 0 END) AS "consumption",
+        SUM(CASE WHEN ${inPeriod}
+          AND l."sourceType" NOT IN ('INVOICE', 'VOUCHER', 'REIMBURSEMENT')
+          THEN ${net} ELSE 0 END) AS "adjustments",
+        SUM(${net}) AS "endBalance",
+        BOOL_OR(l."type" = 'OPENING') AS "opened"
+      FROM "ipm_ledger_entries" l
+      JOIN "ipm_members" m ON m."id" = l."memberId"
+      WHERE l."firmId" = ${firmId}
+        AND m."firmId" = ${firmId}
+        AND ${members}
+        AND ${key} <= ${toKey}
+      GROUP BY l."memberId"
+    )
+  `
+}
+
+const toFigures = (row: RawFigures | undefined): StatementFigures => ({
+  startBalance: Number(row?.startBalance ?? 0),
+  contributions: Number(row?.contributions ?? 0),
+  consumption: Number(row?.consumption ?? 0),
+  adjustments: Number(row?.adjustments ?? 0),
+  endBalance: Number(row?.endBalance ?? 0),
+})
 
 /**
  * Le relevé.
  *
- * One aggregate over the register, grouped per member, rather than a query per
- * participant — the 265 real members would otherwise be 265 round trips for a
- * document somebody prints monthly.
+ * Paged, because an employer can have thousands of participants, but the
+ * totals, the ratio and the counts are aggregated over all of them in the
+ * database — a page's subtotal is not a figure anybody asked for. Two
+ * aggregates, never one row per register entry brought back to Node.
  *
  * Members whose register was never opened are counted and flagged rather than
  * quietly shown with a plausible-looking balance (§11 Q11).
@@ -160,7 +244,8 @@ export type EmployerStatement = {
 export async function employerStatement(
   ctx: FirmContext,
   employerId: string,
-  range: { fromYear: number; fromMonth: number; toYear: number; toMonth: number }
+  range: { fromYear: number; fromMonth: number; toYear: number; toMonth: number },
+  paging: { page: number; perPage: number; search?: string }
 ): Promise<EmployerStatement | null> {
   const employer = await db.ipmEmployer.findFirst({
     where: { id: employerId, firmId: ctx.firmId },
@@ -172,127 +257,98 @@ export async function employerStatement(
   })
   if (!employer) return null
 
-  const members = await db.member.findMany({
-    where: { firmId: ctx.firmId, employerId },
-    orderBy: { matricule: "asc" },
-    select: {
-      id: true,
-      matricule: true,
-      person: { select: { firstName: true, lastName: true } },
-      _count: { select: { dependents: true } },
-    },
-  })
+  const debtCeiling = employer.debtCeiling ? Number(employer.debtCeiling) : null
+  const fromKey = range.fromYear * 12 + range.fromMonth
+  const toKey = range.toYear * 12 + range.toMonth
 
-  const memberIds = members.map((member) => member.id)
-  if (memberIds.length === 0) {
-    return {
-      employerId: employer.id,
-      employerName: employer.organization.name,
-      from: { year: range.fromYear, month: range.fromMonth },
-      to: { year: range.toYear, month: range.toMonth },
-      lines: [],
-      totals: { members: 0, contributions: 0, consumption: 0, balance: 0, ratio: null },
-      debtCeiling: employer.debtCeiling ? Number(employer.debtCeiling) : null,
-      unopenedCount: 0,
-    }
-  }
+  // Search narrows the rows, never the totals: the relevé is the employer's,
+  // and finding one participant should not change what the employer owes.
+  const everyone: Prisma.MemberWhereInput = { firmId: ctx.firmId, employerId }
+  const search = paging.search
+    ? searchWhere<Prisma.MemberWhereInput>(paging.search, (contains) => [
+        { matricule: contains },
+        { legacyCode: contains },
+        { person: { lastName: contains } },
+        { person: { firstName: contains } },
+      ])
+    : undefined
+  const matchingWhere = search ? { ...everyone, AND: search.AND } : everyone
 
-  // The period is expressed as (year, month) pairs, so the filter is on the
-  // composite rather than on a date — the register has no day resolution.
-  const inRange = {
-    OR: [
-      {
-        periodYear: { gt: range.fromYear, lt: range.toYear },
+  const [memberCount, matching] = await Promise.all([
+    db.member.count({ where: everyone }),
+    search ? db.member.count({ where: matchingWhere }) : null,
+  ])
+  const matchingCount = matching ?? memberCount
+  const pageCount = Math.max(1, Math.ceil(matchingCount / paging.perPage))
+  // A link kept from before participants left can point past the end; it
+  // lands on the last page rather than on an empty table.
+  const page = Math.min(Math.max(1, paging.page), pageCount)
+
+  const [members, [totalsRow]] = await Promise.all([
+    db.member.findMany({
+      where: matchingWhere,
+      orderBy: { matricule: "asc" },
+      skip: (page - 1) * paging.perPage,
+      take: paging.perPage,
+      select: {
+        id: true,
+        matricule: true,
+        person: { select: { firstName: true, lastName: true } },
+        _count: { select: { dependents: true } },
       },
-      {
-        periodYear: range.fromYear,
-        periodMonth: { gte: range.fromMonth },
-        ...(range.fromYear === range.toYear
-          ? { periodMonth: { gte: range.fromMonth, lte: range.toMonth } }
-          : {}),
-      },
-      ...(range.fromYear === range.toYear
-        ? []
-        : [{ periodYear: range.toYear, periodMonth: { lte: range.toMonth } }]),
-    ],
-  }
-
-  const [periodTotals, allEntries] = await Promise.all([
-    db.ipmLedgerEntry.groupBy({
-      by: ["memberId", "type"],
-      where: { firmId: ctx.firmId, memberId: { in: memberIds }, ...inRange },
-      _sum: { credit: true, debit: true },
     }),
-    // The balance is cumulative, so it is taken over the whole register rather
-    // than the period: a statement that showed only the period's movement
-    // would report a balance that is not the participant's balance.
-    db.ipmLedgerEntry.groupBy({
-      by: ["memberId"],
-      where: { firmId: ctx.firmId, memberId: { in: memberIds } },
-      _sum: { credit: true, debit: true },
-    }),
+    db.$queryRaw<(RawFigures & { opened: bigint; overCeiling: bigint })[]>(Prisma.sql`
+      ${statementFigures(ctx.firmId, Prisma.sql`m."employerId" = ${employerId}`, fromKey, toKey)}
+      SELECT
+        SUM("startBalance") AS "startBalance",
+        SUM("contributions") AS "contributions",
+        SUM("consumption") AS "consumption",
+        SUM("adjustments") AS "adjustments",
+        SUM("endBalance") AS "endBalance",
+        COUNT(*) FILTER (WHERE "opened") AS "opened",
+        COUNT(*) FILTER (WHERE ${
+          debtCeiling === null
+            ? Prisma.sql`false`
+            : Prisma.sql`"endBalance" < ${-debtCeiling}`
+        }) AS "overCeiling"
+      FROM figures
+    `),
   ])
 
-  const openedIds = new Set(
-    (
-      await db.ipmLedgerEntry.findMany({
-        where: {
-          firmId: ctx.firmId,
-          memberId: { in: memberIds },
-          type: "OPENING",
-        },
-        select: { memberId: true },
-      })
-    ).map((row) => row.memberId)
-  )
-
-  const balanceByMember = new Map(
-    allEntries.map((bucket) => [
-      bucket.memberId,
-      Number(bucket._sum.credit ?? 0) - Number(bucket._sum.debit ?? 0),
-    ])
-  )
-
-  const contributionsByMember = new Map<string, number>()
-  const consumptionByMember = new Map<string, number>()
-  for (const bucket of periodTotals) {
-    if (bucket.type === "CONSUMPTION") {
-      consumptionByMember.set(
-        bucket.memberId,
-        (consumptionByMember.get(bucket.memberId) ?? 0) +
-          Number(bucket._sum.debit ?? 0)
+  const pageRows = members.length
+    ? await db.$queryRaw<(RawFigures & { memberId: string; opened: boolean })[]>(
+        Prisma.sql`
+          ${statementFigures(
+            ctx.firmId,
+            Prisma.sql`m."id" IN (${Prisma.join(members.map((member) => member.id))})`,
+            fromKey,
+            toKey
+          )}
+          SELECT * FROM figures
+        `
       )
-    } else {
-      contributionsByMember.set(
-        bucket.memberId,
-        (contributionsByMember.get(bucket.memberId) ?? 0) +
-          Number(bucket._sum.credit ?? 0)
-      )
-    }
-  }
-
-  const debtCeiling = employer.debtCeiling ? Number(employer.debtCeiling) : null
+    : []
+  const figuresByMember = new Map(pageRows.map((row) => [row.memberId, row]))
 
   const lines: StatementLine[] = members.map((member) => {
-    const balance = balanceByMember.get(member.id) ?? 0
+    const raw = figuresByMember.get(member.id)
+    const figures = toFigures(raw)
     return {
       memberId: member.id,
       matricule: member.matricule,
       memberName: `${member.person.lastName.toUpperCase()} ${member.person.firstName}`,
       dependentCount: member._count.dependents,
-      contributions: contributionsByMember.get(member.id) ?? 0,
-      consumption: consumptionByMember.get(member.id) ?? 0,
-      balance,
-      unopened: !openedIds.has(member.id),
+      ...figures,
+      unopened: !raw?.opened,
       // A negative balance beyond the ceiling. The plan is explicit that this
       // raises an alert and never blocks automatically — the decision stays
       // human.
-      overDebtCeiling: debtCeiling !== null && balance < -debtCeiling,
+      overDebtCeiling:
+        debtCeiling !== null && figures.endBalance < -debtCeiling,
     }
   })
 
-  const contributions = lines.reduce((sum, line) => sum + line.contributions, 0)
-  const consumption = lines.reduce((sum, line) => sum + line.consumption, 0)
+  const totals = toFigures(totalsRow)
 
   return {
     employerId: employer.id,
@@ -300,15 +356,19 @@ export async function employerStatement(
     from: { year: range.fromYear, month: range.fromMonth },
     to: { year: range.toYear, month: range.toMonth },
     lines,
+    matching: matchingCount,
+    page,
+    perPage: paging.perPage,
+    pageCount,
     totals: {
-      members: lines.length,
-      contributions,
-      consumption,
-      balance: lines.reduce((sum, line) => sum + line.balance, 0),
-      ratio: consumption > 0 ? contributions / consumption : null,
+      members: memberCount,
+      ...totals,
+      ratio:
+        totals.consumption > 0 ? totals.contributions / totals.consumption : null,
     },
     debtCeiling,
-    unopenedCount: lines.filter((line) => line.unopened).length,
+    unopenedCount: memberCount - Number(totalsRow?.opened ?? 0),
+    overCeilingCount: Number(totalsRow?.overCeiling ?? 0),
   }
 }
 

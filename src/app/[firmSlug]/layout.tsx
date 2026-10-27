@@ -9,6 +9,7 @@ import {
   SidebarRiskCard,
 } from "@/components/shell/sidebar-context"
 import { FirmProvider } from "@/components/firm-provider"
+import { firmHomeHref, isHrFirm } from "@/lib/firm-home"
 import { RouteProgress } from "@/components/shell/route-progress"
 import { resolveUserFirms } from "@/server/firms/resolve-firm"
 import { requireFirmPage } from "@/server/auth/firm-page"
@@ -42,6 +43,9 @@ export default async function FirmLayout({
   ])
 
   const theme = buildFirmTheme(ctx.firm.themeColor)
+  // A firm hors RH has no décisions queue for the bell to count, and no
+  // interim effectif for the risk card to measure.
+  const hr = isHrFirm(ctx.firm)
 
   return (
     <>
@@ -61,6 +65,8 @@ export default async function FirmLayout({
           logo: ctx.firm.logo || null,
           themeHex: theme.hex,
           modules: ctx.firm.modules,
+          hr,
+          homeHref: firmHomeHref(ctx.firm),
           role: ctx.role,
           memberships,
           user: {
@@ -76,9 +82,11 @@ export default async function FirmLayout({
             // Server-rendered slots: the sidebar never fetches anything itself.
             // Suspense keeps a slow aggregate from delaying the whole shell.
             alerts={
-              <Suspense fallback={null}>
-                <SidebarAlertBell ctx={ctx} />
-              </Suspense>
+              hr ? (
+                <Suspense fallback={null}>
+                  <SidebarAlertBell ctx={ctx} />
+                </Suspense>
+              ) : null
             }
             // clientNav={
             //   <Suspense fallback={null}>
@@ -86,9 +94,11 @@ export default async function FirmLayout({
             //   </Suspense>
             // }
             riskCard={
-              <Suspense fallback={null}>
-                <SidebarRiskCard ctx={ctx} />
-              </Suspense>
+              hr ? (
+                <Suspense fallback={null}>
+                  <SidebarRiskCard ctx={ctx} />
+                </Suspense>
+              ) : null
             }
           />
           <main id="main" className="relative flex min-w-0 flex-1 flex-col justify-center">

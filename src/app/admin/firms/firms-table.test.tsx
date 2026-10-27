@@ -83,6 +83,7 @@ const FIRM: AdminFirm = {
   letterhead: null,
   stamp: null,
   themeColor: "#0b5d53",
+  homeModule: null,
   matriculePrefix: "IT",
   prefixIsDefault: false,
   employees: 0,
@@ -90,6 +91,11 @@ const FIRM: AdminFirm = {
   members: 4,
   modules: ["ipm"],
 }
+
+const HOME_MODULES = [
+  { slug: "crm", name: "CRM" },
+  { slug: "ipm", name: "Prévoyance maladie" },
+]
 
 /**
  * The value of a labelled input.
@@ -104,7 +110,7 @@ function valueOf(matcher: RegExp): string {
 
 async function openEditDialog() {
   const user = userEvent.setup()
-  render(<FirmsTable firms={[FIRM]} />)
+  render(<FirmsTable firms={[FIRM]} homeModules={HOME_MODULES} />)
   await user.click(screen.getByRole("button", { name: /Modifier IPM Tawfeikh/ }))
   await screen.findByRole("dialog")
   return user
@@ -210,5 +216,49 @@ describe("the firm dialog's two panels", () => {
 
     await waitFor(() => expect(updateFirm).toHaveBeenCalledTimes(1))
     expect(screen.queryByText(/Le champ à corriger est dans/)).toBeNull()
+  })
+})
+
+describe("the Accueil panel", () => {
+  it("marks a firm hors RH with the IPM preselected as its home", async () => {
+    const user = await openEditDialog()
+    await user.click(screen.getByRole("radio", { name: "Accueil" }))
+
+    // RH is the default, and it offers no module to pick.
+    expect(
+      screen.getByRole("radio", { name: "Ressources humaines" }).getAttribute("aria-checked")
+    ).toBe("true")
+    expect(screen.queryByText(/Module d'accueil/)).toBeNull()
+
+    await user.click(screen.getByRole("radio", { name: "Hors RH" }))
+    expect(screen.getByText(/Module d'accueil/)).toBeTruthy()
+
+    await user.click(screen.getByRole("button", { name: "Enregistrer" }))
+    await waitFor(() => expect(updateFirm).toHaveBeenCalledTimes(1))
+    expect(updateFirm).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "firm-1", homeModule: "ipm" })
+    )
+  })
+
+  it("turns a firm hors RH back into an HR firm", async () => {
+    const user = userEvent.setup()
+    render(
+      <FirmsTable
+        firms={[{ ...FIRM, homeModule: "ipm" }]}
+        homeModules={HOME_MODULES}
+      />
+    )
+    expect(screen.getByText("hors RH")).toBeTruthy()
+
+    await user.click(screen.getByRole("button", { name: /Modifier IPM Tawfeikh/ }))
+    await screen.findByRole("dialog")
+    await user.click(screen.getByRole("radio", { name: "Accueil" }))
+    await user.click(screen.getByRole("radio", { name: "Ressources humaines" }))
+    await user.click(screen.getByRole("button", { name: "Enregistrer" }))
+
+    await waitFor(() => expect(updateFirm).toHaveBeenCalledTimes(1))
+    expect(updateFirm).toHaveBeenCalledWith(
+      expect.objectContaining({ homeModule: "" })
+    )
   })
 })

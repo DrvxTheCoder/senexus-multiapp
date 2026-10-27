@@ -16,6 +16,8 @@ export type AdminFirm = {
   letterhead: string | null
   stamp: string | null
   themeColor: string | null
+  /** `null` : filiale RH. See `Firm.homeModule`. */
+  homeModule: string | null
   matriculePrefix: string
   prefixIsDefault: boolean
   employees: number
@@ -24,29 +26,41 @@ export type AdminFirm = {
   modules: string[]
 }
 
+/** A module a firm hors RH can land on. */
+export type HomeModuleOption = { slug: string; name: string }
+
 export default async function AdminFirmsPage() {
   await requireHoldingAccess()
 
-  const rows = await db.firm.findMany({
-    orderBy: { name: "asc" },
-    select: {
-      id: true,
-      name: true,
-      slug: true,
-      logo: true,
-      letterhead: true,
-      stamp: true,
-      themeColor: true,
-      _count: { select: { employees: true, clients: true, userFirms: true } },
-      firmModules: {
-        select: {
-          isEnabled: true,
-          settings: true,
-          module: { select: { slug: true } },
+  const [rows, modules] = await Promise.all([
+    db.firm.findMany({
+      orderBy: { name: "asc" },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        logo: true,
+        letterhead: true,
+        stamp: true,
+        themeColor: true,
+        homeModule: true,
+        _count: { select: { employees: true, clients: true, userFirms: true } },
+        firmModules: {
+          select: {
+            isEnabled: true,
+            settings: true,
+            module: { select: { slug: true } },
+          },
         },
       },
-    },
-  })
+    }),
+    // HR is not offered: a firm whose home is HR is an HR firm.
+    db.module.findMany({
+      where: { isActive: true, slug: { not: HR_MODULE_SLUG } },
+      orderBy: { name: "asc" },
+      select: { slug: true, name: true },
+    }),
+  ])
 
   const firms: AdminFirm[] = rows.map((firm) => {
     const hrModule = firm.firmModules.find(
@@ -66,6 +80,7 @@ export default async function AdminFirmsPage() {
       letterhead: firm.letterhead?.trim() ? firm.letterhead : null,
       stamp: firm.stamp?.trim() ? firm.stamp : null,
       themeColor: firm.themeColor,
+      homeModule: firm.homeModule,
       // Shown so an administrator can see at a glance which firms are still on
       // a guessed prefix rather than a chosen one.
       matriculePrefix: configured ?? derivePrefix(firm.slug),
@@ -87,8 +102,8 @@ export default async function AdminFirmsPage() {
         description="Les filiales du groupe, leur identité et leurs modules."
       />
       <div className="flex-1 overflow-y-auto">
-        <div className=" p-4.5">
-          <FirmsTable firms={firms} />
+        <div className="p-4.5">
+          <FirmsTable firms={firms} homeModules={modules} />
         </div>
       </div>
     </>

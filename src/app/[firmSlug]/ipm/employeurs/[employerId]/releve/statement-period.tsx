@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 
 import { selectTriggerClass } from "@/components/forms/form-field"
 import { Button } from "@/components/ui/button"
@@ -51,6 +51,7 @@ export function StatementPeriod({
   basePath: string
 }) {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [draft, setDraft] = React.useState({
     fromYear: from.year,
     fromMonth: from.month,
@@ -73,12 +74,13 @@ export function StatementPeriod({
     draft.toMonth === to.month
 
   const apply = () => {
-    const params = new URLSearchParams({
-      fromYear: String(draft.fromYear),
-      fromMonth: String(draft.fromMonth),
-      toYear: String(draft.toYear),
-      toMonth: String(draft.toMonth),
-    })
+    // The search and page size survive a change of period; the page does not.
+    const params = new URLSearchParams(searchParams.toString())
+    params.delete("page")
+    params.set("fromYear", String(draft.fromYear))
+    params.set("fromMonth", String(draft.fromMonth))
+    params.set("toYear", String(draft.toYear))
+    params.set("toMonth", String(draft.toMonth))
     router.push(`${basePath}?${params.toString()}`)
   }
 

@@ -313,6 +313,22 @@
     opacity: 0 !important;
 }
 
+/* Columns drawn in SVG grow from the origin the chart sets inline (the
+   baseline for a bar, the axis for a funnel stage). */
+[data-reveal="pending"] [data-reveal-rise] {
+    transform: scaleY(0) !important;
+}
+
+/* Arcs carry pathLength="100", so an empty dash is an undrawn arc whatever
+   its radius. */
+[data-reveal="pending"] [data-reveal-arc] {
+    stroke-dasharray: 0 100 !important;
+}
+
+[data-reveal="pending"] [data-reveal-fade] {
+    opacity: 0 !important;
+}
+
 /* §4.8 — motion is restrained and functional. Nothing decorative, nothing on
    scroll, and everything yields to the user preference. */
 @media (prefers-reduced-motion: reduce) {

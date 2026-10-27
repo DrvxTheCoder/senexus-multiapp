@@ -74,6 +74,8 @@ function withFirm(children: React.ReactNode, canAdminister = true) {
         logo: null,
         themeHex: "#0b5d53",
         modules: ["hr", "crm", "documents"],
+        hr: true,
+        homeHref: "/connect-interim/dashboard",
         role: canAdminister ? "ADMIN" : "STAFF",
         memberships: [
           {
@@ -83,6 +85,7 @@ function withFirm(children: React.ReactNode, canAdminister = true) {
             role: canAdminister ? "ADMIN" : "STAFF",
             logo: null,
             themeColor: "#0b5d53",
+            homeHref: "/connect-interim/dashboard",
           },
           {
             firmId: "firm-2",
@@ -91,6 +94,7 @@ function withFirm(children: React.ReactNode, canAdminister = true) {
             role: canAdminister ? "ADMIN" : "STAFF",
             logo: null,
             themeColor: "#2563eb",
+            homeHref: "/synergie-pro/dashboard",
           },
         ],
         user: { id: "u1", name: "Awa Ndiaye", email: "awa@senexus.sn" },

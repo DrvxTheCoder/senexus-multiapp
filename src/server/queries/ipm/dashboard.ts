@@ -1,5 +1,7 @@
 import "server-only"
 
+import { cache } from "react"
+
 import { db } from "@/lib/db"
 import type { FirmContext } from "@/server/auth/require-firm-access"
 import { buildAlerts, contributionRatio, type Alert } from "@/server/domain/ipm/alerts"
@@ -30,13 +32,6 @@ export type EmployerPerformance = {
   overConsumptionCeiling: boolean
 }
 
-export type MonthlyPoint = {
-  year: number
-  month: number
-  contributions: number
-  consumption: number
-}
-
 export type IpmDashboard = {
   alerts: Alert[]
   headline: {
@@ -48,16 +43,19 @@ export type IpmDashboard = {
     ratio: number | null
   }
   employers: EmployerPerformance[]
-  monthly: MonthlyPoint[]
-  topCategories: { label: string; insurerShare: number; count: number }[]
   /** True when any register lacks an opening balance — every total is partial. */
   incompleteData: boolean
 }
 
-export async function ipmDashboard(
+/**
+ * Cached per request: the KPI strip, the gauge, the alerts and the employer
+ * panels all read it, and each streams behind its own boundary. The month by
+ * month series and the category split live in `insights.ts`.
+ */
+export const ipmDashboard = cache(async (
   ctx: FirmContext,
   firmSlug: string
-): Promise<IpmDashboard> {
+): Promise<IpmDashboard> => {
   const now = new Date()
 
   const [
@@ -68,8 +66,6 @@ export async function ipmDashboard(
     employers,
     ledgerByMemberType,
     openedMemberIds,
-    monthlyRows,
-    categoryRows,
     overdueInvoices,
     varianceInvoices,
   ] = await Promise.all([
@@ -103,18 +99,6 @@ export async function ipmDashboard(
       where: { firmId: ctx.firmId, type: "OPENING" },
       select: { memberId: true },
       distinct: ["memberId"],
-    }),
-    db.ipmLedgerEntry.groupBy({
-      by: ["periodYear", "periodMonth", "type"],
-      where: { firmId: ctx.firmId, type: { in: ["CONTRIBUTION", "CONSUMPTION"] } },
-      _sum: { credit: true, debit: true },
-    }),
-    db.ipmVoucher.groupBy({
-      by: ["categoryId"],
-      // A refused portal bon never committed anything, like a cancelled one.
-      where: { firmId: ctx.firmId, status: { notIn: ["CANCELLED", "REJECTED"] } },
-      _sum: { insurerShare: true },
-      _count: { _all: true },
     }),
     db.ipmEmployerInvoice.findMany({
       where: {
@@ -178,34 +162,6 @@ export async function ipmDashboard(
       overConsumptionCeiling: ceiling !== null && consumption > ceiling,
     }
   })
-
-  const monthly = new Map<string, MonthlyPoint>()
-  for (const bucket of monthlyRows) {
-    const key = `${bucket.periodYear}-${bucket.periodMonth}`
-    const point =
-      monthly.get(key) ??
-      ({
-        year: bucket.periodYear,
-        month: bucket.periodMonth,
-        contributions: 0,
-        consumption: 0,
-      } satisfies MonthlyPoint)
-
-    if (bucket.type === "CONSUMPTION") {
-      point.consumption += Number(bucket._sum.debit ?? 0)
-    } else {
-      point.contributions += Number(bucket._sum.credit ?? 0)
-    }
-    monthly.set(key, point)
-  }
-
-  const categories = await db.ipmServiceCategory.findMany({
-    where: { firmId: ctx.firmId },
-    select: { id: true, label: true },
-  })
-  const categoryLabel = new Map(
-    categories.map((category) => [category.id, category.label])
-  )
 
   const totalContributions = employerRows.reduce(
     (sum, row) => sum + row.contributions,
@@ -288,19 +244,9 @@ export async function ipmDashboard(
       ratio: contributionRatio(totalContributions, totalConsumption),
     },
     employers: employerRows,
-    monthly: [...monthly.values()].sort(
-      (a, b) => a.year - b.year || a.month - b.month
-    ),
-    topCategories: categoryRows
-      .map((bucket) => ({
-        label: categoryLabel.get(bucket.categoryId) ?? "—",
-        insurerShare: Number(bucket._sum.insurerShare ?? 0),
-        count: bucket._count._all,
-      }))
-      .sort((a, b) => b.insurerShare - a.insurerShare),
     incompleteData: unopenedTotal > 0,
   }
-}
+})
 
 function debtCeilingBreaches(
   employers: {

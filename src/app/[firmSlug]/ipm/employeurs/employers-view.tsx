@@ -196,6 +196,7 @@ export function EmployersView({
               size="icon-sm"
               variant="ghost"
               aria-label={`Relevé de ${row.original.name}`}
+              nativeButton={false}
               render={
                 <Link
                   href={`/${firmSlug}/ipm/employeurs/${row.original.id}/releve`}

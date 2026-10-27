@@ -61,7 +61,7 @@ export function AppSidebar({
 
   // Module gate from nav-config, then the role gate per item: a link the
   // caller's role cannot open is not offered.
-  const groups = visibleNavGroups(firm.modules)
+  const groups = visibleNavGroups(firm.modules, { hr: firm.hr })
     .map((group) => ({
       ...group,
       items: group.items.filter(
@@ -110,7 +110,7 @@ export function AppSidebar({
           identifies the firm rather than acting as a control. */}
       {collapsed ? (
         <div className="flex flex-col items-center gap-1 px-3 py-2.5">
-          <Link href={`/${firm.slug}/dashboard`} title={firm.name}>
+          <Link href={firm.homeHref} title={firm.name}>
             <FirmLogo name={firm.name} logo={firm.logo} themeColor={firm.themeHex} />
           </Link>
           {alerts}
@@ -119,7 +119,7 @@ export function AppSidebar({
       ) : (
         <div className="flex items-center gap-2.5 px-3 py-2.5">
           <Link
-            href={`/${firm.slug}/dashboard`}
+            href={firm.homeHref}
             className="flex min-w-0 flex-1 items-center gap-2.5"
           >
             <FirmLogo name={firm.name} logo={firm.logo} themeColor={firm.themeHex} />

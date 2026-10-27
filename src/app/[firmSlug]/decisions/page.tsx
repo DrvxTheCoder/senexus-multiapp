@@ -1,10 +1,12 @@
 import type { Metadata } from "next"
 import Link from "next/link"
+import { redirect } from "next/navigation"
 import { Suspense } from "react"
 
 import { Panel } from "@/components/panel"
 import { StatusPill } from "@/components/primitives"
 import { TopBar } from "@/components/shell/top-bar"
+import { firmHomeHref, isHrFirm } from "@/lib/firm-home"
 import { formatDays, formatNumber } from "@/lib/format"
 import { requireFirmPage } from "@/server/auth/firm-page"
 import type { FirmContext } from "@/server/auth/require-firm-access"
@@ -38,6 +40,9 @@ export default async function DecisionsPage({
 }: PageProps<"/[firmSlug]/decisions">) {
   const { firmSlug } = await params
   const ctx = await requireFirmPage(firmSlug)
+  // Every category here is about employees and contracts; a firm hors RH has
+  // no queue, so the page goes home instead of showing a permanent "rien".
+  if (!isHrFirm(ctx.firm)) redirect(firmHomeHref(ctx.firm))
 
   return (
     <>

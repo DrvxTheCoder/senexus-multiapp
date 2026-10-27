@@ -312,6 +312,20 @@ describe.skipIf(!available)("bon de pharmacie — against the database", () => {
     expect(ownBody.status).toBe("AWAITING_AMOUNT")
     expect(ownBody.prescriptionUrl).toMatch(/\/api\/portail\/prescriptions\/.+\?exp=\d+&sig=/)
     expect(ownBody.prescriptionUrl).not.toContain("storage.test.invalid")
+
+    // Typed by its number when the scan fails, in any case — but another
+    // pharmacy's number names nothing at all.
+    const typed = await lookupRoute(
+      request(`/prestataire/voucher/lookup?token=${encodeURIComponent(` ${forA.number.toLowerCase()} `)}`, { token: tokenA }),
+      noContext
+    )
+    expect(typed.status).toBe(200)
+    expect((await body<{ voucherId: string }>(typed)).voucherId).toBe(forA.voucherId)
+    const othersNumber = await lookupRoute(
+      request(`/prestataire/voucher/lookup?token=${encodeURIComponent(forB.number)}`, { token: tokenA }),
+      noContext
+    )
+    expect(othersNumber.status).toBe(404)
   })
 
   it("refuses provider routes without a session, or with a participant's", async () => {
